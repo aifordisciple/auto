@@ -55,6 +55,32 @@ def execute_python_code(code: str) -> str:
     try:
         # 使用 APIClient 创建容器
         container_config = {
+            'image': 'autonome-tool-env',
+            'command': ['python', '-c', code],
+            'mem_limit': '4g',
+            'network_disabled': True,
+            'cap_drop': ['ALL'],
+            'host_config': {
+                'binds': {host_upload_dir: {'bind': '/app/uploads', 'mode': 'rw'}},
+                'mem_limit': '4g',
+            }
+        }
+        
+        # 创建并启动容器
+        container = docker_client.create_container(**container_config)
+        docker_client.start(container['Id'])
+        
+        # 等待容器执行完成
+        result = docker_client.wait(container['Id'])
+        
+        # 获取日志
+        logs = docker_client.logs(container['Id'], stdout=True, stderr=True, tail=100)
+        result_output = logs.decode('utf-8').strip()
+        
+        # 清理容器
+        docker_client.remove_container(container['Id'], force=True)
+        # 使用 APIClient 创建容器
+        container_config = {
             'Image': 'autonome-tool-env',
             'Command': ['python', '-c', code],
             'Memory': 4 * 1024 * 1024 * 1024,  # 4GB
