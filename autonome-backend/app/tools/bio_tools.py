@@ -35,6 +35,18 @@ def execute_python_code(code: str) -> str:
     """
     执行高算力的生信数据处理 (Scanpy 等)、分析及图表绘制代码。
     """
+    # ✨ 添加调试日志：打印 AI 写的代码
+    log.info("========== 🤖 AI 尝试执行的代码 ==========")
+    log.info(code[:1000] if len(code) > 1000 else code)
+    log.info("==========================================")
+    
+    if not docker_client:
+        log.error("❌ Docker client 未初始化")
+        return "❌ 严重系统错误：沙箱引擎未连接。"
+def execute_python_code(code: str) -> str:
+    """
+    执行高算力的生信数据处理 (Scanpy 等)、分析及图表绘制代码。
+    """
     if not docker_client:
         return "❌ 严重系统错误：沙箱引擎未连接。"
 
@@ -67,6 +79,13 @@ def execute_python_code(code: str) -> str:
             stderr=True
         )
         
+        result_output = container.decode('utf-8').strip()
+        # ✨ 添加调试日志：打印沙箱返回的结果
+        log.info("========== 📦 沙箱返回的结果 ==========")
+        log.info(result_output[:500] if len(result_output) > 500 else result_output)
+        log.info("========================================")
+        log.info("✅ 单细胞流程执行完毕并销毁。")
+        return result_output
         result_output = container.decode('utf-8').strip()
         log.info("✅ 单细胞流程执行完毕并销毁。")
         return result_output
