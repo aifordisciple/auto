@@ -4,6 +4,19 @@ from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
+# ✨ 修复 Docker-in-Docker 问题：使用 Unix socket 而不是 from_env()
+try:
+    docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+    docker_client.ping()  # 测试连接
+    log.info("🛡️ Docker 沙箱引擎已就绪 (via Unix Socket)")
+except Exception as e:
+    log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
+    docker_client = None
+import docker
+from langchain_core.tools import tool
+from app.core.logger import log
+from app.core.config import settings
+
 try:
     docker_client = docker.from_env()
     log.info("🛡️ Docker 沙箱引擎已就绪")
