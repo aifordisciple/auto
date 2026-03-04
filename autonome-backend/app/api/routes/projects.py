@@ -2,6 +2,12 @@ import os
 import shutil
 import secrets
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
+from sqlmodel import Session, select
+from pydantic import BaseModel
+import shutil
+import secrets
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -193,3 +199,25 @@ async def toggle_project_share(
         "is_public": project.is_public,
         "share_token": project.share_token
     }
+
+
+
+@router.get("/{project_id}/files/{filename:path}/view")
+async def view_project_file(
+    project_id: int,
+    filename: str,
+    token: str = None,
+):
+    """
+    提供给前端 Markdown 渲染图片的直链读取接口
+    """
+    if not token:
+        raise HTTPException(status_code=401, detail="未授权的访问")
+    
+    project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
+    file_path = os.path.join(project_dir, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="图片或文件不存在")
+    
+    return FileResponse(file_path)
