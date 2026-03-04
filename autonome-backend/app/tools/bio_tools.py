@@ -1,17 +1,15 @@
 import os
 import docker
+from docker import APIClient
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
-# ✨ 修复 Docker-in-Docker 问题：使用 Unix socket 而不是 from_env()
-# 设置环境变量让 docker 客户端使用 Unix socket
-os.environ['DOCKER_HOST'] = 'unix:///var/run/docker.sock'
-
+# ✨ 修复 Docker-in-Docker 问题：直接使用 Unix socket
 try:
-    docker_client = docker.from_env()
+    docker_client = APIClient(base_url='unix:///var/run/docker.sock')
     docker_client.ping()
-    log.info("🛡️ Docker 沙箱引擎已就绪")
+    log.info("🛡️ Docker 沙箱引擎已就绪 (via Unix Socket)")
 except Exception as e:
     log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
     docker_client = None
@@ -49,36 +47,39 @@ def execute_python_code(code: str) -> str:
         log.error("❌ Docker client 未初始化")
         return "❌ 严重系统错误：沙箱引擎未连接。"
 
-    # ✨ 获取我们在 Compose 中传入的宿主机物理路径，若无则降级为相对路径
+    # 获取宿主机物理路径
     host_upload_dir = os.getenv("HOST_UPLOAD_DIR", os.path.abspath(settings.UPLOAD_DIR))
 
     log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
     
     try:
-        container = docker_client.containers.run(
-            image="autonome-tool-env",  # ✨ 换上你的专属生信大镜像！
-            command=["python", "-c", code],
-            
-            # 🛡️ 释放算力：单细胞动辄十几万细胞，内存至少给 4G (按你机器配置可上调至 8g/16g)
-            mem_limit="4g",
-            
-            # 依然保持断网与剥夺权限，保证绝对安全
-            network_disabled=True,
-            cap_drop=["ALL"],
-            
-            # ✨ 核心挂载：将宿主机的 uploads 挂载进去，给读写(rw)权限
-            # 这样沙箱既能读取用户上传的 h5ad，也能把画好的 UMAP PNG 存出来！
-            volumes={
-                host_upload_dir: {'bind': '/app/uploads', 'mode': 'rw'}
-            },
-            
-            detach=False,
-            remove=True,
-            stdout=True,
-            stderr=True
-        )
+        # 使用 APIClient 创建容器
+        container_config = {
+            'Image': 'autonome-tool-env',
+            'Command': ['python', '-c', code],
+            'Memory': 4 * 1024 * 1024 * 1024,  # 4GB
+            'NetworkDisabled': True,
+            'CapDrop': ['ALL'],
+            'HostConfig': {
+                'Binds': [f'{host_upload_dir}:/app/uploads:rw'],
+                'Memory': 4 * 1024 * 1024 * 1024,
+            }
+        }
         
-        result_output = container.decode('utf-8').strip()
+        # 创建并启动容器
+        container = docker_client.create_container(**container_config)
+        docker_client.start(container['Id'])
+        
+        # 等待容器执行完成
+        result = docker_client.wait(container['Id'])
+        
+        # 获取日志
+        logs = docker_client.logs(container['Id'], stdout=True, stderr=True, tail=100)
+        result_output = logs.decode('utf-8').strip()
+        
+        # 清理容器
+        docker_client.remove_container(container['Id'], force=True)
+        
         # ✨ 添加调试日志：打印沙箱返回的结果
         log.info("========== 📦 沙箱返回的结果 ==========")
         log.info(result_output[:500] if len(result_output) > 500 else result_output)
@@ -86,19 +87,9 @@ def execute_python_code(code: str) -> str:
         log.info("✅ 单细胞流程执行完毕并销毁。")
         return result_output
 
-    except docker.errors.ContainerError as e:
-        error_msg = e.stderr.decode('utf-8').strip()
-        log.error(f"⚠️ 算法报错:\n{error_msg}")
-        return f"❌ 代码报错:\n{error_msg}\n请根据此报错修正代码。"
-        
-    except docker.errors.APIError as e:
-        log.error(f"💥 沙箱引擎物理熔断: {str(e)}")
-        if "OOMKilled" in str(e) or e.status_code == 137:
-            return "❌ 执行失败：生信矩阵过大导致 OOM (内存超限)，已被沙箱熔断。"
-        return f"❌ 沙箱系统异常: {str(e)}"
-    
     except Exception as e:
-        return f"❌ 未知沙箱错误: {str(e)}"
+        log.error(f"⚠️ 沙箱执行报错: {str(e)}")
+        return f"❌ 代码执行报错:\n{str(e)}\n请根据此报错修正代码。"
 
 
 # 导出工具列表供大模型绑定
