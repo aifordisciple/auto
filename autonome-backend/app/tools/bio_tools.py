@@ -47,7 +47,17 @@ def execute_python_code(code: str) -> str:
         log.error("❌ Docker client 未初始化")
         return "❌ 严重系统错误：沙箱引擎未连接。"
 
-    # 获取宿主机物理路径
+    # ✨ 使用具名卷而不是主机路径
+    log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
+    
+    try:
+        # ✨ 使用具名卷 'uploads_data'
+        host_config = docker_client.create_host_config(
+            mem_limit='4g',
+            binds=['uploads_data:/app/uploads:rw'],
+            network_mode='none',
+            cap_drop=['ALL'],
+        )
     host_upload_dir = os.getenv("HOST_UPLOAD_DIR", os.path.abspath(settings.UPLOAD_DIR))
 
     log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
