@@ -7,6 +7,14 @@ from app.core.config import settings
 
 # ✨ 修复 Docker-in-Docker 问题：使用 Unix socket
 try:
+    # ✨ 显式指定 Unix socket 路径
+    docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+    docker_client.ping()
+    log.info("🛡️ Docker 沙箱引擎已就绪")
+except Exception as e:
+    log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
+    docker_client = None
+try:
     docker_client = docker.from_env()
     docker_client.ping()
     log.info("🛡️ Docker 沙箱引擎已就绪")
