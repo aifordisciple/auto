@@ -10,14 +10,9 @@ ENV PYTHONUNBUFFERED=1
 
 # ✅ 配置清华 PyPI 镜像加速（国内环境）
 ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-# ✨ 安装 Docker CLI (用于执行沙箱容器)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    docker.io \
-    && rm -rf /var/lib/apt/lists/*
+ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 
 # 复制依赖文件
-
-COPY requirements.txt .
 COPY requirements.txt .
 
 # ✅ 使用 BuildKit 缓存挂载加速 pip 安装

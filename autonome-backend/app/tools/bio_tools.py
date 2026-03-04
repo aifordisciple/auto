@@ -1,44 +1,118 @@
 import os
 import json
-import subprocess
+import socket
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
 
-# ✨ 使用 subprocess 调用 docker CLI 避免 urllib3 兼容性问题
-def run_docker_container(image: str, command: str) -> tuple[str, int]:
-    """
-    使用 subprocess 运行 docker 容器
-    返回: (output, exit_code)
-    """
-    docker_cmd = [
-        'docker', 'run', '--rm',
-        '--memory=4g',
-        '--network=none',
-        '--cap-drop=ALL',
-        '-v', 'uploads_data:/app/uploads:rw',
-        image,
-        'python', '-c', command
-    ]
+DOCKER_SOCKET = '/var/run/docker.sock'
+
+
+def docker_api_request(method: str, path: str, data: str = None) -> dict:
+    """直接通过 Unix socket 调用 Docker API"""
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(DOCKER_SOCKET)
     
+    body = data.encode('utf-8') if data else None
+    
+    # 构建 HTTP 请求
+    request = f"{method} {path} HTTP/1.1\r\nHost: localhost\r\n"
+    if body:
+        request += f"Content-Length: {len(body)}\r\n"
+    request += "Content-Type: application/json\r\n\r\n"
+    
+    if body:
+        request = request.encode('utf-8') + body
+    else:
+        request = request.encode('utf-8')
+    
+    sock.sendall(request)
+    
+    # 读取响应
+    response = b""
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        response += chunk
+        if b"\r\n\r\n" in response:
+            break
+    
+    sock.close()
+    
+    # 解析响应
+    if b"\r\n\r\n" in response:
+        headers, body = response.split(b"\r\n\r\n", 1)
+        # 查找 JSON 开始位置
+        for i, b in enumerate(body):
+            if b == ord('{') or b == ord('['):
+                body = body[i:].decode('utf-8', errors='ignore')
+                break
+        else:
+            body = body.decode('utf-8', errors='ignore')
+        
+        try:
+            return json.loads(body) if body.strip() else {}
+        except:
+            return {"body": body}
+    
+    return {}
+
+
+def run_container(image: str, command: str) -> tuple[str, int]:
+    """通过 Docker API 运行容器"""
     try:
-        result = subprocess.run(
-            docker_cmd,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-        return result.stdout + result.stderr, result.returncode
-    except subprocess.TimeoutExpired:
-        return "❌ 代码执行超时 (5分钟)", 1
+        # 创建容器 - 指定平台为 amd64
+        create_data = json.dumps({
+            "Image": image,
+            "platform": "linux/amd64",
+            "Cmd": ["python", "-c", command],
+            "HostConfig": {
+                "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
+                "NetworkMode": "none",
+                "CapDrop": ["ALL"],
+                "Binds": ["uploads_data:/app/uploads:rw"]
+            },
+            "Volumes": {"/app/uploads": {}},
+            "WorkingDir": "/app"
+        })
+        
+        resp = docker_api_request("POST", "/containers/create", create_data)
+        
+        if 'Id' not in resp:
+            return f"❌ 创建容器失败: {resp}", 1
+            
+        container_id = resp['Id']
+        
+        # 启动容器
+        docker_api_request("POST", f"/containers/{container_id}/start")
+        
+        # 等待容器完成
+        while True:
+            info = docker_api_request("GET", f"/containers/{container_id}/json")
+            if info.get('State', {}).get('Status') == 'exited':
+                break
+        
+        # 获取日志
+        logs = docker_api_request("GET", f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100")
+        log_output = json.dumps(logs) if isinstance(logs, dict) else str(logs)
+        
+        # 获取退出码
+        exit_code = info.get('State', {}).get('ExitCode', 0)
+        
+        # 清理容器
+        docker_api_request("DELETE", f"/containers/{container_id}?force=true")
+        
+        return log_output, exit_code
+        
     except Exception as e:
-        return f"❌ Docker 执行失败: {str(e)}", 1
+        return f"❌ Docker API 错误: {str(e)}", 1
 
 
 # ✨ 标记沙箱可用
 DOCKER_SANDBOX_AVAILABLE = True
-log.info("🛡️ Docker 沙箱引擎已就绪 (使用 subprocess)")
+log.info("🛡️ Docker 沙箱引擎已就绪 (使用原生 socket)")
 
 
 @tool
@@ -76,8 +150,7 @@ def execute_python_code(code: str) -> str:
     log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
     
     try:
-        # ✨ 使用 subprocess 调用 docker
-        result_output, exit_code = run_docker_container(
+        result_output, exit_code = run_container(
             image='autonome-tool-env',
             command=code
         )
