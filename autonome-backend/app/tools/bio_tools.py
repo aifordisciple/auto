@@ -10,14 +10,16 @@ DOCKER_SOCKET = '/var/run/docker.sock'
 
 
 def docker_api_request(method: str, path: str, data: str = None) -> dict:
-    """直接通过 Unix socket 调用 Docker API"""
+    """直接通过 Unix socket 调用 Docker API (完美版)"""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(DOCKER_SOCKET)
     
     body = data.encode('utf-8') if data else None
     
-    # 构建 HTTP 请求
-    request = f"{method} {path} HTTP/1.1\r\nHost: localhost\r\n"
+    # ✨ 核心修复 1：使用 HTTP/1.0 强制服务器发送完毕后断开连接
+    request = f"{method} {path} HTTP/1.0\r\n"
+    request += "Host: localhost\r\n"
+    request += "Connection: close\r\n"
     if body:
         request += f"Content-Length: {len(body)}\r\n"
     request += "Content-Type: application/json\r\n\r\n"
@@ -29,52 +31,46 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
     
     sock.sendall(request)
     
-    # 读取响应
+    # ✨ 核心修复 2：安全地读取全部数据，直到连接自然关闭
     response = b""
     while True:
         chunk = sock.recv(4096)
         if not chunk:
-            break
+            break  # 服务器断开连接时，安全退出
         response += chunk
-        if b"\r\n\r\n" in response:
-            break
     
     sock.close()
     
-    # 解析响应
+    # 解析响应（分离 Headers 和 Body）
     if b"\r\n\r\n" in response:
-        headers, body = response.split(b"\r\n\r\n", 1)
-        body_str = body.decode('utf-8', errors='ignore')
+        headers, raw_body = response.split(b"\r\n\r\n", 1)
+    else:
+        raw_body = response
         
-        # ✨ 修复：Docker API 返回的 JSON 可能被 HTTP chunked 编码污染
-        # 我们需要找到真正的 JSON 结束位置
-        # 方法：从 { 开始，找最后一个 } 之前的内容
-        start = body_str.find('{')
-        if start != -1:
-            # 从后往前找 }，但要跳过 chunked 编码的尾部
-            # chunked 编码格式：\d+\r\n...\r\n0\r\n\r\n
-            # 简单方法：找到 JSON 对象的正确结束位置
-            depth = 0
-            end = start
-            for i, c in enumerate(body_str[start:], start):
-                if c == '{':
-                    depth += 1
-                elif c == '}':
-                    depth -= 1
-                    if depth == 0:
-                        end = i + 1
-                        break
-            
-            clean_json = body_str[start:end]
-            try:
-                result = json.loads(clean_json)
-                return result
-            except json.JSONDecodeError as e:
-                log.warning(f"JSON parse warning: {e}")
-        
-        return {"body": body_str}
+    body_str = raw_body.decode('utf-8', errors='ignore').strip()
     
-    return {}
+    if not body_str:
+        return {}
+
+    # ✨ 核心修复 3：用最安全的截取方式提取 JSON
+    start_dict = body_str.find('{')
+    end_dict = body_str.rfind('}')
+    
+    start_list = body_str.find('[')
+    end_list = body_str.rfind(']')
+    
+    try:
+        # 如果看起来像字典
+        if start_dict != -1 and end_dict != -1 and (start_list == -1 or start_dict < start_list):
+            return json.loads(body_str[start_dict:end_dict+1])
+        # 如果看起来像列表
+        elif start_list != -1 and end_list != -1:
+            return json.loads(body_str[start_list:end_list+1])
+            
+        return json.loads(body_str)
+    except Exception as e:
+        log.warning(f"JSON 解析回退, 原始数据长度: {len(body_str)}")
+        return {"body": body_str}
 
 
 def run_container(image: str, command: str) -> tuple[str, int]:
