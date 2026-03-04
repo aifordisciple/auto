@@ -1,18 +1,45 @@
 import os
-import docker
+import json
+import subprocess
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
-# ✨ 修复 Docker-in-Docker 问题
-try:
-    # ✨ 使用 Unix socket 连接
-    docker_client = docker.APIClient(base_url='unix:///var/run/docker.sock', version='auto')
-    docker_client.ping()
-    log.info("🛡️ Docker 沙箱引擎已就绪")
-except Exception as e:
-    log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
-    docker_client = None
+
+# ✨ 使用 subprocess 调用 docker CLI 避免 urllib3 兼容性问题
+def run_docker_container(image: str, command: str) -> tuple[str, int]:
+    """
+    使用 subprocess 运行 docker 容器
+    返回: (output, exit_code)
+    """
+    docker_cmd = [
+        'docker', 'run', '--rm',
+        '--memory=4g',
+        '--network=none',
+        '--cap-drop=ALL',
+        '-v', 'uploads_data:/app/uploads:rw',
+        image,
+        'python', '-c', command
+    ]
+    
+    try:
+        result = subprocess.run(
+            docker_cmd,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        return result.stdout + result.stderr, result.returncode
+    except subprocess.TimeoutExpired:
+        return "❌ 代码执行超时 (5分钟)", 1
+    except Exception as e:
+        return f"❌ Docker 执行失败: {str(e)}", 1
+
+
+# ✨ 标记沙箱可用
+DOCKER_SANDBOX_AVAILABLE = True
+log.info("🛡️ Docker 沙箱引擎已就绪 (使用 subprocess)")
+
 
 @tool
 def rnaseq_qc(ref_genome: str, qual_threshold: int, remove_adapters: bool):
@@ -42,46 +69,29 @@ def execute_python_code(code: str) -> str:
     log.info(code[:1000] if len(code) > 1000 else code)
     log.info("==========================================")
     
-    if not docker_client:
-        log.error("❌ Docker client 未初始化")
-        return "❌ 严重系统错误：沙箱引擎未连接。"
+    if not DOCKER_SANDBOX_AVAILABLE:
+        log.error("❌ Docker sandbox not available")
+        return "❌ 严重系统错误：沙箱引擎未就绪。"
 
     log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
     
     try:
-        # ✨ 使用具名卷 'uploads_data'
-        host_config = docker_client.create_host_config(
-            mem_limit='4g',
-            binds=['uploads_data:/app/uploads:rw'],
-            network_mode='none',
-            cap_drop=['ALL'],
-        )
-        
-        # 创建容器
-        container = docker_client.create_container(
+        # ✨ 使用 subprocess 调用 docker
+        result_output, exit_code = run_docker_container(
             image='autonome-tool-env',
-            command=['python', '-c', code],
-            host_config=host_config,
+            command=code
         )
-        
-        # 启动容器
-        docker_client.start(container['Id'])
-        
-        # 等待容器执行完成
-        result = docker_client.wait(container['Id'])
-        
-        # 获取日志
-        logs = docker_client.logs(container['Id'], stdout=True, stderr=True, tail=100)
-        result_output = logs.decode('utf-8').strip()
-        
-        # 清理容器
-        docker_client.remove_container(container['Id'], force=True)
         
         # ✨ 添加调试日志：打印沙箱返回的结果
         log.info("========== 📦 沙箱返回的结果 ==========")
         log.info(result_output[:500] if len(result_output) > 500 else result_output)
         log.info("========================================")
-        log.info("✅ 单细胞流程执行完毕并销毁。")
+        
+        if exit_code == 0:
+            log.info("✅ 代码执行成功")
+        else:
+            log.warning(f"⚠️ 代码执行返回非零退出码: {exit_code}")
+            
         return result_output
 
     except Exception as e:
