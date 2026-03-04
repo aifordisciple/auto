@@ -37,6 +37,11 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
     当前用户 ID: {user_id}
     当前项目 ID: {project_id}
     已挂载物理文件: {physical_file_info if physical_file_info else '无'}
+    
+    📁 【重要】文件存储位置说明：
+    - 所有项目文件都保存在项目专属文件夹中：/app/uploads/project_{project_id}/
+    - 当需要读取或操作项目文件时，请使用 os.listdir('/app/uploads/project_{project_id}/') 列出文件
+    - 读取文件时使用完整路径，例如：pd.read_csv('/app/uploads/project_{project_id}/ras.tsv')
     """
 
     # 简化版：直接使用单一 Agent，不再使用多 Agent Supervisor 模式
