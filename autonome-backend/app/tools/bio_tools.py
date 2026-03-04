@@ -7,8 +7,8 @@ from app.core.config import settings
 
 # ✨ 修复 Docker-in-Docker 问题：使用 Unix socket
 try:
-    # ✨ 使用 APIClient (low-level API)
-    docker_client = APIClient(base_url='unix:///var/run/docker.sock')
+    # ✨ 使用 docker.from_env() 更稳定，自动检测环境
+    docker_client = docker.from_env()
     docker_client.ping()
     log.info("🛡️ Docker 沙箱引擎已就绪")
 except Exception as e:
