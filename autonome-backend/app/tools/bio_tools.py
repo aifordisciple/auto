@@ -5,20 +5,12 @@ from app.core.logger import log
 from app.core.config import settings
 
 # ✨ 修复 Docker-in-Docker 问题：使用 Unix socket 而不是 from_env()
-try:
-    docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
-    docker_client.ping()  # 测试连接
-    log.info("🛡️ Docker 沙箱引擎已就绪 (via Unix Socket)")
-except Exception as e:
-    log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
-    docker_client = None
-import docker
-from langchain_core.tools import tool
-from app.core.logger import log
-from app.core.config import settings
+# 设置环境变量让 docker 客户端使用 Unix socket
+os.environ['DOCKER_HOST'] = 'unix:///var/run/docker.sock'
 
 try:
     docker_client = docker.from_env()
+    docker_client.ping()
     log.info("🛡️ Docker 沙箱引擎已就绪")
 except Exception as e:
     log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
@@ -56,12 +48,6 @@ def execute_python_code(code: str) -> str:
     if not docker_client:
         log.error("❌ Docker client 未初始化")
         return "❌ 严重系统错误：沙箱引擎未连接。"
-def execute_python_code(code: str) -> str:
-    """
-    执行高算力的生信数据处理 (Scanpy 等)、分析及图表绘制代码。
-    """
-    if not docker_client:
-        return "❌ 严重系统错误：沙箱引擎未连接。"
 
     # ✨ 获取我们在 Compose 中传入的宿主机物理路径，若无则降级为相对路径
     host_upload_dir = os.getenv("HOST_UPLOAD_DIR", os.path.abspath(settings.UPLOAD_DIR))
@@ -97,9 +83,6 @@ def execute_python_code(code: str) -> str:
         log.info("========== 📦 沙箱返回的结果 ==========")
         log.info(result_output[:500] if len(result_output) > 500 else result_output)
         log.info("========================================")
-        log.info("✅ 单细胞流程执行完毕并销毁。")
-        return result_output
-        result_output = container.decode('utf-8').strip()
         log.info("✅ 单细胞流程执行完毕并销毁。")
         return result_output
 
