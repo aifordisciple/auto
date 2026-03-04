@@ -5,16 +5,12 @@ import secrets
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
-import shutil
-import uuid
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
-from sqlmodel import Session, select
-from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.core.config import settings
 from app.models.domain import Project, ChatSession, ChatMessage, DataFile, User
 from app.api.deps import get_current_user
+from app.core.logger import log
 
 router = APIRouter()
 
@@ -131,8 +127,40 @@ async def get_project_files(project_id: int, session: Session = Depends(get_sess
     files = session.exec(select(DataFile).where(DataFile.project_id == project_id)).all()
     return {"status": "success", "data": files}
 
-
-
+@router.delete("/{project_id}/files/{file_id}")
+async def delete_project_file(
+    project_id: int,
+    file_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    彻底删除文件：清理物理硬盘 + 清理数据库记录
+    """
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    
+    # 查找文件记录
+    db_file = session.get(DataFile, file_id)
+    if not db_file or db_file.project_id != project_id:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    # 1. 尝试删除物理文件（容错处理）
+    try:
+        if db_file.file_path and os.path.exists(db_file.file_path):
+            os.remove(db_file.file_path)
+            log.info(f"🗑️ 物理文件已删除: {db_file.file_path}")
+        else:
+            log.info(f"👻 物理文件本就不存在，跳过: {db_file.file_path}")
+    except Exception as e:
+        log.warning(f"⚠️ 删除物理文件时出错: {e}")
+    
+    # 2. 删除数据库记录
+    session.delete(db_file)
+    session.commit()
+    
+    return {"status": "success", "message": "文件已彻底删除"}
 
 @router.post("/{project_id}/share")
 async def toggle_project_share(
