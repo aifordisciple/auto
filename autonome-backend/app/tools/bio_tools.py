@@ -5,11 +5,11 @@ from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
-# ✨ 修复 Docker-in-Docker 问题：直接使用 Unix socket
+# ✨ 修复 Docker-in-Docker 问题：使用 Unix socket
 try:
-    docker_client = APIClient(base_url='unix:///var/run/docker.sock')
+    docker_client = docker.from_env()
     docker_client.ping()
-    log.info("🛡️ Docker 沙箱引擎已就绪 (via Unix Socket)")
+    log.info("🛡️ Docker 沙箱引擎已就绪")
 except Exception as e:
     log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
     docker_client = None
@@ -47,7 +47,6 @@ def execute_python_code(code: str) -> str:
         log.error("❌ Docker client 未初始化")
         return "❌ 严重系统错误：沙箱引擎未连接。"
 
-    # ✨ 使用具名卷而不是主机路径
     log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
     
     try:
@@ -55,18 +54,6 @@ def execute_python_code(code: str) -> str:
         host_config = docker_client.create_host_config(
             mem_limit='4g',
             binds=['uploads_data:/app/uploads:rw'],
-            network_mode='none',
-            cap_drop=['ALL'],
-        )
-    host_upload_dir = os.getenv("HOST_UPLOAD_DIR", os.path.abspath(settings.UPLOAD_DIR))
-
-    log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
-    
-    try:
-        # ✨ 创建 host_config 来配置宿主机资源
-        host_config = docker_client.create_host_config(
-            mem_limit='4g',
-            binds=[f'{host_upload_dir}:/app/uploads:rw'],
             network_mode='none',
             cap_drop=['ALL'],
         )
@@ -79,48 +66,6 @@ def execute_python_code(code: str) -> str:
         )
         
         # 启动容器
-        docker_client.start(container['Id'])
-        # 使用 APIClient 创建容器
-        container_config = {
-            'image': 'autonome-tool-env',
-            'command': ['python', '-c', code],
-            'mem_limit': '4g',
-            'network_disabled': True,
-            'cap_drop': ['ALL'],
-            'host_config': {
-                'binds': {host_upload_dir: {'bind': '/app/uploads', 'mode': 'rw'}},
-                'mem_limit': '4g',
-            }
-        }
-        
-        # 创建并启动容器
-        container = docker_client.create_container(**container_config)
-        docker_client.start(container['Id'])
-        
-        # 等待容器执行完成
-        result = docker_client.wait(container['Id'])
-        
-        # 获取日志
-        logs = docker_client.logs(container['Id'], stdout=True, stderr=True, tail=100)
-        result_output = logs.decode('utf-8').strip()
-        
-        # 清理容器
-        docker_client.remove_container(container['Id'], force=True)
-        # 使用 APIClient 创建容器
-        container_config = {
-            'Image': 'autonome-tool-env',
-            'Command': ['python', '-c', code],
-            'Memory': 4 * 1024 * 1024 * 1024,  # 4GB
-            'NetworkDisabled': True,
-            'CapDrop': ['ALL'],
-            'HostConfig': {
-                'Binds': [f'{host_upload_dir}:/app/uploads:rw'],
-                'Memory': 4 * 1024 * 1024 * 1024,
-            }
-        }
-        
-        # 创建并启动容器
-        container = docker_client.create_container(**container_config)
         docker_client.start(container['Id'])
         
         # 等待容器执行完成
