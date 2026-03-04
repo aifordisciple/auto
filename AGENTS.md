@@ -1,7 +1,7 @@
 # AUTONOME STUDIO - Project Knowledge Base
 
-**Generated:** 2026-03-03
-**Commit:** 498322e
+**Generated:** 2026-03-04
+**Commit:** ec6e91e
 **Branch:** main
 
 ## OVERVIEW
@@ -13,15 +13,16 @@ AI-Native Bioinformatics IDE — monorepo with FastAPI/LangGraph backend + Next.
 ```
 autonome/
 ├── autonome-backend/    # FastAPI + LangGraph AI agent system (port 8000)
-├── autonome-studio/     # Next.js 16 IDE frontend (port 3000)
+├── autonome-studio/     # Next.js 16 IDE frontend (port 3001)
 ├── docker-compose.yml   # 5-service orchestration
-└── run.sh               # Local dev startup
+├── run.sh               # ⚠️ BROKEN - use docker-compose instead
+└── auto_deploy.sh       # Git + Docker deployment
 ```
 
 ## WHERE TO LOOK
 
-| Task | Location |
-|------|----------|
+| Task | Location | Notes |
+|------|----------|-------|
 | API routes | `autonome-backend/app/api/routes/` |
 | AI agent logic | `autonome-backend/app/agent/bot.py` |
 | Docker sandbox tools | `autonome-backend/app/tools/bio_tools.py` |
@@ -36,17 +37,19 @@ autonome/
 **Backend (Python/FastAPI)**
 - Pydantic Settings from `.env` files
 - SQLModel ORM with Alembic migrations
-- Loguru for logging (not stdlib)
+- Loguru for logging (NOT stdlib)
 - JWT auth with 7-day expiry, HS256
 
 **Frontend (Next.js/TypeScript)**
 - Path alias: `@/*` → `./src/*`
-- Zustand for state (not Context API)
+- Zustand for state (NOT Context API)
 - Framer Motion for animations
 - shadcn/ui component patterns
+- Dark mode default (`className="dark"` on `<html>`)
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
+### Critical - Fix Immediately
 ```typescript
 // ❌ WRONG - react-resizable-panels v4
 <Panel defaultSize={15} />
@@ -55,9 +58,23 @@ autonome/
 <Panel defaultSize="15%" />
 ```
 
-- **NEVER** use `any` type suppressions
-- **NEVER** use numeric `defaultSize` in react-resizable-panels
+- **NEVER** use `any` type (11 violations found)
+- **NEVER** use numeric `defaultSize` in react-resizable-panels (5 violations in page.tsx)
 - **ALWAYS** use Zustand for global state
+
+### Logging Anti-Patterns
+- **NEVER** use `print()` in Python - use `log.info()`, `log.error()`
+- **NEVER** use `console.log()` in TypeScript
+
+## KNOWN ISSUES
+
+| Issue | Location | Severity |
+|-------|----------|----------|
+| run.sh uses wrong dirs | `run.sh` lines 2,4 | CRITICAL |
+| Hardcoded IP 113.44.66.210 | docker-compose.override.yml, Dockerfiles | HIGH |
+| Docker socket mounted | docker-compose.yml | SECURITY |
+| No test framework | entire project | MEDIUM |
+| `any` type violations | 11 files | LOW |
 
 ## UNIQUE STYLES
 
@@ -69,7 +86,7 @@ autonome/
 **Docker Sandbox**
 - Code execution in isolated containers (`autonome-tool-env` image)
 - 4GB memory limit, network disabled, capabilities dropped
-- Host `uploads/` volume-mounted for data I/O
+- Host `uploads_data` volume mounted to `/app/uploads`
 
 **3-Panel IDE Layout**
 - Left (15%): Navigation + history
@@ -79,11 +96,8 @@ autonome/
 ## COMMANDS
 
 ```bash
-# Full stack (Docker)
+# Full stack (Docker) - RECOMMENDED
 docker-compose up --build
-
-# Local development
-./run.sh                    # Backend :8000, Frontend :3001
 
 # Backend only
 cd autonome-backend && uvicorn main:app --reload --port 8000
@@ -103,14 +117,12 @@ alembic upgrade head
 
 - PostgreSQL with pgvector for embeddings
 - Stripe billing (credits-based)
-- No test framework configured yet
-- Frontend uses dark mode by default (`className="dark"` on `<html>`)
-
+- Frontend uses dark mode by default
+- Files stored in project folders: `/app/uploads/project_{id}/`
 
 ## 核心开发与部署工作流规范
 
 你当前运行在一个由 Git 进行版本控制，并使用 Docker Compose 进行服务编排的 Mac 服务器项目中。对于收到的任何开发任务，你必须严格遵循以下步骤：
-
 
 1. **执行开发**：完成用户要求的代码编写或编辑任务。
 2. **状态验证**：代码修改完成后，如有必要可运行docker logs测试命令确认状态。

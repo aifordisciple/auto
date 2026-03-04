@@ -37,9 +37,15 @@ app/
 
 ## ANTI-PATTERNS
 
-- Don't use `print()` — use `log.info()`, `log.error()`
+- Don't use `print()` — use `log.info()`, `log.error()` ⚠️ (celery_app.py has 14 instances)
 - Don't create engine instances — use `from app.core.database import engine`
 - Don't hash passwords manually — use `verify_password()`, `get_password_hash()`
+
+## FILE STORAGE
+
+- Files stored in project-specific folders: `/app/uploads/project_{project_id}/`
+- Database stores relative paths, not prefixed with user/project IDs
+- AI prompt informed about folder structure for file operations
 
 ## AGENT SYSTEM
 

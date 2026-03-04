@@ -14,8 +14,8 @@ services:
       # 保留容器内的依赖和虚拟环境
       - /app/__pycache__
       - /app/.venv
-      # 持久化上传文件
-      - ./autonome-backend/uploads:/app/uploads
+      # ✨ 持久化上传文件 (使用具名卷与沙箱共享)
+      - uploads_data:/app/uploads
       # Docker 控制
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -34,7 +34,8 @@ services:
       - ./autonome-backend/main.py:/app/main.py:cached
       - /app/__pycache__
       - /app/.venv
-      - ./autonome-backend/uploads:/app/uploads
+      # ✨ 持久化上传文件 (使用具名卷与沙箱共享)
+      - uploads_data:/app/uploads
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONPATH=/app
@@ -62,3 +63,6 @@ services:
     # 覆盖默认命令，启用开发模式
     command: npm run dev
 
+
+volumes:
+  uploads_data:
