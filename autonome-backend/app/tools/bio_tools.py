@@ -53,6 +53,23 @@ def execute_python_code(code: str) -> str:
     log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
     
     try:
+        # ✨ 创建 host_config 来配置宿主机资源
+        host_config = docker_client.create_host_config(
+            mem_limit='4g',
+            binds=[f'{host_upload_dir}:/app/uploads:rw'],
+            network_mode='none',
+            cap_drop=['ALL'],
+        )
+        
+        # 创建容器
+        container = docker_client.create_container(
+            image='autonome-tool-env',
+            command=['python', '-c', code],
+            host_config=host_config,
+        )
+        
+        # 启动容器
+        docker_client.start(container['Id'])
         # 使用 APIClient 创建容器
         container_config = {
             'image': 'autonome-tool-env',
