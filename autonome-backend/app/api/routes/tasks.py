@@ -2,15 +2,45 @@ import json
 import asyncio
 import time
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
-# ✨ 引入刚刚拆分的服务
 from app.services.celery_app import TASK_REGISTRY, redis_client
 from app.api.deps import get_current_user
 from app.models.domain import User
+
+
+# WebSocket 连接管理器
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, task_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if task_id not in self.active_connections:
+            self.active_connections[task_id] = []
+        self.active_connections[task_id].append(websocket)
+
+    def disconnect(self, task_id: str, websocket: WebSocket):
+        if task_id in self.active_connections:
+            self.active_connections[task_id].remove(websocket)
+            if not self.active_connections[task_id]:
+                del self.active_connections[task_id]
+
+    async def send_message(self, task_id: str, message: dict):
+        if task_id in self.active_connections:
+            disconnected = []
+            for websocket in self.active_connections[task_id]:
+                try:
+                    await websocket.send_json(message)
+                except:
+                    disconnected.append(websocket)
+            for ws in disconnected:
+                self.disconnect(task_id, ws)
+
+manager = ConnectionManager()
 
 router = APIRouter()
 
@@ -18,6 +48,7 @@ class TaskSubmitRequest(BaseModel):
     tool_id: str
     parameters: dict
     project_id: Optional[int] = None
+
 
 @router.post("/submit")
 async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(get_current_user)):
@@ -28,7 +59,7 @@ async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(g
     task_func = TASK_REGISTRY[request.tool_id]
     task = task_func.delay(request.parameters)
     
-    # ✨ 记录任务到用户任务列表 (Redis)
+    # 记录任务到用户任务列表 (Redis)
     task_info = {
         "task_id": task.id,
         "tool_id": request.tool_id,
@@ -52,6 +83,7 @@ async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(g
     redis_client.ltrim(f"user_tasks:{current_user.id}", 0, 99)  # 保留最近100个任务
     
     return {"status": "submitted", "task_id": task.id, "tool_id": request.tool_id}
+
 
 @router.get("/list")
 async def list_user_tasks(current_user: User = Depends(get_current_user)):
@@ -94,6 +126,7 @@ async def list_user_tasks(current_user: User = Depends(get_current_user)):
     
     return {"tasks": tasks, "total": len(tasks)}
 
+
 @router.get("/{task_id}/status")
 async def get_task_status(task_id: str):
     """轮询获取任务当前状态"""
@@ -105,12 +138,55 @@ async def get_task_status(task_id: str):
         "progress": task_result.info.get('progress') if isinstance(task_result.info, dict) else None
     }
 
+
+@router.websocket("/{task_id}/ws")
+async def websocket_task_status(websocket: WebSocket, task_id: str):
+    """WebSocket 实时获取任务状态"""
+    await manager.connect(task_id, websocket)
+    try:
+        task_result = AsyncResult(task_id)
+        last_status = None
+        
+        while True:
+            # 检查任务状态
+            current_status = task_result.status
+            
+            # 如果状态变化，发送更新
+            if current_status != last_status:
+                message = {
+                    "type": "status",
+                    "task_id": task_id,
+                    "status": current_status,
+                    "result": task_result.result if task_result.ready() else None,
+                    "progress": task_result.info.get('progress') if isinstance(task_result.info, dict) else None
+                }
+                await manager.send_message(task_id, message)
+                last_status = current_status
+            
+            # 如果任务完成，退出循环
+            if task_result.ready():
+                break
+            
+            await asyncio.sleep(1)
+            
+    except WebSocketDisconnect:
+        manager.disconnect(task_id, websocket)
+    except Exception as e:
+        await manager.send_message(task_id, {
+            "type": "error",
+            "task_id": task_id,
+            "error": str(e)
+        })
+        manager.disconnect(task_id, websocket)
+
+
 @router.get("/{task_id}/logs")
 async def get_task_logs(task_id: str):
     """获取任务日志"""
     log_key = f"task_logs:{task_id}"
     logs = redis_client.lrange(log_key, 0, -1)
     return {"task_id": task_id, "logs": logs}
+
 
 @router.get("/{task_id}/logs/stream")
 async def stream_task_logs(task_id: str):
@@ -134,6 +210,7 @@ async def stream_task_logs(task_id: str):
             await asyncio.sleep(0.5)
             
     return EventSourceResponse(log_generator())
+
 
 @router.get("")
 async def list_available_tasks():
