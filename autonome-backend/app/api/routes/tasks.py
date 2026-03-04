@@ -1,28 +1,98 @@
 import json
 import asyncio
-from fastapi import APIRouter
+import time
+from typing import Optional
+from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
 # ✨ 引入刚刚拆分的服务
 from app.services.celery_app import TASK_REGISTRY, redis_client
+from app.api.deps import get_current_user
+from app.models.domain import User
 
 router = APIRouter()
 
 class TaskSubmitRequest(BaseModel):
     tool_id: str
     parameters: dict
+    project_id: Optional[int] = None
 
 @router.post("/submit")
-async def submit_task(request: TaskSubmitRequest):
+async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(get_current_user)):
     """提交一个异步计算任务"""
     if request.tool_id not in TASK_REGISTRY:
         return {"status": "error", "message": f"Unknown tool: {request.tool_id}"}
     
     task_func = TASK_REGISTRY[request.tool_id]
     task = task_func.delay(request.parameters)
+    
+    # ✨ 记录任务到用户任务列表 (Redis)
+    task_info = {
+        "task_id": task.id,
+        "tool_id": request.tool_id,
+        "project_id": request.project_id,
+        "status": "PENDING",
+        "created_at": time.time(),
+        "name": f"{request.tool_id.replace('-', ' ').title()} Analysis"
+    }
+    
+    # 存储任务详情
+    redis_client.hset(f"task_info:{task.id}", mapping={
+        "tool_id": request.tool_id,
+        "project_id": str(request.project_id) if request.project_id else "",
+        "name": task_info["name"],
+        "created_at": str(task_info["created_at"])
+    })
+    redis_client.expire(f"task_info:{task.id}", 86400 * 7)  # 保留7天
+    
+    # 添加到用户任务列表
+    redis_client.lpush(f"user_tasks:{current_user.id}", task.id)
+    redis_client.ltrim(f"user_tasks:{current_user.id}", 0, 99)  # 保留最近100个任务
+    
     return {"status": "submitted", "task_id": task.id, "tool_id": request.tool_id}
+
+@router.get("/list")
+async def list_user_tasks(current_user: User = Depends(get_current_user)):
+    """获取用户所有任务 (看板视图)"""
+    task_ids = redis_client.lrange(f"user_tasks:{current_user.id}", 0, 99)
+    
+    tasks = []
+    for task_id in task_ids:
+        task_info = redis_client.hgetall(f"task_info:{task_id}")
+        if not task_info:
+            continue
+            
+        # 获取最新状态
+        try:
+            task_result = AsyncResult(task_id)
+            status = task_result.status
+            result = task_result.result if task_result.ready() else None
+        except:
+            status = "UNKNOWN"
+            result = None
+        
+        # 获取进度
+        progress = None
+        try:
+            if hasattr(task_result, 'info') and isinstance(task_result.info, dict):
+                progress = task_result.info.get('progress')
+        except:
+            pass
+        
+        tasks.append({
+            "task_id": task_id,
+            "name": task_info.get("name", "Unknown Task"),
+            "tool_id": task_info.get("tool_id", ""),
+            "project_id": task_info.get("project_id", ""),
+            "status": status,
+            "progress": progress,
+            "result": result,
+            "created_at": float(task_info.get("created_at", 0))
+        })
+    
+    return {"tasks": tasks, "total": len(tasks)}
 
 @router.get("/{task_id}/status")
 async def get_task_status(task_id: str):
@@ -66,6 +136,6 @@ async def stream_task_logs(task_id: str):
     return EventSourceResponse(log_generator())
 
 @router.get("")
-async def list_tasks():
+async def list_available_tasks():
     """列出所有可用任务"""
     return {"tasks": list(TASK_REGISTRY.keys())}
