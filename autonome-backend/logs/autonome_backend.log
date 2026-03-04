@@ -1,0 +1,80 @@
+2026-03-03 09:47:33 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: ('Connection aborted.', FileNotFoundError(2, 'No such file or directory'))
+2026-03-03 05:39:31 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:32 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:34 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:36 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:38 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:42 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:46 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:39:54 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:09 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:19 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:21 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:22 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:24 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:27 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:30 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:35 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:43 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:40:57 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:41:24 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:42:16 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:43:18 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:44:20 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:09 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:11 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:13 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:15 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:17 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:21 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:26 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:34 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:45:48 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:46:15 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:10 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:12 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:13 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:15 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:17 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:20 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:25 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:33 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:33 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:47:47 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:47:47 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:48:14 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:48:14 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:49:07 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:49:07 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:50:08 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:50:08 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:51:10 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:51:10 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:54:13 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:54:13 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:55:14 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:55:14 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:56:16 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:56:16 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:57:17 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 05:57:17 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 05:57:17 | INFO     | main:on_startup:36 - ✅ 已初始化系统配置
+2026-03-03 06:10:11 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 06:10:12 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 06:34:32 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 06:34:33 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 06:36:43 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 06:36:43 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 06:52:41 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 06:52:42 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 06:53:16 | INFO     | app.api.routes.admin:adjust_user_credits:144 - 💰 财务调控：管理员 admin@autonome.com 为用户 user@test.com 修改了算力 (10000.0)。原因: Test credit adjustment
+2026-03-03 06:53:24 | WARNING  | app.api.routes.admin:toggle_user_active_status:112 - 🚨 管理员 admin@autonome.com 执行了针对用户 user@test.com 的 封禁 操作。
+2026-03-03 07:10:30 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 07:10:30 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 07:10:45 | ERROR    | app.api.routes.admin:get_cluster_status:201 - Docker 引擎探针异常: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 07:27:09 | ERROR    | app.api.routes.admin:get_cluster_status:201 - Docker 引擎探针异常: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 10:18:51 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 10:18:51 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 11:33:54 | WARNING  | app.tools.bio_tools:<module>:11 - Docker client 初始化失败，沙箱可能无法运行: Error while fetching server API version: Not supported URL scheme http+docker
+2026-03-03 11:33:54 | INFO     | main:on_startup:28 - 🚀 正在启动 Autonome Studio v2.0.0 (Enterprise)
+2026-03-03 12:24:47 | ERROR    | app.api.routes.admin:get_cluster_status:201 - Docker 引擎探针异常: Error while fetching server API version: Not supported URL scheme http+docker

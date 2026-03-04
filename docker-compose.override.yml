@@ -1,0 +1,64 @@
+# 开发环境覆盖配置
+# docker-compose 自动加载此文件，实现代码热重载
+version: '3.8'
+
+services:
+  # ==========================================
+  # 后端 API 开发模式：挂载源码 + 热重载
+  # ==========================================
+  backend-api:
+    volumes:
+      # 挂载源码实现热重载
+      - ./autonome-backend/app:/app/app:cached
+      - ./autonome-backend/main.py:/app/main.py:cached
+      # 保留容器内的依赖和虚拟环境
+      - /app/__pycache__
+      - /app/.venv
+      # 持久化上传文件
+      - ./autonome-backend/uploads:/app/uploads
+      # Docker 控制
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    # 覆盖默认命令，启用热重载
+    command: uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+  # ==========================================
+  # 后端 Worker 开发模式：挂载源码
+  # ==========================================
+  backend-worker:
+    volumes:
+      - ./autonome-backend/app:/app/app:cached
+      - ./autonome-backend/main.py:/app/main.py:cached
+      - /app/__pycache__
+      - /app/.venv
+      - ./autonome-backend/uploads:/app/uploads
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+
+  # ==========================================
+  # 前端开发模式：挂载源码 + 热重载
+  # ==========================================
+  frontend:
+    build:
+      target: development
+    volumes:
+      # 挂载源码实现热重载
+      - ./autonome-studio/src:/app/src:cached
+      - ./autonome-studio/public:/app/public:cached
+      - ./autonome-studio/package.json:/app/package.json:cached
+      - ./autonome-studio/next.config.ts:/app/next.config.ts:cached
+      - ./autonome-studio/tsconfig.json:/app/tsconfig.json:cached
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      # ✅ API 地址（根据部署环境修改）
+      - NEXT_PUBLIC_API_URL=http://113.44.66.210:8000
+    # 覆盖默认命令，启用开发模式
+    command: npm run dev
+

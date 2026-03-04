@@ -1,0 +1,165 @@
+import os
+import shutil
+import uuid
+import secrets
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from sqlmodel import Session, select
+from pydantic import BaseModel
+import shutil
+import uuid
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from sqlmodel import Session, select
+from pydantic import BaseModel
+
+from app.core.database import get_session
+from app.core.config import settings
+from app.models.domain import Project, ChatSession, ChatMessage, DataFile, User
+from app.api.deps import get_current_user
+
+router = APIRouter()
+
+class ProjectCreate(BaseModel):
+    name: str
+    description: str = ""
+
+@router.get("")
+async def get_projects(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    # ✨ 绝对隔离：只返回属于当前用户的项目
+    projects = session.exec(select(Project).where(Project.owner_id == current_user.id)).all()
+    return {"status": "success", "data": projects}
+
+@router.post("")
+async def create_project(project: ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    # ✨ 创建项目时，强制绑定 owner_id
+    new_proj = Project(name=project.name, description=project.description, owner_id=current_user.id)
+    session.add(new_proj)
+    session.commit()
+    session.refresh(new_proj)
+    return {"status": "success", "data": new_proj}
+
+@router.delete("/{project_id}")
+async def delete_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权删除该项目")
+    session.delete(project)
+    session.commit()
+    return {"status": "success", "message": "Project deleted"}
+
+@router.get("/{project_id}/sessions")
+async def get_project_sessions(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+    sessions = session.exec(
+        select(ChatSession).where(ChatSession.project_id == project_id).order_by(ChatSession.created_at.desc())
+    ).all()
+    return {"status": "success", "data": sessions}
+
+@router.post("/{project_id}/sessions")
+async def create_session(project_id: int, title: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    new_session = ChatSession(title=title, project_id=project_id)
+    session.add(new_session)
+    session.commit()
+    session.refresh(new_session)
+    return {"status": "success", "data": new_session}
+
+@router.get("/{project_id}/chat-history")
+async def get_chat_history(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    # ✨ 安全校验：越权检查
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+         raise HTTPException(status_code=403, detail="无权访问该项目或项目不存在")
+
+    chat_session = session.exec(
+        select(ChatSession).where(ChatSession.project_id == project_id).order_by(ChatSession.created_at.desc())
+    ).first()
+    
+    if not chat_session:
+        return {"status": "success", "data": []}
+        
+    messages = session.exec(
+        select(ChatMessage).where(ChatMessage.session_id == chat_session.id).order_by(ChatMessage.created_at.asc())
+    ).all()
+    return {"status": "success", "data": messages}
+
+@router.post("/{project_id}/files")
+async def upload_file(project_id: int, file: UploadFile = File(...), session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    safe_uuid = str(uuid.uuid4())[:8]
+    # 文件名里加上 user_id 防止不同用户的物理文件冲突
+    physical_filename = f"u{current_user.id}_p{project_id}_{safe_uuid}_{file.filename}"
+    file_path = os.path.join(settings.UPLOAD_DIR, physical_filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Determine file type
+    file_ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+    file_type_map = {
+        'fastq': 'fastq', 'fq': 'fastq', 'gz': 'fastq',
+        'bam': 'bam', 'sam': 'bam',
+        'csv': 'csv', 'tsv': 'csv', 'xlsx': 'csv',
+        'vcf': 'vcf', 'h5ad': 'h5ad'
+    }
+    file_type = file_type_map.get(file_ext, 'other')
+
+    new_file = DataFile(
+        filename=file.filename,
+        file_path=file_path,
+        file_size=os.path.getsize(file_path),
+        file_type=file_type,
+        project_id=project_id
+    )
+    session.add(new_file)
+    session.commit()
+    session.refresh(new_file)
+    return {"status": "success", "data": new_file}
+
+@router.get("/{project_id}/files")
+async def get_project_files(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+        
+    files = session.exec(select(DataFile).where(DataFile.project_id == project_id)).all()
+    return {"status": "success", "data": files}
+
+
+
+
+@router.post("/{project_id}/share")
+async def toggle_project_share(
+    project_id: int, 
+    session: Session = Depends(get_session), 
+    current_user: User = Depends(get_current_user)
+):
+    """切换项目的公开分享状态"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+        
+    if project.is_public:
+        # 关闭分享
+        project.is_public = False
+        project.share_token = None
+    else:
+        # 开启分享，生成一个极其安全的随机 URL 友好 Token (24字符)
+        project.is_public = True
+        project.share_token = secrets.token_urlsafe(24)
+        
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    
+    return {
+        "status": "success", 
+        "is_public": project.is_public,
+        "share_token": project.share_token
+    }

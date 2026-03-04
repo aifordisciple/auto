@@ -1,0 +1,41 @@
+fastapi==0.110.0
+uvicorn==0.27.1
+pydantic[email]>=2.7.4
+pydantic-settings==2.2.1
+sqlmodel==0.0.16
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langgraph==1.0.10
+celery==5.3.6
+redis==5.0.2
+sse-starlette==2.0.0
+python-multipart==0.0.9
+psutil==6.1.1
+pandas==2.2.1
+python-dotenv==1.0.1
+
+# Backend infrastructure
+alembic==1.13.1
+loguru==0.7.2
+
+# Docker sandbox
+docker==7.0.0
+
+# Security & JWT
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
+# PostgreSQL driver
+psycopg2-binary==2.9.9
+
+# Vector database
+pgvector==0.2.0
+
+# Payment
+stripe==8.0.0
+
+# Markdown processing
+markdown==3.7
+
+# Bioinformatics
+biopython
