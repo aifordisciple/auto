@@ -8,12 +8,6 @@ from datetime import datetime
 from langchain_core.tools import tool
 from app.core.config import settings
 from app.core.logger import log
-import uuid
-import markdown
-from datetime import datetime
-from langchain_core.tools import tool
-from app.core.config import settings
-from app.core.logger import log
 
 
 @tool
@@ -90,18 +84,20 @@ def generate_publishable_report(title: str, full_markdown_content: str, project_
         </html>
         """
 
-        # 确保目录存在
-        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        # ✨ 确保项目专属目录存在
+        project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
+        os.makedirs(project_dir, exist_ok=True)
         
-        # 物理保存文件
+        # 物理保存文件到项目文件夹
         file_uuid = str(uuid.uuid4())[:8]
-        filename = f"report_p{project_id}_{file_uuid}.html"
-        file_path = os.path.join(settings.UPLOAD_DIR, filename)
+        filename = f"report_{file_uuid}.html"
+        file_path = os.path.join(project_dir, filename)
         
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(academic_template)
             
-        report_url = f"http://localhost:8000/uploads/{filename}"
+        # ✨ 报告 URL 需要包含项目路径
+        report_url = f"http://localhost:8000/uploads/project_{project_id}/{filename}"
         
         return f"""
         ✅ 报告已成功渲染并物理落盘！

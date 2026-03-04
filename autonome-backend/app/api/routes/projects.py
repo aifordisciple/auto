@@ -1,7 +1,7 @@
 import os
 import shutil
-import uuid
 import secrets
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -88,10 +88,12 @@ async def upload_file(project_id: int, file: UploadFile = File(...), session: Se
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作该项目")
 
-    safe_uuid = str(uuid.uuid4())[:8]
-    # 文件名里加上 user_id 防止不同用户的物理文件冲突
-    physical_filename = f"u{current_user.id}_p{project_id}_{safe_uuid}_{file.filename}"
-    file_path = os.path.join(settings.UPLOAD_DIR, physical_filename)
+    # ✨ 创建项目专属文件夹: /app/uploads/project_{project_id}
+    project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
+    os.makedirs(project_dir, exist_ok=True)
+    
+    # ✨ 文件保存在专属文件夹里，使用干净的文件名
+    file_path = os.path.join(project_dir, file.filename)
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
