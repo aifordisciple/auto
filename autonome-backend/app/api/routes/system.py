@@ -38,20 +38,34 @@ class SettingsUpdate(BaseModel):
 
 @router.get("/settings")
 async def get_settings(session: Session = Depends(get_session)):
-    return {"status": "success", "data": session.get(SystemConfig, 1)}
+    # 尝试获取配置，如果没有则自动创建一行 ID 为 1 的默认配置 (防御性编程)
+    config = session.get(SystemConfig, 1)
+    if not config:
+        config = SystemConfig(id=1)
+        session.add(config)
+        session.commit()
+        session.refresh(config)
+        
+    return {"status": "success", "data": config}
 
 @router.post("/settings")
 async def update_settings(settings: SettingsUpdate, session: Session = Depends(get_session)):
     config = session.get(SystemConfig, 1)
-    if config:
-        # 如果不是掩码，才更新 Key
-        if settings.openai_api_key and not settings.openai_api_key.startswith("sk-***"):
-            config.openai_api_key = settings.openai_api_key
-        config.openai_base_url = settings.openai_base_url
-        config.default_model = settings.default_model
-        config.updated_at = datetime.now(timezone.utc)
-        
+    
+    # 如果保存时发现还没配置行，也要自动创建
+    if not config:
+        config = SystemConfig(id=1)
         session.add(config)
-        session.commit()
-        return {"status": "success", "message": "配置已保存！"}
-    return {"status": "error"}
+
+    # 核心修复：使用 is not None 判断，允许用户传入空字符串 "" (Ollama 必备)
+    if settings.openai_api_key is not None and not settings.openai_api_key.startswith("sk-***"):
+        config.openai_api_key = settings.openai_api_key
+        
+    config.openai_base_url = settings.openai_base_url
+    config.default_model = settings.default_model
+    config.updated_at = datetime.now(timezone.utc)
+    
+    session.add(config)
+    session.commit()
+    
+    return {"status": "success", "message": "配置已保存！"}
