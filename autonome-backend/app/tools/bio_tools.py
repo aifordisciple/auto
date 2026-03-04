@@ -7,15 +7,8 @@ from app.core.config import settings
 
 # ✨ 修复 Docker-in-Docker 问题：使用 Unix socket
 try:
-    # ✨ 显式指定 Unix socket 路径
-    docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
-    docker_client.ping()
-    log.info("🛡️ Docker 沙箱引擎已就绪")
-except Exception as e:
-    log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
-    docker_client = None
-try:
-    docker_client = docker.from_env()
+    # ✨ 使用 APIClient (low-level API)
+    docker_client = APIClient(base_url='unix:///var/run/docker.sock')
     docker_client.ping()
     log.info("🛡️ Docker 沙箱引擎已就绪")
 except Exception as e:
@@ -37,7 +30,7 @@ def variant_calling(ref_genome: str, variant_type: str, min_read_depth: int):
 
 @tool
 def sc_rna_analysis(cluster_res: float, min_genes: int, min_cells: int):
-    """当用户要求进行单细胞 RNA-seq 分析时调用此工具。"""
+    """当用户要求进行单细胞 RNA-seq 分析时，调用此工具。"""
     pass
 
 
