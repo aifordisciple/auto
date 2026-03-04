@@ -1,20 +1,18 @@
 import os
 import docker
-from docker import APIClient
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
-# ✨ 修复 Docker-in-Docker 问题：使用 Unix socket
+# ✨ 修复 Docker-in-Docker 问题
 try:
-    # ✨ 使用 docker.from_env() 更稳定，自动检测环境
-    docker_client = docker.from_env()
+    # ✨ 使用 Unix socket 连接
+    docker_client = docker.APIClient(base_url='unix:///var/run/docker.sock', version='auto')
     docker_client.ping()
     log.info("🛡️ Docker 沙箱引擎已就绪")
 except Exception as e:
     log.warning(f"Docker client 初始化失败，沙箱可能无法运行: {e}")
     docker_client = None
-
 
 @tool
 def rnaseq_qc(ref_genome: str, qual_threshold: int, remove_adapters: bool):
