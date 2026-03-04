@@ -44,18 +44,35 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
     # 解析响应
     if b"\r\n\r\n" in response:
         headers, body = response.split(b"\r\n\r\n", 1)
-        # 查找 JSON 开始位置
-        for i, b in enumerate(body):
-            if b == ord('{') or b == ord('['):
-                body = body[i:].decode('utf-8', errors='ignore')
-                break
-        else:
-            body = body.decode('utf-8', errors='ignore')
+        body_str = body.decode('utf-8', errors='ignore')
         
-        try:
-            return json.loads(body) if body.strip() else {}
-        except:
-            return {"body": body}
+        # ✨ 修复：Docker API 返回的 JSON 可能被 HTTP chunked 编码污染
+        # 我们需要找到真正的 JSON 结束位置
+        # 方法：从 { 开始，找最后一个 } 之前的内容
+        start = body_str.find('{')
+        if start != -1:
+            # 从后往前找 }，但要跳过 chunked 编码的尾部
+            # chunked 编码格式：\d+\r\n...\r\n0\r\n\r\n
+            # 简单方法：找到 JSON 对象的正确结束位置
+            depth = 0
+            end = start
+            for i, c in enumerate(body_str[start:], start):
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            
+            clean_json = body_str[start:end]
+            try:
+                result = json.loads(clean_json)
+                return result
+            except json.JSONDecodeError as e:
+                log.warning(f"JSON parse warning: {e}")
+        
+        return {"body": body_str}
     
     return {}
 

@@ -18,10 +18,6 @@ services:
       - uploads_data:/app/uploads
       # Docker 控制
       - /var/run/docker.sock:/var/run/docker.sock
-      # ✨ 挂载 host 的 docker CLI
-      - /opt/homebrew/Cellar/docker/28.0.4/bin/docker:/usr/bin/docker:ro
-      - /opt/homebrew/bin/docker:/usr/bin/docker:ro
-      - /usr/bin/docker:/usr/bin/docker:ro
     environment:
       - PYTHONPATH=/app
       - PYTHONDONTWRITEBYTECODE=1
@@ -41,9 +37,6 @@ services:
       # ✨ 持久化上传文件 (使用具名卷与沙箱共享)
       - uploads_data:/app/uploads
       - /var/run/docker.sock:/var/run/docker.sock
-      # ✨ 挂载 host 的 docker CLI
-      - /opt/homebrew/Cellar/docker/28.0.4/bin/docker:/usr/bin/docker:ro
-      - /usr/bin/docker:/usr/bin/docker:ro
     environment:
       - PYTHONPATH=/app
       - PYTHONDONTWRITEBYTECODE=1
@@ -73,3 +66,4 @@ services:
 
 volumes:
   uploads_data:
+    name: uploads_data

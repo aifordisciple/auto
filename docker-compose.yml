@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. PostgreSQL 数据库引擎
+  # ==========================================
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: autonome-postgres
+    environment:
+      POSTGRES_USER: autonome
+      POSTGRES_PASSWORD: autonome_super_password
+      POSTGRES_DB: autonome_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ==========================================
+  # 2. 缓存与消息队列中间件
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: autonome-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # ==========================================
+  # 3. 后端核心 AI 大脑 (FastAPI)
+  # ==========================================
+  backend-api:
+    build:
+      context: ./autonome-backend
+    container_name: autonome-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - HOST_UPLOAD_DIR=/app/uploads
+      - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+    volumes:
+      # ✨ 使用具名卷，让后端和沙箱可以共享数据
+      - uploads_data:/app/uploads
+      # 将宿主机的 Docker 引擎控制权赋予后端
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # ==========================================
+  # 4. 底层异步任务引擎 (Celery Worker)
+  # ==========================================
+  backend-worker:
+    build:
+      context: ./autonome-backend
+    container_name: autonome-worker
+    command: celery -A app.services.celery_app worker --loglevel=info
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - HOST_UPLOAD_DIR=/app/uploads
+      - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+    volumes:
+      # ✨ 使用具名卷
+      - uploads_data:/app/uploads
+      # Worker 同样需要 Docker 控制权
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - postgres
+      - backend-api
+    restart: unless-stopped
+
+  # ==========================================
+  # 5. 前端 IDE 界面 (Next.js)
+  # ==========================================
+  frontend:
+    build:
+      context: ./autonome-studio
+    container_name: autonome-web
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend-api
+    restart: unless-stopped
+
+# 定义数据卷
+volumes:
+  redis_data:
+  pgdata:
+  uploads_data:

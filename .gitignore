@@ -46,8 +46,8 @@ next-env.d.ts
 .vscode/
 sftp.json
 
-Dockerfile
-docker-compose.yml
+# Dockerfile
+# docker-compose.yml
 
 __pycache__/
 bkup/
