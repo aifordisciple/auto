@@ -46,7 +46,7 @@ echo "正在清理旧的 Git 记录..."
 # rm -rf .git
 
 echo "重新初始化 Git 仓库..."
-git init -b "$BRANCH_NAME"
+# git init -b "$BRANCH_NAME"
 
 echo "暂存所有现有代码文件..."
 git add .
@@ -59,7 +59,7 @@ echo "Git 仓库重新初始化成功！当前位于分支: $BRANCH_NAME"
 # 处理远程仓库和推送
 if [ -n "$REMOTE_URL" ]; then
   echo "正在关联远程仓库: $REMOTE_URL ..."
-  git remote add origin "$REMOTE_URL"
+  # git remote add origin "$REMOTE_URL"
   
   if [ "$FORCE_PUSH" = true ]; then
     echo "⚠️ 正在强制推送到远程仓库 (-f)..."
