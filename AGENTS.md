@@ -105,3 +105,16 @@ alembic upgrade head
 - Stripe billing (credits-based)
 - No test framework configured yet
 - Frontend uses dark mode by default (`className="dark"` on `<html>`)
+
+
+## 核心开发与部署工作流规范
+
+你当前运行在一个由 Git 进行版本控制，并使用 Docker Compose 进行服务编排的 Mac 服务器项目中。对于收到的任何开发任务，你必须严格遵循以下步骤：
+
+
+1. **执行开发**：完成用户要求的代码编写或编辑任务。
+2. **状态验证**：代码修改完成后，如有必要可运行 `git status` 或测试命令确认状态。
+3. **自动部署**：你必须调用项目根目录下的 `./auto_deploy.sh` 脚本来完成后续动作。
+   - 必须使用 `-s` 参数传递简要的修改总结（如 "feat: 增加用户登录接口"）。
+   - 必须使用 `-d` 参数传递详细的修改说明（Comments），解释修改了哪些逻辑及原因。
+   - 示例命令：`./auto_deploy.sh -s "fix: 修复数据库连接超时" -d "调整了 db_config.js 中的 timeout 参数，从 3000ms 增加到 5000ms，以适应当前网络环境。"`，注意：该脚本已内置 `git add .`、`git commit` 以及 `docker-compose down && docker-compose up -d --build` 的完整逻辑，你只需调用该脚本并传入准确的参数即可。
