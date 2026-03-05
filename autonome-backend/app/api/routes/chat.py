@@ -99,6 +99,8 @@ async def chat_stream(
         cost_credits = 1.0
         
         try:
+            log.info(f"🔧 [Chat] 构建 Agent - base_url={base_url}, model={model_name}")
+            
             agent_executor = build_bio_agent(
                 api_key=api_key,
                 base_url=base_url,
@@ -108,15 +110,17 @@ async def chat_stream(
                 project_id=request.project_id
             )
             
-            log.info(f"💬 [Chat] 开始生成 - user_id={user_id}, base_url={base_url}, model={model_name}")
+            log.info(f"💬 [Chat] 开始生成 - user_id={user_id}, message={request.message[:50]}...")
             
             messages = [{"role": "user", "content": request.message}]
 
             async for event in agent_executor.astream_events({"messages": messages}, config={"recursion_limit": 20}, version="v2"):
                 kind = event["event"]
+                log.info(f"📦 [事件] {kind}")
                 
                 if kind == "on_chain_start":
                     node_name = event.get("name", "")
+                    log.info(f"🔄 [Chain] 开始: {node_name}")
                     worker_names = {
                         "Advisor": "🧑‍🔬 科学顾问",
                         "Cleaner": "🧹 数据清洗专员",
@@ -130,29 +134,35 @@ async def chat_stream(
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
 
                 elif kind == "on_chat_model_stream":
-                    content = event["data"]["chunk"].content
+                    chunk = event.get("data", {}).get("chunk", {})
+                    content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     if isinstance(content, str) and content:
+                        log.info(f"📝 [输出] {content[:100]}...")
                         ai_full_response += content
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
                 
                 elif kind == "on_tool_start":
-                    tool_name = event["name"]
-                    if tool_name == "execute_python_code":
+                    tool_name = event.get("name", "unknown")
+                    log.info(f"🔧 [工具] 开始: {tool_name}")
+                    if tool_name in ["execute_python_code", "rnaseq_qc"]:
                         cost_credits += 4.0
-                        msg = "\n\n*(🚀 Agent 决策：正在安全沙箱中编写并执行 Python 脚本...)*\n\n"
+                        msg = f"\n\n*(🚀 Agent 正在调用工具: {tool_name})*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
                         
                 elif kind == "on_tool_end":
-                    tool_name = event["name"]
-                    if tool_name == "execute_python_code":
-                        msg = "\n*(✅ 沙箱执行完毕，正在将运行结果反馈给 AI 大脑...)*\n\n"
+                    tool_name = event.get("name", "unknown")
+                    log.info(f"✅ [工具] 结束: {tool_name}")
+                    if tool_name in ["execute_python_code", "rnaseq_qc"]:
+                        msg = f"\n*(✅ 工具 {tool_name} 执行完毕)*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
 
         except Exception as e:
-            log.error(f"❌ [Chat] 错误: {str(e)}")
-            err_msg = f"\n\n❌ **AI 引擎连接或图执行异常**: {str(e)}\n请检查网络或日志。"
+            import traceback
+            error_details = traceback.format_exc()
+            log.error(f"❌ [Chat] 致命错误: {str(e)}\n{error_details}")
+            err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
             ai_full_response += err_msg
             yield {"event": "message", "data": json.dumps({"type": "text", "content": err_msg})}
         
