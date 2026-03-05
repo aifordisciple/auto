@@ -73,14 +73,26 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
         return {"body": body_str}
 
 
-def run_container(image: str, command: str) -> tuple[str, int]:
-    """通过 Docker API 运行容器"""
+def run_container(image: str, command: str, language: str = "python") -> tuple[str, int]:
+    """通过 Docker API 运行容器
+    
+    Args:
+        image: Docker 镜像名称
+        command: 要执行的代码字符串
+        language: "python" 或 "r"
+    """
     try:
+        # 根据语言选择执行命令
+        if language.lower() == "r":
+            cmd = ["Rscript", "-e", command]
+        else:
+            cmd = ["python", "-c", command]
+        
         # 创建容器 - 指定平台为 amd64
         create_data = json.dumps({
             "Image": image,
             "platform": "linux/amd64",
-            "Cmd": ["python", "-c", command],
+            "Cmd": cmd,
             "HostConfig": {
                 "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
                 "NetworkMode": "none",

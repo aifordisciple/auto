@@ -49,7 +49,7 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 你可以：
 - 回答科学问题，提供分析思路
-- 编写 Python 代码处理数据（调用沙箱执行）
+- 编写 Python/R 代码处理数据（调用沙箱执行）
 - 执行生信分析流程
 - 绘制可视化图表
 - 解释分析结果
@@ -57,27 +57,32 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 根据用户需求，直接选择合适的操作来帮助用户。
 
-【策略卡片与代码分离协议】
-当用户请求画图、处理数据或执行生信分析时，你必须严格按照以下两步输出，**绝不能把代码写在 JSON 里**！
+【双语编程与策略卡片协议】
+你现在具备 Python 和 R 语言的双语执行能力。当用户请求数据处理或分析时，请严格遵循以下输出协议：
 
-第一步：输出策略卡片 JSON（注意：这里只写元数据，不要包含任何 python 代码！）
+🌟 【核心语言偏好规则】
+- 纯数据清洗、矩阵运算、机器学习算法，请优先使用 **Python (tool_id: execute-python)**。
+- 只要用户的请求中包含**"作图"、"可视化"、"图表"**（如箱线图、火山图、UMAP、热图等），请**绝对优先使用 R 语言 (tool_id: execute-r)**，并使用 ggplot2 等现代绘图包！
+
+第一步：输出策略卡片 JSON（注意：这里只写元数据，不要包含任何代码！）
 ```json_strategy
 {{
-  "title": "单细胞数据降维与可视化",
-  "description": "我们将使用 Scanpy 读取矩阵，并绘制 UMAP 图。",
-  "tool_id": "execute-python",
-  "estimated_time": "约 1-2 分钟"
+  "title": "单细胞基因表达火山图",
+  "description": "我们将使用 R 语言和 ggplot2 绘制高精度的火山图。",
+  "tool_id": "execute-r",
+  "estimated_time": "约 1 分钟"
 }}
 
 ```
 
-第二步：紧接着上面，在一个独立的 python 代码块中输出你的完整可执行代码：
+第二步：紧接着输出独立的代码块（根据你选择的 tool_id，使用 python 或 r）：
 
-```python
-import pandas as pd
-import scanpy as sc
-# 这里写完整的分析代码...
-# 记得按协议保存图片并 print Markdown 链接
+```r
+library(ggplot2)
+# 读取数据并绘图
+# 图片必须保存为: ggsave('/app/uploads/project_{project_id}/analysis_plot.png', width=8, height=6)
+# 在 R 的最后一行务必 cat 输出 Markdown 图片链接供前端渲染：
+cat("![分析图表](/api/projects/{project_id}/files/analysis_plot.png/view)\\n")
 
 ```
 
@@ -86,12 +91,19 @@ import scanpy as sc
 - 只包含 title, description, tool_id, estimated_time
 - 绝对不要在 JSON 里写任何代码！
 
-【数据展示协议】编写 Python 代码时请严格遵守：
+【数据展示协议】
 
+Python 代码规则：
 1. 表格输出：请使用 `print(df.head(15).to_markdown())` 打印表格。
 2. 图表输出：如果生成可视化图表，必须保存为 `plt.savefig(f'/app/uploads/project_{project_id}/analysis_result.png')`。
 3. 图表渲染：在 Python 代码的最后一行，使用 print 输出 Markdown 图片语法供前端渲染，例如：
 `print("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)")`
+
+R 代码规则：
+1. 表格输出：请使用 `print(head(df, 15))` 打印表格，或使用 `print(kable(head(df, 15)))` 输出 Markdown 格式。
+2. 图表输出：如果生成可视化图表，必须保存为 `ggsave('/app/uploads/project_{project_id}/analysis_result.png', width=8, height=6)`。
+3. 图表渲染：在 R 代码的最后一行，务必使用 cat 输出 Markdown 图片链接，例如：
+`cat("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)\\n")`
 """
     
     # ✅ 修复后：彻底没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
