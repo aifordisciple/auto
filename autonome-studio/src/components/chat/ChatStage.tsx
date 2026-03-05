@@ -19,6 +19,7 @@ export function ChatStage() {
 
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isStreamingRef = useRef(false);
 
   // Fetch messages when session changes
   useEffect(() => {
@@ -27,6 +28,11 @@ export function ChatStage() {
         setMessages([]);
         return;
       }
+      
+      if (isStreamingRef.current) {
+        return;
+      }
+      
       const token = localStorage.getItem('autonome_access_token');
       try {
         const res = await fetch(`${BASE_URL}/api/chat/sessions/${currentSessionId}/messages`, {
@@ -93,6 +99,7 @@ export function ChatStage() {
     
     addMessage('user', currentInput);
     addMessage('assistant', ''); 
+    isStreamingRef.current = true;
     setIsTyping(true);
 
     try {
@@ -121,12 +128,11 @@ export function ChatStage() {
             const data = JSON.parse(event.data);
             if (data.is_new) {
               setCurrentSessionId(data.session_id);
+              window.dispatchEvent(new Event('refresh-sessions'));
               fetch(`${BASE_URL}/api/chat/sessions/${data.session_id}/auto-name`, {
                 method: "POST",
                 headers: { 'Authorization': `Bearer ${token}` }
-              }).then(() => {
-                window.dispatchEvent(new Event('refresh-sessions'));
-              });
+              }).catch(e => console.error("自动命名失败", e));
             }
           } else if (event.event === 'message') {
             const data = JSON.parse(event.data);
@@ -141,16 +147,24 @@ export function ChatStage() {
             const data = JSON.parse(event.data);
             updateCredits(data.balance);
           } else if (event.event === 'done') {
+            isStreamingRef.current = false;
             setIsTyping(false);
           }
         },
+        onclose() {
+          isStreamingRef.current = false;
+          setIsTyping(false);
+        },
         onerror(err) {
+          isStreamingRef.current = false;
+          setIsTyping(false);
           console.error("Connection Error:", err);
           appendLastMessage("\n\n**[系统错误]** 连接后端大脑失败，请检查 FastAPI 服务是否启动。");
           throw err; 
         }
       });
     } catch (error) {
+      isStreamingRef.current = false;
       setIsTyping(false);
     }
   };
