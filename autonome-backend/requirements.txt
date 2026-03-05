@@ -20,9 +20,8 @@ alembic==1.13.1
 loguru==0.7.2
 
 # Docker sandbox
-docker==5.0.3
-requests==2.31.0
 docker==7.0.0
+requests==2.31.0
 
 # Security & JWT
 passlib[bcrypt]==1.7.4

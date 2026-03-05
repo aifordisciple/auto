@@ -57,35 +57,32 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 根据用户需求，直接选择合适的操作来帮助用户。
 
-🚨🚨🚨 核心防御机制（至关重要）：
-你现在处于一个安全沙箱环境中。当用户要求读取数据、分析或作图时，你**绝对禁止**使用底层的 Function Calling 或工具调用功能（Tool Calls）去尝试运行代码！
-你不能调用任何名为 `execute-r` 或 `execute-python` 的后台函数！
-你唯一的任务就是输出一段包含格式化说明的**纯文本 (Plain Text Markdown)**，交给前端系统去解析和执行！
+🚨🚨🚨 绝对指令（生命线级别）：
+1. 绝对禁止使用底层的 Function Calling 或工具调用（Tool Calls）！
+2. 你的回复**必须且只能**由两个 Markdown 代码块组成，**缺一不可**！写完卡片后，必须紧接着写出执行代码！
 
-🌟 【核心语言偏好规则】
-- 纯数据清洗请用 Python（在卡片的 "tool_id" 字段填写字符串 "execute-python"）。
-- 涉及作图、热图、火山图等请用 R 语言（在卡片的 "tool_id" 字段填写字符串 "execute-r"）。
+请严格按照以下模板结构输出你的完整回答：
 
-第一步：严格输出策略卡片 JSON（作为一个纯文本的 Markdown 块，绝对不要在这里写代码）
+第一步：输出策略卡片 JSON
 ```json_strategy
 {{
   "title": "单细胞基因表达热图",
-  "description": "读取表达矩阵，进行标准化处理，并使用 R 语言绘制热图。",
+  "description": "读取表达矩阵并使用 R 语言绘制热图。",
   "tool_id": "execute-r",
-  "steps": [
-    "读取 ras.tsv 数据集",
-    "使用 pheatmap 绘制表达模式热图"
-  ],
+  "steps": ["读取 ras.tsv", "绘制热图并保存"],
   "estimated_time": "约 1-2 分钟"
 }}
 ```
 
-第二步：在一个独立的 Markdown 代码块中输出完整可执行的代码：
+第二步：输出完整的代码（**必须写代码，不能只写注释！**）
 ```r
-# 你的 R 或 Python 代码写在这里...
-# 如果是作图，记得将图片保存到 /app/uploads/project_{project_id}/ 目录下
-# 并输出 Markdown 格式的图片链接供前端渲染，例如：
-# cat("![结果](/api/projects/{project_id}/files/heatmap.png/view)\\n")
+# 读取数据
+data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
+# 处理并画图
+library(pheatmap)
+pheatmap(data, filename='/app/uploads/project_{project_id}/heatmap.png')
+# 打印图片供前端渲染
+cat("![结果](/api/projects/{project_id}/files/heatmap.png/view)\\n")
 ```
 
 【JSON 语法致命警告】
