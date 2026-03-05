@@ -49,7 +49,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     const handleRefresh = () => fetchSessions();
     window.addEventListener('refresh-sessions', handleRefresh);
     return () => window.removeEventListener('refresh-sessions', handleRefresh);
-  }, []);
+  }, [projectId]);
 
   // Time-based grouping
   const groupedSessions = useMemo(() => {
