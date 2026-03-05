@@ -1,5 +1,6 @@
 import time
 import json
+import re
 import traceback
 from celery import Celery
 import redis
@@ -290,6 +291,14 @@ def run_custom_python_task(self, params: dict):
     
     try:
         result_output, exit_code = run_container("autonome-tool-env", code)
+        
+        # Clean output of control characters
+        if result_output:
+            result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]', '', str(result_output))
+            result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+            result_output = re.sub(r'^\[\d+\]\s*', '', result_output, flags=re.MULTILINE)
+            result_output = result_output.strip()
+        
         log_msg("🎉 沙箱代码执行完毕！")
         
         with Session(engine) as db:
@@ -330,6 +339,14 @@ def run_custom_r_task(self, params: dict):
     
     try:
         result_output, exit_code = run_container("autonome-tool-env", code, language="r")
+        
+        # Clean output of control characters
+        if result_output:
+            result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]', '', str(result_output))
+            result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+            result_output = re.sub(r'^\[\d+\]\s*', '', result_output, flags=re.MULTILINE)
+            result_output = result_output.strip()
+        
         log_msg("🎉 R 脚本执行完毕！")
         
         with Session(engine) as db:

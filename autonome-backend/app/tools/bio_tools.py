@@ -93,6 +93,7 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
             "Image": image,
             "platform": "linux/amd64",
             "Cmd": cmd,
+            "Tty": True,  # 开启伪终端，防止 Docker 混入二进制头
             "HostConfig": {
                 "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
                 "NetworkMode": "none",
