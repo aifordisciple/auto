@@ -353,23 +353,32 @@ def run_custom_r_task(self, params: dict):
         
         log_msg("🎉 R 脚本执行完毕！开始组装渲染结果...")
         
+        # Extract project_id and session_id from params, with fallback
+        actual_project_id = project_id if project_id else 1
+        actual_session_id = session_id if session_id else 1
+        
+        # Extract actual filename from code using regex
+        import re
+        img_match = re.search(r"filename\s*=\s*['\"]?/?app/uploads/project_\d+/([^'\"]+)['\"]?", code)
+        actual_filename = img_match.group(1) if img_match else "heatmap.png"
+        
         with Session(engine) as db:
             final_content = (
-                f"✅ **分析任务已完成 (Task ID: `{task_id[:8]}`)**\n\n"
+                f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                 f"---\n"
                 f"### 📊 分析结果\n\n"
-                f"![Analysis_Result](/api/projects/{project_id}/files/heatmap.png/view)\n\n"
-                f"### 💡 AI 智能解读\n"
-                f"> *系统检测到您已成功生成热图。该图展示了基因在不同样本中的表达模式：红色区块代表基因在特定样本中处于高表达状态，而蓝色区块则代表低表达。通过图中的聚类树状图，您可以清晰地观察到样本间以及基因间的表达相似性分组。*"
+                f"![Analysis_Result](/api/projects/{actual_project_id}/files/{actual_filename}/view)\n\n"
+                f"### 💡 智能解读\n"
+                f"> *系统已成功渲染高定图表。该图直观地展示了数据在不同维度的聚类与分布模式。红色系通常代表数值上升或高表达，蓝色系代表数值下降或低表达。详细的分组相关性可通过观察树状拓扑图得出。*"
             )
             new_msg = ChatMessage(
-                session_id=session_id,
+                session_id=actual_session_id,
                 role="assistant",
                 content=final_content,
             )
             db.add(new_msg)
             db.commit()
-            log_msg(f"✅ 结果已成功回写至 ChatSession: {session_id}")
+            log_msg(f"✅ 结果已成功回写至 ChatSession: {actual_session_id}")
             
         return {"status": "success"}
     except Exception as e:
