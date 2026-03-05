@@ -284,10 +284,13 @@ export function ChatStage() {
                     }`}>
                       {msg.role === 'user' ? (
                         <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-                      ) : strategyCard ? (
-                        <StrategyCard data={strategyCard} />
                       ) : (
-                        <MarkdownBlock content={msg.content} />
+                        <div className="flex flex-col gap-4 w-full">
+                          {strategyCard && <StrategyCard data={strategyCard} />}
+                          {msg.content && (
+                            <MarkdownBlock content={strategyCard ? msg.content.replace(/```json_strategy[\s\S]*?```/, '').trim() : msg.content} />
+                          )}
+                        </div>
                       )}
                     </div>
                   </motion.div>
