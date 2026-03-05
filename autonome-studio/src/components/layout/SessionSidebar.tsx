@@ -181,13 +181,14 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     <div className="flex flex-col h-full w-full bg-transparent">
       
       {/* Header */}
-      <div className="flex items-center justify-end px-3 pt-2 pb-1">
+      <div className="flex items-center justify-between px-4 py-3 group">
+        <span className="text-sm font-medium text-neutral-300">Chats</span>
         <button 
           onClick={handleNewChat}
-          title="新建对话"
-          className="p-1.5 text-neutral-500 hover:text-white hover:bg-neutral-800/50 rounded-md transition-all"
+          title="New Chat (⌘N)"
+          className="p-1.5 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
         >
-          <SquarePen size={14} strokeWidth={1.5} />
+          <SquarePen size={15} strokeWidth={1.5} />
         </button>
       </div>
 
