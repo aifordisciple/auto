@@ -319,42 +319,33 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 export function parseStrategyCard(content: string): StrategyCardData | null {
   if (!content) return null;
 
-  // 1. Extract code from content - supports python and r blocks anywhere in content
-  const codeMatch = content.match(/```(?:python|r)\n([\s\S]*?)```/i);
-  const scriptCode = codeMatch ? codeMatch[1].trim() : "";
+  // 1. Match JSON strategy card (support all OS line endings)
+  const jsonMatch = content.match(/```json_strategy\r?\n([\s\S]*?)```/);
+  if (!jsonMatch) return null;
 
-  // 2. Look for JSON block marked with json_strategy type
-  const jsonMatch = content.match(/```json_strategy\n([\s\S]*?)```/i);
-  
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[1].trim());
-      if (parsed.tool_id && parsed.title) {
-        return {
-          ...parsed,
-          code: scriptCode,
-        } as StrategyCardData;
+  try {
+    const data = JSON.parse(jsonMatch[1].trim());
+
+    // 2. Match R/Python code block with robust regex
+    const codeMatch = content.match(/```(?:r|R|python|Python)[ \t]*\r?\n([\s\S]*?)```/);
+    
+    if (codeMatch && codeMatch[1]) {
+      data.code = codeMatch[1].trim();
+    } else {
+      // 3. Fallback: extract any code block except json_strategy
+      const cleanContent = content.replace(/```json_strategy[\s\S]*?```/, '').trim();
+      const fallbackMatch = cleanContent.match(/```[a-zA-Z]*\r?\n([\s\S]*?)```/);
+      
+      if (fallbackMatch && fallbackMatch[1]) {
+        data.code = fallbackMatch[1].trim();
+      } else {
+        data.code = "";
       }
-    } catch (e) {
-      console.error("Strategy card parse error:", e);
     }
-  }
 
-  // 3. Also try to find raw JSON object anywhere in content
-  const rawMatch = content.match(/\{[\s\S]*?"tool_id"[\s\S]*?\}/);
-  if (rawMatch) {
-    try {
-      const parsed = JSON.parse(rawMatch[0]);
-      if (parsed.tool_id && parsed.title) {
-        return {
-          ...parsed,
-          code: scriptCode,
-        } as StrategyCardData;
-      }
-    } catch (e) {
-      console.error("Strategy card parse error (raw):", e);
-    }
+    return data;
+  } catch (e) {
+    console.error("解析策略卡片 JSON 失败:", e);
+    return null;
   }
-
-  return null;
 }
