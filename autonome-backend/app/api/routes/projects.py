@@ -69,6 +69,27 @@ async def create_session(project_id: int, title: str, session: Session = Depends
     session.refresh(new_session)
     return {"status": "success", "data": new_session}
 
+
+@router.get("/{project_id}/current-session")
+async def get_current_session(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    """获取或创建当前项目的最新会话"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+    
+    chat_session = session.exec(
+        select(ChatSession).where(ChatSession.project_id == project_id).order_by(ChatSession.created_at.desc())
+    ).first()
+    
+    if not chat_session:
+        chat_session = ChatSession(project_id=project_id, title="默认分析会话")
+        session.add(chat_session)
+        session.commit()
+        session.refresh(chat_session)
+    
+    return {"status": "success", "session_id": chat_session.id}
+
+
 @router.get("/{project_id}/chat-history")
 async def get_chat_history(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     # ✨ 安全校验：越权检查
