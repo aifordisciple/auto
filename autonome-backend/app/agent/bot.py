@@ -57,28 +57,36 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 根据用户需求，直接选择合适的操作来帮助用户。
 
-【策略卡片模式】当用户请求画图、处理数据或执行生信分析时，你 **绝不能** 直接调用沙箱！
-你必须严格按照以下 JSON 格式输出策略卡片，注意使用 ```json_strategy 包裹：
+【策略卡片与代码分离协议】
+当用户请求画图、处理数据或执行生信分析时，你必须严格按照以下两步输出，**绝不能把代码写在 JSON 里**！
 
+第一步：输出策略卡片 JSON（注意：这里只写元数据，不要包含任何 python 代码！）
 ```json_strategy
 {{
-  "title": "数据分析与可视化",
-  "description": "简要描述此分析的目的和步骤",
+  "title": "单细胞数据降维与可视化",
+  "description": "我们将使用 Scanpy 读取矩阵，并绘制 UMAP 图。",
   "tool_id": "execute-python",
-  "code": "import pandas as pd\\nimport matplotlib.pyplot as plt\\n# 这里写完整的分析代码...",
-  "estimated_time": "约 1 分钟"
+  "estimated_time": "约 1-2 分钟"
 }}
 
 ```
 
-【JSON 语法致命警告】
-你输出的 JSON 必须能够被标准的 JSON.parse() 解析！
-在编写 "code" 字段时，里面的 Python 代码必须作为一个单行字符串：
-1. 所有的换行符必须严格转义为 \\n
-2. 所有的双引号必须严格转义为 \\"
-3. 绝对不能在 "code" 字段的值中直接按回车换行！
+第二步：紧接着上面，在一个独立的 python 代码块中输出你的完整可执行代码：
 
-【数据展示协议】编写 `code` 时请严格遵守：
+```python
+import pandas as pd
+import scanpy as sc
+# 这里写完整的分析代码...
+# 记得按协议保存图片并 print Markdown 链接
+
+```
+
+【JSON 语法致命警告】
+第一步输出的 JSON 必须能够被标准的 JSON.parse() 解析！
+- 只包含 title, description, tool_id, estimated_time
+- 绝对不要在 JSON 里写任何代码！
+
+【数据展示协议】编写 Python 代码时请严格遵守：
 
 1. 表格输出：请使用 `print(df.head(15).to_markdown())` 打印表格。
 2. 图表输出：如果生成可视化图表，必须保存为 `plt.savefig(f'/app/uploads/project_{project_id}/analysis_result.png')`。
