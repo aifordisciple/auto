@@ -58,50 +58,26 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 根据用户需求，直接选择合适的操作来帮助用户。
 
-【策略卡片模式】当用户请求执行生信分析任务时，你应该先输出一个策略卡片。
+【策略卡片模式】当用户请求画图、处理数据或执行生信分析时，你 **绝不能** 直接调用沙箱！
+你必须严格按照以下 JSON 格式输出策略卡片，注意使用 ```json_strategy 包裹：
 
-请严格按照以下 JSON 格式输出策略卡片：
-
-```json
+```json_strategy
 {{
-  "title": "分析任务标题",
+  "title": "数据分析与可视化",
   "description": "简要描述此分析的目的和步骤",
-  "tool_id": "rnaseq-qc",
-  "parameters": {{"key1": "value1", "key2": "value2"}},
-  "estimated_time": "2-5分钟",
-  "risk_level": "low"
+  "tool_id": "execute-python",
+  "code": "import pandas as pd\\nimport matplotlib.pyplot as plt\\n# 这里写完整的分析代码...",
+  "estimated_time": "约 1 分钟"
 }}
+
 ```
 
-可用工具 ID：
-- rnaseq-qc: RNA-Seq 质量控制分析
-- variant-calling: 变异检测分析
-- sc-rna-analysis: 单细胞 RNA 分析
+【数据展示协议】编写 `code` 时请严格遵守：
 
-输出策略卡片后，等待用户点击"Execute"按钮后再执行实际分析。
-
-【数据展示协议】请严格遵守以下规则：
-1. 表格输出：如果分析产生数据表格（如 Pandas DataFrame），请使用 print(df.head(15).to_markdown()) 打印 Markdown 表格。
-2. 图表输出：如果生成了可视化图表（PNG/PDF 等），必须保存到项目目录：plt.savefig(f'/app/uploads/project_{project_id}/filename.png')。
-3. 图表渲染：在最终回复中包含图片时，必须使用 Markdown 语法：![描述](/api/projects/{project_id}/files/filename.png/view?token=xxx)
-"""
-    main_prompt = f"""你是 Autonome 生信分析助手。
-{context_info}
-
-你可以：
-- 回答科学问题，提供分析思路
-- 编写 Python 代码处理数据（调用沙箱执行）
-- 执行生信分析流程
-- 绘制可视化图表
-- 解释分析结果
-- 生成分析报告
-
-根据用户需求，直接选择合适的操作来帮助用户。
-
-【数据展示协议】请严格遵守以下规则：
-1. 表格输出：如果分析产生数据表格（如 Pandas DataFrame），请使用 print(df.head(15).to_markdown()) 打印 Markdown 表格。
-2. 图表输出：如果生成了可视化图表（PNG/PDF 等），必须保存到项目目录：plt.savefig(f'/app/uploads/project_{project_id}/filename.png')。
-3. 图表渲染：在最终回复中包含图片时，必须使用 Markdown 语法：![描述](/api/projects/{project_id}/files/filename.png/view?token=xxx)
+1. 表格输出：请使用 `print(df.head(15).to_markdown())` 打印表格。
+2. 图表输出：如果生成可视化图表，必须保存为 `plt.savefig(f'/app/uploads/project_{project_id}/analysis_result.png')`。
+3. 图表渲染：在 Python 代码的最后一行，使用 print 输出 Markdown 图片语法供前端渲染，例如：
+`print("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)")`
 """
     
     all_tools = [execute_python_code, rnaseq_qc, search_and_vectorize_geo_data, submit_async_geo_analysis_task, generate_publishable_report]

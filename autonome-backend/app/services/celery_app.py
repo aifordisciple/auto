@@ -4,6 +4,11 @@ import traceback
 from celery import Celery
 import redis
 
+from sqlmodel import Session
+from app.core.database import engine
+from app.models.domain import ChatMessage
+from app.tools.bio_tools import run_container
+
 # ✨ 引入全局配置中心
 from app.core.config import settings
 from app.core.logger import log
@@ -275,9 +280,50 @@ print(f"SUCCESS: Analysis pipeline completed. Target output -> {out_filename}")
     except Exception as e:
         log_progress(f"💥 致命错误：计算引擎崩溃 -> {str(e)}", "ERROR")
         raise e
+
 # 任务注册表
 TASK_REGISTRY = {
     "rnaseq-qc": run_rnaseq_qc_pipeline,
     "variant-calling": run_variant_calling_pipeline,
     "sc-rna-analysis": run_scrna_analysis_pipeline,
 }
+
+
+# ==========================================
+# 通用 Python 代码沙箱执行任务
+# ==========================================
+@celery_app.task(bind=True)
+def run_custom_python_task(self, params: dict):
+    """通用 Python 代码沙箱执行任务，并在完成后将结果写回聊天记录"""
+    task_id = self.request.id
+    code = params.get("code")
+    session_id = params.get("session_id")
+    project_id = params.get("project_id")
+    
+    log_msg = create_task_logger(task_id)
+    log_msg(f"🚀 初始化通用沙箱引擎 (Task ID: {task_id})")
+    
+    try:
+        result_output, exit_code = run_container("autonome-tool-env", code)
+        log_msg("🎉 沙箱代码执行完毕！")
+        
+        with Session(engine) as db:
+            final_content = (
+                f"✅ **分析任务已完成 (Task ID: `{task_id[:8]}`)**\n\n"
+                f"---\n"
+                f"### 📊 执行结果\n\n"
+                f"{result_output}"
+            )
+            new_msg = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=final_content,
+            )
+            db.add(new_msg)
+            db.commit()
+            log_msg(f"✅ 结果已成功回写至 ChatSession: {session_id}")
+            
+        return {"status": "success"}
+    except Exception as e:
+        log_msg(f"💥 执行失败: {str(e)}", level="ERROR")
+        raise e

@@ -7,7 +7,7 @@ from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
-from app.services.celery_app import TASK_REGISTRY, redis_client
+from app.services.celery_app import TASK_REGISTRY, redis_client, run_custom_python_task
 from app.api.deps import get_current_user
 from app.models.domain import User
 
@@ -50,6 +50,12 @@ class TaskSubmitRequest(BaseModel):
     project_id: Optional[int] = None
 
 
+class TaskRunRequest(BaseModel):
+    code: str
+    session_id: int
+    project_id: int
+
+
 @router.post("/submit")
 async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(get_current_user)):
     """提交一个异步计算任务"""
@@ -83,6 +89,34 @@ async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(g
     redis_client.ltrim(f"user_tasks:{current_user.id}", 0, 99)  # 保留最近100个任务
     
     return {"status": "submitted", "task_id": task.id, "tool_id": request.tool_id}
+
+
+@router.post("/run-analysis")
+async def submit_analysis_task(
+    req: TaskRunRequest, 
+    current_user: User = Depends(get_current_user)
+):
+    """接收前端策略卡片的请求，触发异步任务"""
+    
+    task = run_custom_python_task.delay({
+        "code": req.code,
+        "session_id": req.session_id,
+        "project_id": req.project_id
+    })
+    
+    redis_client.hset(f"task_info:{task.id}", mapping={
+        "tool_id": "execute-python",
+        "project_id": str(req.project_id),
+        "name": "Custom Python Analysis",
+        "created_at": str(time.time())
+    })
+    redis_client.lpush(f"user_tasks:{current_user.id}", task.id)
+    
+    return {
+        "status": "success", 
+        "task_id": task.id, 
+        "message": "任务已提交"
+    }
 
 
 @router.get("/list")
