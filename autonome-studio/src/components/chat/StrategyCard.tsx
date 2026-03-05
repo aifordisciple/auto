@@ -35,8 +35,13 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   // Generate unique key for localStorage based on card data
   const cacheKey = `strategy_status_${currentProjectId}_${data.title}_${data.description?.slice(0, 20)}`;
 
-  // Load cached status on mount
+  // Load cached status on mount (only if there's NO code to execute)
   useEffect(() => {
+    // Only use cached status if this card doesn't have executable code
+    if (data.code && data.code.length > 0) {
+      return; // Don't load cache for executable cards
+    }
+    
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
@@ -49,7 +54,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
         // Invalid cache, ignore
       }
     }
-  }, [cacheKey]);
+  }, [cacheKey, data.code]);
 
   // Cleanup WebSocket on unmount
   useEffect(() => {
@@ -321,32 +326,45 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
 
   try {
     // 1. Extract JSON (relaxed regex)
-    const jsonMatch = content.match(/```json_strategy[\s\S]*?\n([\s\S]*?)```/);
-    if (!jsonMatch) return null;
-
-    const data = JSON.parse(jsonMatch[1].trim());
-
-    // 2. Brute force extract code using string split
-    let extractedCode = "";
-    const blocks = content.split("```");
-    
-    for (let i = 1; i < blocks.length; i += 2) {
-      const block = blocks[i].trim();
-      if (!block.startsWith("json_strategy")) {
-        const firstNewlineIndex = block.indexOf('\n');
-        if (firstNewlineIndex !== -1) {
-          extractedCode = block.substring(firstNewlineIndex + 1).trim();
-          break;
-        }
-      }
+    let jsonStr = "";
+    const jsonMatch = content.match(/```json_strategy\s*\n([\s\S]*?)```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    } else {
+      // Fallback: find raw JSON
+      const fallbackMatch = content.match(/\{[\s\S]*"tool_id"[\s\S]*\}/);
+      if (!fallbackMatch) return null;
+      jsonStr = fallbackMatch[0];
     }
 
-    data.code = extractedCode;
-    console.log("🔍 [解析卡片结果]:", data);
+    // Clean invisible characters
+    jsonStr = jsonStr.replace(/\u00A0/g, ' ');
+    const data = JSON.parse(jsonStr.trim());
+
+    // 2. Normalize tool_id
+    if (data.tool_id === 'execute-r' || data.tool_id === 'R') {
+      data.tool_id = 'execute_r';
+    } else if (data.tool_id === 'execute-python' || data.tool_id === 'python') {
+      data.tool_id = 'execute_python';
+    }
+
+    // 3. Extract code block
+    let codeStr = "";
+    const rMatch = content.match(/```(?:r|R)\s*\n([\s\S]*?)```/);
+    const pyMatch = content.match(/```(?:python|Python)\s*\n([\s\S]*?)```/);
+    
+    if (rMatch) {
+      codeStr = rMatch[1];
+    } else if (pyMatch) {
+      codeStr = pyMatch[1];
+    }
+
+    data.code = codeStr.trim();
+    console.log("🛠️ [完美卡片数据]:", data);
 
     return data;
   } catch (e) {
-    console.error("❌ 解析策略卡片 JSON 失败:", e);
+    console.error("❌ 解析卡片失败:", e);
     return null;
   }
 }
