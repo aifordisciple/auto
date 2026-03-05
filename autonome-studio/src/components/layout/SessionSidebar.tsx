@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { SquarePen, Trash2, Edit2 } from "lucide-react";
+import { SquarePen, Trash2, Edit2, MessageSquare } from "lucide-react";
 import { BASE_URL } from "@/lib/api";
 
 interface Session {
@@ -211,8 +211,18 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
         })}
 
         {sessions.length === 0 && (
-          <div className="px-4 py-8 text-center">
-            <p className="text-[13px] text-neutral-600">No recent chats</p>
+          <div className="px-4 py-10 flex flex-col items-center justify-center text-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-neutral-800/50 flex items-center justify-center text-neutral-500 mb-1">
+              <MessageSquare size={18} strokeWidth={1.5} />
+            </div>
+            <p className="text-[13px] text-neutral-500">暂无历史对话</p>
+            <button 
+              onClick={handleNewChat}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-[12px] rounded-md transition-all shadow-sm border border-neutral-700/50 hover:border-neutral-600"
+            >
+              <SquarePen size={13} strokeWidth={1.5} />
+              开启新对话
+            </button>
           </div>
         )}
       </div>
