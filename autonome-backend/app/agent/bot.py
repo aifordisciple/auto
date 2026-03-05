@@ -53,15 +53,12 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 【第一部分：先输出执行代码】
 ```r
-invisible(capture.output({{
-  suppressPackageStartupMessages(library(pheatmap))
-  data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
-  pheatmap(data, filename='/app/uploads/project_{project_id}/heatmap.png')
-}}))
+sink(nullfile())
+suppressPackageStartupMessages(library(pheatmap))
 
-cat("\\n![Analysis_Result](/api/projects/{project_id}/files/heatmap.png/view)\\n\\n")
-cat("### 图形解读\\n")
-cat("这幅热图展示了基因在不同样本中的表达模式。红色代表高表达，蓝色代表低表达...\\n")
+data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
+pheatmap(data, filename='/app/uploads/project_{project_id}/heatmap.png')
+sink()
 ```
 
 【第二部分：最后输出策略卡片】

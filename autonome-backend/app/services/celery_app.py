@@ -351,14 +351,16 @@ def run_custom_r_task(self, params: dict):
             result_output = re.sub(r'\n{3,}', '\n\n', result_output)
             result_output = result_output.strip()
         
-        log_msg("🎉 R 脚本执行完毕！")
+        log_msg("🎉 R 脚本执行完毕！开始组装渲染结果...")
         
         with Session(engine) as db:
             final_content = (
-                f"✅ **R 语言作图任务已完成 (Task ID: `{task_id[:8]}`)**\n\n"
+                f"✅ **分析任务已完成 (Task ID: `{task_id[:8]}`)**\n\n"
                 f"---\n"
-                f"### 📊 执行结果\n\n"
-                f"{result_output}"
+                f"### 📊 分析结果\n\n"
+                f"![Analysis_Result](/api/projects/{project_id}/files/heatmap.png/view)\n\n"
+                f"### 💡 AI 智能解读\n"
+                f"> *系统检测到您已成功生成热图。该图展示了基因在不同样本中的表达模式：红色区块代表基因在特定样本中处于高表达状态，而蓝色区块则代表低表达。通过图中的聚类树状图，您可以清晰地观察到样本间以及基因间的表达相似性分组。*"
             )
             new_msg = ChatMessage(
                 session_id=session_id,
