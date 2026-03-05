@@ -161,5 +161,3 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     </div>
   );
 }
-
-export { handleAutoName };
