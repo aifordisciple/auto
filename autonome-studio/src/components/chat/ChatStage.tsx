@@ -99,17 +99,33 @@ export function ChatStage() {
     
     addMessage('user', currentInput);
     addMessage('assistant', ''); 
-    isStreamingRef.current = true;
     setIsTyping(true);
+    
+    // ✨ 开启流式护盾
+    isStreamingRef.current = true;
 
     try {
       const token = localStorage.getItem('autonome_access_token');
+      console.log('[Chat] Sending message:', { project_id: currentProjectId, session_id: currentSessionId });
+      
       await fetchEventSource(`${BASE_URL}/api/chat/stream`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          project_id: currentProjectId,
+          message: currentInput,
+          context_files: mountedFiles,
+          session_id: currentSessionId
+        }),
+        openWhenHidden: true,
+        onopen: async (res) => {
+          if (!res.ok || res.status !== 200) {
+            throw new Error(`Server responded with ${res.status}`);
+          }
         },
         body: JSON.stringify({
           project_id: currentProjectId,
@@ -166,6 +182,8 @@ export function ChatStage() {
     } catch (error) {
       isStreamingRef.current = false;
       setIsTyping(false);
+      console.error('[Chat] Send error:', error);
+      appendLastMessage("\n\n**[系统错误]** 发送消息失败，请检查控制台。");
     }
   };
 
