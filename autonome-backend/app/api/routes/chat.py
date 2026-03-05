@@ -1,6 +1,7 @@
 import json
 import os
 from http import HTTPStatus
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ class ChatRequest(BaseModel):
     project_id: int
     message: str
     context_files: list[str] = []
+    session_id: Optional[int] = None
 
 
 @router.post("/stream")
@@ -40,15 +42,19 @@ async def chat_stream(
             detail="⚠️ 您的算力余额已耗尽，请充值后继续使用大模型与沙箱服务。"
         )
 
-    # 3. 记录用户消息
-    chat_session = session.exec(
-        select(ChatSession).where(ChatSession.project_id == request.project_id)
-    ).first()
-    if not chat_session:
-        chat_session = ChatSession(project_id=request.project_id)
+    # 3. 会话路由与创建逻辑
+    if request.session_id:
+        chat_session = session.get(ChatSession, request.session_id)
+        if not chat_session or chat_session.project_id != request.project_id:
+            raise HTTPException(status_code=404, detail="会话不存在或已删除")
+        is_new_session = False
+    else:
+        temp_title = request.message[:15] + "..." if len(request.message) > 15 else request.message
+        chat_session = ChatSession(project_id=request.project_id, title=temp_title)
         session.add(chat_session)
         session.commit()
         session.refresh(chat_session)
+        is_new_session = True
         
     user_msg = ChatMessage(session_id=chat_session.id, role=RoleEnum.user, content=request.message)
     session.add(user_msg)
@@ -90,6 +96,9 @@ async def chat_stream(
     model_name = db_model if db_model else "gpt-3.5-turbo"
 
     async def event_generator():
+        # 先推送 session_id 给前端
+        yield {"event": "session_info", "data": json.dumps({"session_id": session_id_for_ai, "is_new": is_new_session})}
+        
         if not is_local_model and not api_key:
             yield {"event": "message", "data": json.dumps({"type": "text", "content": "⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。"})}
             yield {"event": "done", "data": "[DONE]"}
@@ -185,3 +194,147 @@ async def chat_stream(
             yield {"event": "done", "data": "[DONE]"}
 
     return EventSourceResponse(event_generator())
+
+
+# ==========================================
+# 会话管理 API
+# ==========================================
+
+class SessionUpdate(BaseModel):
+    title: str
+
+
+@router.get("/projects/{project_id}/sessions")
+def get_project_sessions(
+    project_id: int, 
+    session: Session = Depends(get_session), 
+    current_user: User = Depends(get_current_user)
+):
+    """获取项目下的所有历史对话列表"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+    
+    sessions = session.exec(
+        select(ChatSession)
+        .where(ChatSession.project_id == project_id)
+        .order_by(ChatSession.created_at.desc())
+    ).all()
+    return {"status": "success", "data": sessions}
+
+
+@router.get("/sessions/{session_id}/messages")
+def get_session_messages(
+    session_id: int, 
+    session: Session = Depends(get_session), 
+    current_user: User = Depends(get_current_user)
+):
+    """获取指定对话的所有聊天记录"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+    
+    messages = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at)
+    ).all()
+    return {"status": "success", "data": messages}
+
+
+@router.put("/sessions/{session_id}")
+def rename_session(
+    session_id: int, 
+    req: SessionUpdate, 
+    session: Session = Depends(get_session), 
+    current_user: User = Depends(get_current_user)
+):
+    """手动重命名对话"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    
+    chat_session.title = req.title[:100]
+    session.add(chat_session)
+    session.commit()
+    return {"status": "success", "title": chat_session.title}
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(
+    session_id: int, 
+    session: Session = Depends(get_session), 
+    current_user: User = Depends(get_current_user)
+):
+    """删除对话"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    
+    session.delete(chat_session)
+    session.commit()
+    return {"status": "success"}
+
+
+@router.post("/sessions/{session_id}/auto-name")
+def auto_name_session(
+    session_id: int, 
+    session: Session = Depends(get_session), 
+    current_user: User = Depends(get_current_user)
+):
+    """AI 自动根据第一条消息提炼标题"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    
+    first_msg = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at)
+    ).first()
+    
+    if not first_msg:
+        return {"title": chat_session.title}
+
+    config = session.get(SystemConfig, 1)
+    
+    try:
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=config.openai_api_key or "ollama", 
+            base_url=config.openai_base_url or "http://localhost:11434/v1"
+        )
+        
+        response = client.chat.completions.create(
+            model=config.default_model or "gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "你是一个标题生成器。请根据用户的提问，生成一个4到8个字的极简对话标题。不要加引号或任何标点符号。"},
+                {"role": "user", "content": first_msg.content}
+            ],
+            max_tokens=15,
+            temperature=0.3
+        )
+        new_title = response.choices[0].message.content.strip().replace('"', '').replace("'", '')
+        chat_session.title = new_title
+        session.add(chat_session)
+        session.commit()
+        return {"status": "success", "title": new_title}
+    except Exception as e:
+        log.error(f"AI 命名失败: {str(e)}")
+        return {"status": "error", "title": chat_session.title}
