@@ -162,14 +162,6 @@ def run_scrna_analysis_pipeline(self, params: dict):
         raise e
 
 
-# 任务注册表
-TASK_REGISTRY = {
-    "rnaseq-qc": run_rnaseq_qc_pipeline,
-    "variant-calling": run_variant_calling_pipeline,
-    "sc-rna-analysis": run_scrna_analysis_pipeline,
-}
-
-
 # ==========================================
 # GEO 单细胞数据分析异步任务
 # ==========================================
@@ -281,13 +273,6 @@ print(f"SUCCESS: Analysis pipeline completed. Target output -> {out_filename}")
         log_progress(f"💥 致命错误：计算引擎崩溃 -> {str(e)}", "ERROR")
         raise e
 
-# 任务注册表
-TASK_REGISTRY = {
-    "rnaseq-qc": run_rnaseq_qc_pipeline,
-    "variant-calling": run_variant_calling_pipeline,
-    "sc-rna-analysis": run_scrna_analysis_pipeline,
-}
-
 
 # ==========================================
 # 通用 Python 代码沙箱执行任务
@@ -327,3 +312,12 @@ def run_custom_python_task(self, params: dict):
     except Exception as e:
         log_msg(f"💥 执行失败: {str(e)}", level="ERROR")
         raise e
+
+
+# 任务注册表（统一管理所有 Celery 任务）
+TASK_REGISTRY = {
+    "rnaseq-qc": run_rnaseq_qc_pipeline,
+    "variant-calling": run_variant_calling_pipeline,
+    "sc-rna-analysis": run_scrna_analysis_pipeline,
+    "execute-python": run_custom_python_task,
+}
