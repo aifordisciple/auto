@@ -55,11 +55,11 @@ export function GlobalOverlay() {
 
             {/* 侧滑主面板外壳 */}
             <motion.div
-              initial={{ x: "-100%", opacity: 0.5 }}
+              initial={{ x: "100%", opacity: 0.5 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "-100%", opacity: 0.5 }}
+              exit={{ x: "100%", opacity: 0.5 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed top-0 left-0 bottom-0 z-50 w-[85vw] max-w-6xl bg-neutral-950 border-r border-neutral-800 shadow-2xl flex flex-col"
+              className="fixed top-0 right-0 bottom-0 z-50 w-[85vw] max-w-6xl bg-neutral-950 border-l border-neutral-800 shadow-2xl flex flex-col"
             >
               {/* 全局统一的顶栏和关闭按钮 */}
               <div className="h-16 border-b border-neutral-800 flex items-center justify-between px-8 shrink-0">
