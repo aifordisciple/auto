@@ -71,6 +71,13 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 ```
 
+【JSON 语法致命警告】
+你输出的 JSON 必须能够被标准的 JSON.parse() 解析！
+在编写 "code" 字段时，里面的 Python 代码必须作为一个单行字符串：
+1. 所有的换行符必须严格转义为 \\n
+2. 所有的双引号必须严格转义为 \\"
+3. 绝对不能在 "code" 字段的值中直接按回车换行！
+
 【数据展示协议】编写 `code` 时请严格遵守：
 
 1. 表格输出：请使用 `print(df.head(15).to_markdown())` 打印表格。
