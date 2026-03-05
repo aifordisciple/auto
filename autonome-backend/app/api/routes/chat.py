@@ -122,6 +122,10 @@ async def chat_stream(
             log.info(f"💬 [Chat] 开始生成 - user_id={user_id}, message={request.message[:50]}...")
             
             messages = [{"role": "user", "content": request.message}]
+            
+            # ✨ 打印发送给大模型的完整消息
+            log.info(f"📤 [向 AI 发送请求]: {messages}")
+            log.info("📡 正在等待 Agent 流式事件响应...")
 
             async for event in agent_executor.astream_events({"messages": messages}, config={"recursion_limit": 20}, version="v2"):
                 kind = event["event"]
@@ -142,8 +146,15 @@ async def chat_stream(
 
                 elif kind == "on_chat_model_stream":
                     chunk = event.get("data", {}).get("chunk", {})
+                    
+                    # ✨ 拦截并打印潜在的隐藏 Tool Calls
+                    if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                        log.warning(f"⚠️ [AI 生成了隐藏的工具调用]: {chunk.tool_calls}")
+                        
                     content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     if isinstance(content, str) and content:
+                        # ✨ 打印 AI 输出的每一个字符片段
+                        log.info(f"📥 [AI 字符流]: {repr(content[:100])}")
                         ai_full_response += content
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
                 
@@ -162,7 +173,8 @@ async def chat_stream(
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
 
-            log.info("✅ Agent 流式响应结束。")
+            # ✨ 打印 AI 的最终完整回复
+            log.info(f"✅ [AI 完整输出结果]:\n{ai_full_response if ai_full_response else '<空> (AI没有返回任何文本)'}")
 
         except Exception as e:
             import traceback
