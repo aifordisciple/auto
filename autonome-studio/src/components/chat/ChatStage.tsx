@@ -289,9 +289,6 @@ export function ChatStage() {
                           {strategyCard && <StrategyCard data={strategyCard} />}
                           {msg.content && (() => {
                             let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
-                            cleanText = cleanText.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
-                            cleanText = cleanText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-                            cleanText = cleanText.replace(/^\[\d+\]\s*/gm, '');
                             return cleanText ? <MarkdownBlock content={cleanText} /> : null;
                           })()}
                         </div>

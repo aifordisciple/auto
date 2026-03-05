@@ -93,7 +93,7 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
             "Image": image,
             "platform": "linux/amd64",
             "Cmd": cmd,
-            "Tty": True,  # 开启伪终端，防止 Docker 混入二进制头
+            "Tty": False,  # 关闭伪终端，防止交互式控制符
             "HostConfig": {
                 "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
                 "NetworkMode": "none",
@@ -122,7 +122,12 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
         
         # 获取日志
         logs = docker_api_request("GET", f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100")
-        log_output = json.dumps(logs) if isinstance(logs, dict) else str(logs)
+        if isinstance(logs, bytes):
+            log_output = logs.decode('utf-8', errors='ignore')
+        elif isinstance(logs, dict):
+            log_output = json.dumps(logs)
+        else:
+            log_output = str(logs)
         
         # 获取退出码
         exit_code = info.get('State', {}).get('ExitCode', 0)
