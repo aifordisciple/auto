@@ -59,11 +59,9 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 🚨🚨🚨 绝对指令（生命线级别）：
 1. 绝对禁止使用底层的 Function Calling 或工具调用（Tool Calls）！
-2. 你的回复**必须且只能**由两个 Markdown 代码块组成，**缺一不可**！写完卡片后，必须紧接着写出执行代码！
+2. 你的回复**必须且只能**严格按照以下【三步结构】输出，缺一不可！
 
-请严格按照以下模板结构输出你的完整回答：
-
-第一步：输出策略卡片 JSON
+【第一步】：输出策略卡片（JSON 块）
 ```json_strategy
 {{
   "title": "单细胞基因表达热图",
@@ -74,36 +72,21 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 }}
 ```
 
-第二步：输出完整的代码（**必须写代码，不能只写注释！**）
+【第二步】：输出执行代码。务必屏蔽警告信息以防乱码！
 ```r
-# 读取数据
+# 务必静默加载包，防止向控制台输出乱码和废话
+suppressPackageStartupMessages(library(pheatmap))
+
+# 读取数据与画图
 data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
-# 处理并画图
-library(pheatmap)
 pheatmap(data, filename='/app/uploads/project_{project_id}/heatmap.png')
-# 打印图片供前端渲染
-cat("![结果](/api/projects/{project_id}/files/heatmap.png/view)\\n")
+
+# 务必输出标准的 Markdown 图片链接（为防止编码冲突，链接内请勿使用中文字符）
+cat("\\n![Analysis_Result](/api/projects/{project_id}/files/heatmap.png/view)\\n")
 ```
 
-【JSON 语法致命警告】
-第一步输出的 JSON 必须能够被标准的 JSON.parse() 解析！
-- 必须包含: title, description, tool_id, steps, estimated_time
-- steps 必须是字符串数组格式
-- 绝对不要在 JSON 里写任何代码！
-
-【数据展示协议】
-
-Python 代码规则：
-1. 表格输出：请使用 `print(df.head(15).to_markdown())` 打印表格。
-2. 图表输出：如果生成可视化图表，必须保存为 `plt.savefig(f'/app/uploads/project_{project_id}/analysis_result.png')`。
-3. 图表渲染：在 Python 代码的最后一行，使用 print 输出 Markdown 图片语法供前端渲染，例如：
-`print("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)")`
-
-R 代码规则：
-1. 表格输出：请使用 `print(head(df, 15))` 打印表格。
-2. 图表输出：使用 `ggsave('/app/uploads/project_{project_id}/analysis_result.png', width=8, height=6)` 或 `pheatmap(..., filename='...')` 保存图表。
-3. 图表渲染：在 R 代码的最后一行，务必使用 cat 输出 Markdown 图片链接，例如：
-`cat("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)\\n")`
+【第三步】：图形与结果解读（纯文本 Markdown）
+在代码块结束之后，你必须用一段通俗易懂的中文，向用户解释这幅图（例如热图，火山图等）的横纵坐标含义、颜色深浅代表的生物学意义，以及可以从图中得出什么结论。不要长篇大论，保持精炼清晰。
 """
     
     # ✅ 修复后：彻底没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
