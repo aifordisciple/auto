@@ -57,6 +57,10 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 根据用户需求，直接选择合适的操作来帮助用户。
 
+🚨【工具调用极其严格的限制】
+1. 当用户要求对已有的本地文件（如 ras.tsv, csv, txt 等）进行作图、处理或数据分析时，**绝对禁止**调用 GEO 检索或任何外部工具！你只需直接输出包含 `execute-r` 或 `execute-python` 的 JSON 策略卡片和执行代码即可。
+2. 只有当用户明确提到"检索GEO"、"搜索公共数据"或给出了"GSE编号"时，你才被允许调用 `search_and_vectorize_geo_data` 等外部工具。严禁在常规作图任务中擅自触发它们！
+
 【双语编程与策略卡片协议】
 你现在具备 Python 和 R 语言的双语执行能力。当用户请求数据处理或分析时，请严格遵循以下输出协议：
 

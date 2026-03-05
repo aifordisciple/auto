@@ -21,7 +21,7 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.core.logger import log
-from app.models.domain import PublicDataset
+from app.models.domain import PublicDataset, SystemConfig
 
 # ⚠️ 必须配置 Email 才能使用 NCBI 的 API
 Entrez.email = "autonome_agent@example.com" 
@@ -49,8 +49,17 @@ def search_and_vectorize_geo_data(query: str, user_id: int) -> str:
         summary_handle = Entrez.esummary(db="gds", id=",".join(id_list))
         summaries = Entrez.read(summary_handle)
         
-        # 3. 初始化 OpenAI 的轻量级高性价比向量模型
-        embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
+        # 3. 从数据库读取 OpenAI 配置并初始化向量模型
+        with Session(engine) as config_session:
+            config = config_session.get(SystemConfig, 1)
+            api_key = config.openai_api_key if config and config.openai_api_key else "ollama"
+            base_url = config.openai_base_url if config and config.openai_base_url else "http://localhost:11434/v1"
+        
+        embeddings_model = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            api_key=api_key,
+            base_url=base_url
+        )
         results_for_llm = []
         
         with Session(engine) as session:
