@@ -341,11 +341,11 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
     jsonStr = jsonStr.replace(/\u00A0/g, ' ');
     const data = JSON.parse(jsonStr.trim());
 
-    // 2. Normalize tool_id
-    if (data.tool_id === 'execute-r' || data.tool_id === 'R') {
-      data.tool_id = 'execute_r';
-    } else if (data.tool_id === 'execute-python' || data.tool_id === 'python') {
-      data.tool_id = 'execute_python';
+    // Normalize tool_id to use dash format (as expected by backend)
+    if (data.tool_id === 'execute_r' || data.tool_id === 'R') {
+      data.tool_id = 'execute-r';
+    } else if (data.tool_id === 'execute_python' || data.tool_id === 'python') {
+      data.tool_id = 'execute-python';
     }
 
     // 3. Extract code block
