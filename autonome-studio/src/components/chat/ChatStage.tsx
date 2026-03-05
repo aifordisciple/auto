@@ -286,10 +286,13 @@ export function ChatStage() {
                         <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
                       ) : (
                         <div className="flex flex-col gap-4 w-full">
-                          {msg.content && (
-                            <MarkdownBlock content={msg.content} />
-                          )}
                           {strategyCard && <StrategyCard data={strategyCard} />}
+                          {msg.content && (() => {
+                            let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
+                            cleanText = cleanText.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+                            cleanText = cleanText.replace(/^\[1\] /gm, '');
+                            return cleanText ? <MarkdownBlock content={cleanText} /> : null;
+                          })()}
                         </div>
                       )}
                     </div>
