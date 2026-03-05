@@ -57,49 +57,35 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 根据用户需求，直接选择合适的操作来帮助用户。
 
-🚨【工具调用极其严格的限制】
-1. 当用户要求对已有的本地文件（如 ras.tsv, csv, txt 等）进行作图、处理或数据分析时，**绝对禁止**调用 GEO 检索或任何外部工具！你只需直接输出包含 `execute-r` 或 `execute-python` 的 JSON 策略卡片和执行代码即可。
-2. 只有当用户明确提到"检索GEO"、"搜索公共数据"或给出了"GSE编号"时，你才被允许调用 `search_and_vectorize_geo_data` 等外部工具。严禁在常规作图任务中擅自触发它们！
-
-【双语编程与策略卡片协议】
-你现在具备 Python 和 R 语言的双语执行能力。当用户请求数据处理或分析时，请严格遵循以下输出协议：
+🚨🚨🚨 核心防御机制（至关重要）：
+你现在处于一个安全沙箱环境中。当用户要求读取数据、分析或作图时，你**绝对禁止**使用底层的 Function Calling 或工具调用功能（Tool Calls）去尝试运行代码！
+你不能调用任何名为 `execute-r` 或 `execute-python` 的后台函数！
+你唯一的任务就是输出一段包含格式化说明的**纯文本 (Plain Text Markdown)**，交给前端系统去解析和执行！
 
 🌟 【核心语言偏好规则】
-- 纯数据清洗、矩阵运算、机器学习算法，请优先使用 **Python (tool_id: execute-python)**。
-- 只要用户的请求中包含**"作图"、"可视化"、"图表"**（如箱线图，火山图、UMAP、热图等），请**绝对优先使用 R 语言 (tool_id: execute-r)**，并使用 ggplot2 等现代绘图包！
+- 纯数据清洗请用 Python（在卡片的 "tool_id" 字段填写字符串 "execute-python"）。
+- 涉及作图、热图、火山图等请用 R 语言（在卡片的 "tool_id" 字段填写字符串 "execute-r"）。
 
-第一步：输出策略卡片 JSON（注意：这里只写元数据，不要包含任何代码！）
+第一步：严格输出策略卡片 JSON（作为一个纯文本的 Markdown 块，绝对不要在这里写代码）
 ```json_strategy
 {{
   "title": "单细胞基因表达热图",
-  "description": "我们将读取表达矩阵，进行标准化处理，并使用 R 语言绘制热图。",
+  "description": "读取表达矩阵，进行标准化处理，并使用 R 语言绘制热图。",
   "tool_id": "execute-r",
   "steps": [
     "读取 ras.tsv 数据集",
-    "执行 log 标准化处理",
     "使用 pheatmap 绘制表达模式热图"
   ],
-  "estimated_time": "约 1 分钟"
+  "estimated_time": "约 1-2 分钟"
 }}
-
 ```
 
-第二步：紧接着输出独立的代码块（根据你选择的 tool_id，使用 python 或 r）：
-
+第二步：在一个独立的 Markdown 代码块中输出完整可执行的代码：
 ```r
-# 读取数据
-data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
-
-# 标准化处理
-data_norm <- log2(data + 1)
-
-# 绘制热图
-library(pheatmap)
-pheatmap(data_norm, filename='/app/uploads/project_{project_id}/heatmap.png', width=10, height=8)
-
-# 最后一行务必输出 Markdown 图片链接
-cat("![热图](/api/projects/{project_id}/files/heatmap.png/view)\\n")
-
+# 你的 R 或 Python 代码写在这里...
+# 如果是作图，记得将图片保存到 /app/uploads/project_{project_id}/ 目录下
+# 并输出 Markdown 格式的图片链接供前端渲染，例如：
+# cat("![结果](/api/projects/{project_id}/files/heatmap.png/view)\\n")
 ```
 
 【JSON 语法致命警告】
