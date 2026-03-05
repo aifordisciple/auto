@@ -286,10 +286,10 @@ export function ChatStage() {
                         <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
                       ) : (
                         <div className="flex flex-col gap-4 w-full">
-                          {strategyCard && <StrategyCard data={strategyCard} />}
                           {msg.content && (
-                            <MarkdownBlock content={strategyCard ? msg.content.replace(/```json_strategy[\s\S]*?```/, '').trim() : msg.content} />
+                            <MarkdownBlock content={msg.content} />
                           )}
+                          {strategyCard && <StrategyCard data={strategyCard} />}
                         </div>
                       )}
                     </div>
