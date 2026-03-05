@@ -358,7 +358,6 @@ def run_custom_r_task(self, params: dict):
         actual_session_id = session_id if session_id else 1
         
         # Extract actual filename from code using regex
-        import re
         img_match = re.search(r"filename\s*=\s*['\"]?/?app/uploads/project_\d+/([^'\"]+)['\"]?", code)
         actual_filename = img_match.group(1) if img_match else "heatmap.png"
         
