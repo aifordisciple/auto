@@ -53,7 +53,11 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 【第一部分：先输出执行代码】
 ```r
-# 务必静默加载包，防止向控制台输出乱码和废话
+# 强制关闭终端彩色输出和特殊格式
+options(crayon.enabled = FALSE, cli.num_colors = 1, width = 1000)
+Sys.setenv(NO_COLOR = "1", TERM = "dumb")
+
+# 务必静默加载包
 suppressPackageStartupMessages(library(pheatmap))
 
 # 读取数据与画图

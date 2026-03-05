@@ -289,8 +289,9 @@ export function ChatStage() {
                           {strategyCard && <StrategyCard data={strategyCard} />}
                           {msg.content && (() => {
                             let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
-                            cleanText = cleanText.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-                            cleanText = cleanText.replace(/^\[1\] /gm, '');
+                            cleanText = cleanText.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+                            cleanText = cleanText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+                            cleanText = cleanText.replace(/^\[\d+\]\s*/gm, '');
                             return cleanText ? <MarkdownBlock content={cleanText} /> : null;
                           })()}
                         </div>
