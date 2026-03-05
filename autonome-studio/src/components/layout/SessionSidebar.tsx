@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, MessageSquare, Trash2, Edit2, Check, X } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { SquarePen, Trash2, Edit2 } from "lucide-react";
 import { BASE_URL } from "@/lib/api";
 
 interface Session {
@@ -37,9 +37,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
   };
 
   useEffect(() => {
-    if (projectId) {
-      fetchSessions();
-    }
+    if (projectId) fetchSessions();
   }, [projectId]);
 
   useEffect(() => {
@@ -48,13 +46,38 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     return () => window.removeEventListener('refresh-sessions', handleRefresh);
   }, []);
 
-  const handleNewChat = () => {
-    onSelectSession(null);
-  };
+  // Time-based grouping
+  const groupedSessions = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const groups: Record<string, Session[]> = {
+      "Today": [],
+      "Previous 7 Days": [],
+      "Older": []
+    };
+
+    sessions.forEach(session => {
+      const date = new Date(session.created_at + (session.created_at.endsWith('Z') ? '' : 'Z'));
+      if (date >= today) {
+        groups["Today"].push(session);
+      } else if (date >= sevenDaysAgo) {
+        groups["Previous 7 Days"].push(session);
+      } else {
+        groups["Older"].push(session);
+      }
+    });
+
+    return groups;
+  }, [sessions]);
+
+  const handleNewChat = () => onSelectSession(null);
 
   const handleDelete = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
-    if (!confirm("确定要删除这个对话吗？")) return;
+    if (!confirm("Are you sure you want to delete this chat?")) return;
     
     const token = localStorage.getItem('autonome_access_token');
     try {
@@ -70,12 +93,16 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
   };
 
   const handleRename = async (id: number) => {
+    if (!editTitle.trim()) {
+      setEditingId(null);
+      return;
+    }
     const token = localStorage.getItem('autonome_access_token');
     try {
       await fetch(`${BASE_URL}/api/chat/sessions/${id}`, {
         method: "PUT",
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ title: editTitle })
+        body: JSON.stringify({ title: editTitle.trim() })
       });
       setEditingId(null);
       fetchSessions();
@@ -84,79 +111,105 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     }
   };
 
-  const handleAutoName = async (sessionId: number) => {
-    const token = localStorage.getItem('autonome_access_token');
-    try {
-      await fetch(`${BASE_URL}/api/chat/sessions/${sessionId}/auto-name`, {
-        method: "POST",
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      fetchSessions();
-      window.dispatchEvent(new Event('refresh-sessions'));
-    } catch (e) {
-      console.error('Failed to auto-name session:', e);
-    }
+  const renderSessionItem = (session: Session) => {
+    const isActive = currentSessionId === session.id;
+
+    return (
+      <div 
+        key={session.id}
+        onClick={() => onSelectSession(session.id)}
+        className={`group relative flex items-center justify-between px-2 py-1.5 mx-2 rounded-md cursor-pointer transition-all duration-200 ${
+          isActive 
+            ? 'bg-neutral-800/40 text-neutral-200' 
+            : 'text-neutral-400 hover:bg-neutral-800/20 hover:text-neutral-300'
+        }`}
+      >
+        {isActive && (
+          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-neutral-400 rounded-r-full" />
+        )}
+
+        {editingId === session.id ? (
+          <div className="flex items-center gap-2 w-full pl-1" onClick={e => e.stopPropagation()}>
+            <input 
+              autoFocus
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleRename(session.id);
+                if (e.key === 'Escape') setEditingId(null);
+              }}
+              onBlur={() => setEditingId(null)}
+              className="flex-1 bg-transparent border-b border-neutral-600 text-[13px] px-0.5 py-0.5 text-neutral-200 outline-none focus:border-neutral-400 transition-colors"
+            />
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 truncate pl-1 text-[13px] leading-relaxed">
+              {session.title}
+            </div>
+            
+            <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'bg-neutral-800/40' : 'bg-[#121212] group-hover:bg-neutral-800/20'} pl-2`}>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditTitle(session.title);
+                  setEditingId(session.id);
+                }}
+                className="p-1 text-neutral-500 hover:text-neutral-300 transition-colors"
+              >
+                <Edit2 size={13} strokeWidth={1.5} />
+              </button>
+              <button 
+                onClick={(e) => handleDelete(e, session.id)}
+                className="p-1 text-neutral-500 hover:text-rose-400/80 transition-colors"
+              >
+                <Trash2 size={13} strokeWidth={1.5} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="flex flex-col h-full w-full bg-transparent">
-      <div className="p-3">
+      
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 group">
+        <span className="text-sm font-medium text-neutral-300">Chats</span>
         <button 
           onClick={handleNewChat}
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors font-medium text-sm"
+          title="New Chat"
+          className="p-1.5 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
         >
-          <Plus size={16} /> 新建对话
+          <SquarePen size={15} strokeWidth={1.5} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 space-y-1">
-        <p className="px-3 py-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
-          Active Workspace
-        </p>
-        
-        {sessions.map((session) => {
-          const isActive = currentSessionId === session.id;
+      {/* Sessions list */}
+      <div className="flex-1 overflow-y-auto pb-4 scroll-smooth">
+        {Object.entries(groupedSessions).map(([groupName, groupSessions]) => {
+          if (groupSessions.length === 0) return null;
           
           return (
-            <div 
-              key={session.id}
-              onClick={() => onSelectSession(session.id)}
-              className={`group flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                isActive ? 'bg-[#1e1e1f] text-white shadow-sm' : 'hover:bg-neutral-800/50 text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              {editingId === session.id ? (
-                <div className="flex items-center gap-2 w-full" onClick={e => e.stopPropagation()}>
-                  <input 
-                    autoFocus
-                    value={editTitle}
-                    onChange={e => setEditTitle(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleRename(session.id)}
-                    className="flex-1 bg-neutral-900 border border-indigo-500 text-sm px-2 py-1 rounded text-white outline-none"
-                  />
-                  <Check size={14} className="text-emerald-500 cursor-pointer" onClick={() => handleRename(session.id)} />
-                  <X size={14} className="text-neutral-500 cursor-pointer" onClick={() => setEditingId(null)} />
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-3 truncate w-[80%]">
-                    <MessageSquare size={16} className={isActive ? "text-indigo-400 shrink-0" : "text-neutral-500 shrink-0"} />
-                    <span className="text-sm truncate font-medium">{session.title}</span>
-                  </div>
-                  
-                  <div className={`flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'opacity-100' : ''}`}>
-                    <Edit2 size={14} className="text-neutral-500 hover:text-white" onClick={(e) => {
-                      e.stopPropagation();
-                      setEditTitle(session.title);
-                      setEditingId(session.id);
-                    }}/>
-                    <Trash2 size={14} className="text-neutral-500 hover:text-rose-400" onClick={(e) => handleDelete(e, session.id)} />
-                  </div>
-                </>
-              )}
+            <div key={groupName} className="mb-4">
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-neutral-500 uppercase tracking-wider sticky top-0 bg-[#121212]/95 backdrop-blur-sm z-10">
+                {groupName}
+              </div>
+              
+              <div className="space-y-0.5 mt-1">
+                {groupSessions.map(renderSessionItem)}
+              </div>
             </div>
           );
         })}
+
+        {sessions.length === 0 && (
+          <div className="px-4 py-8 text-center">
+            <p className="text-[13px] text-neutral-600">No recent chats</p>
+          </div>
+        )}
       </div>
     </div>
   );
