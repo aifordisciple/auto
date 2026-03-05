@@ -319,33 +319,34 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 export function parseStrategyCard(content: string): StrategyCardData | null {
   if (!content) return null;
 
-  // 1. Match JSON strategy card (support all OS line endings)
-  const jsonMatch = content.match(/```json_strategy\r?\n([\s\S]*?)```/);
-  if (!jsonMatch) return null;
-
   try {
+    // 1. Extract JSON (relaxed regex)
+    const jsonMatch = content.match(/```json_strategy[\s\S]*?\n([\s\S]*?)```/);
+    if (!jsonMatch) return null;
+
     const data = JSON.parse(jsonMatch[1].trim());
 
-    // 2. Match R/Python code block with robust regex
-    const codeMatch = content.match(/```(?:r|R|python|Python)[ \t]*\r?\n([\s\S]*?)```/);
+    // 2. Brute force extract code using string split
+    let extractedCode = "";
+    const blocks = content.split("```");
     
-    if (codeMatch && codeMatch[1]) {
-      data.code = codeMatch[1].trim();
-    } else {
-      // 3. Fallback: extract any code block except json_strategy
-      const cleanContent = content.replace(/```json_strategy[\s\S]*?```/, '').trim();
-      const fallbackMatch = cleanContent.match(/```[a-zA-Z]*\r?\n([\s\S]*?)```/);
-      
-      if (fallbackMatch && fallbackMatch[1]) {
-        data.code = fallbackMatch[1].trim();
-      } else {
-        data.code = "";
+    for (let i = 1; i < blocks.length; i += 2) {
+      const block = blocks[i].trim();
+      if (!block.startsWith("json_strategy")) {
+        const firstNewlineIndex = block.indexOf('\n');
+        if (firstNewlineIndex !== -1) {
+          extractedCode = block.substring(firstNewlineIndex + 1).trim();
+          break;
+        }
       }
     }
 
+    data.code = extractedCode;
+    console.log("🔍 [解析卡片结果]:", data);
+
     return data;
   } catch (e) {
-    console.error("解析策略卡片 JSON 失败:", e);
+    console.error("❌ 解析策略卡片 JSON 失败:", e);
     return null;
   }
 }
