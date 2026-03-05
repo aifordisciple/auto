@@ -36,12 +36,11 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 [当前系统上下文]
 当前用户 ID: {user_id}
 当前项目 ID: {project_id}
-已挂载物理文件: {physical_file_info if physical_file_info else '无'}
+已挂载物理文件: {physical_file_info if physical_file_info else '当前项目为空，没有文件'}
 
 📁 【重要】文件存储位置说明：
-- 所有项目文件都保存在项目专属文件夹中：/app/uploads/project_{project_id}/
-- 当需要读取或操作项目文件时，请使用 os.listdir('/app/uploads/project_{project_id}/') 列出文件
-- 读取文件时使用完整路径，例如：pd.read_csv('/app/uploads/project_{project_id}/ras.tsv')
+- 用户的物理文件都已经列在上面的"已挂载物理文件"中了，当用户询问有哪些文件时，请直接回答上述列表，不要写代码。
+- 当你在策略卡片中编写读取文件的 Python 代码时，请务必使用完整路径，例如：pd.read_csv('/app/uploads/project_{project_id}/ras.tsv')
 """
     
     # 简化版：直接使用单一 Agent
@@ -80,7 +79,8 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 `print("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)")`
 """
     
-    all_tools = [execute_python_code, rnaseq_qc, search_and_vectorize_geo_data, submit_async_geo_analysis_task, generate_publishable_report]
+    # ✅ 修复后：彻底没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
+    all_tools = [rnaseq_qc, search_and_vectorize_geo_data, submit_async_geo_analysis_task, generate_publishable_report]
     main_agent = create_react_agent(llm, tools=all_tools, prompt=main_prompt)
 
     async def run_agent(state: AgentState):
