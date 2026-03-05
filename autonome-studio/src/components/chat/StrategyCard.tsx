@@ -325,21 +325,41 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
   if (!content) return null;
 
   try {
-    // 1. Extract JSON (relaxed regex)
+    // 1. Extract JSON - try multiple patterns
     let jsonStr = "";
+    let data = null;
+    
+    // Try json_strategy block first
     const jsonMatch = content.match(/```json_strategy\s*\n([\s\S]*?)```/);
     if (jsonMatch) {
-      jsonStr = jsonMatch[1];
-    } else {
-      // Fallback: find raw JSON
-      const fallbackMatch = content.match(/\{[\s\S]*"tool_id"[\s\S]*\}/);
-      if (!fallbackMatch) return null;
-      jsonStr = fallbackMatch[0];
+      jsonStr = jsonMatch[1].replace(/\u00A0/g, ' ').trim();
+      try {
+        data = JSON.parse(jsonStr);
+      } catch (e) {
+        // Try to fix common JSON issues
+        try {
+          // Remove trailing commas
+          jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+          data = JSON.parse(jsonStr);
+        } catch (e2) {
+          console.error("JSON parse failed:", e2);
+        }
+      }
     }
-
-    // Clean invisible characters
-    jsonStr = jsonStr.replace(/\u00A0/g, ' ');
-    const data = JSON.parse(jsonStr.trim());
+    
+    // Fallback: try to find any JSON with tool_id
+    if (!data) {
+      const fallbackMatch = content.match(/\{[\s\S]*"tool_id"[\s\S]*\}/);
+      if (fallbackMatch) {
+        try {
+          data = JSON.parse(fallbackMatch[0]);
+        } catch (e) {
+          console.error("Fallback JSON parse failed:", e);
+        }
+      }
+    }
+    
+    if (!data || !data.tool_id || !data.title) return null;
 
     // Normalize tool_id to use dash format (as expected by backend)
     if (data.tool_id === 'execute_r' || data.tool_id === 'R') {
@@ -348,7 +368,7 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
       data.tool_id = 'execute-python';
     }
 
-    // 3. Extract code block
+    // 2. Extract code block
     let codeStr = "";
     const rMatch = content.match(/```(?:r|R)\s*\n([\s\S]*?)```/);
     const pyMatch = content.match(/```(?:python|Python)\s*\n([\s\S]*?)```/);
