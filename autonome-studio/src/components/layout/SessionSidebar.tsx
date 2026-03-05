@@ -99,7 +99,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
   };
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <div className="flex flex-col h-full w-full bg-transparent">
       <div className="p-3">
         <button 
           onClick={handleNewChat}

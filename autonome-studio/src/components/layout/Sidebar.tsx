@@ -4,10 +4,13 @@ import { useState } from "react";
 import { LayoutDashboard, Code2, Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { SessionSidebar } from "./SessionSidebar";
 
 export function Sidebar() {
   const { setActiveOverlay } = useUIStore();
   const { user, logout } = useAuthStore();
+  const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
   const handleLogout = () => {
     localStorage.removeItem('autonome_access_token');
@@ -17,7 +20,7 @@ export function Sidebar() {
   }
 
   return (
-    <>
+    <div className="flex flex-col h-full w-full">
       {/* Logo */}
       <div 
         className="h-14 shrink-0 flex items-center px-4 border-b border-neutral-800 cursor-pointer"
@@ -42,7 +45,7 @@ export function Sidebar() {
       )}
       
       {/* Navigation */}
-      <div className="flex-1 p-3 space-y-1 text-sm text-neutral-400 mt-2">
+      <div className="p-3 space-y-1 text-sm text-neutral-400 mt-2">
         {/* Dashboard */}
         <div 
           onClick={() => window.location.href = '/dashboard'} 
@@ -86,6 +89,21 @@ export function Sidebar() {
           <FolderGit2 size={18} /> <span>项目中心</span>
         </div>
       </div>
+
+      {/* Session Management - under Project Center */}
+      <div className="flex-1 overflow-hidden flex flex-col border-t border-neutral-800 mt-2">
+        {currentProjectId ? (
+          <SessionSidebar 
+            projectId={currentProjectId}
+            currentSessionId={currentSessionId}
+            onSelectSession={setCurrentSessionId}
+          />
+        ) : (
+          <div className="px-4 py-4 text-center text-xs text-neutral-500">
+            请先选择项目
+          </div>
+        )}
+      </div>
       
       {/* Bottom section */}
       <div className="p-3 border-t border-neutral-800 text-sm text-neutral-400 shrink-0 space-y-1">
@@ -109,6 +127,6 @@ export function Sidebar() {
           <LogOut size={18} /> <span>安全登出</span>
         </div>
       </div>
-    </>
+    </div>
   );
 }
