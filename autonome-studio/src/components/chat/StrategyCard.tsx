@@ -317,18 +317,19 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 
 // Helper to parse strategy card from AI response
 export function parseStrategyCard(content: string): StrategyCardData | null {
-  // Extract code from content - supports python and r blocks with more flexible regex
-  const codeMatch = content.match(/```(?:python|r)[^\n]*\n([\s\S]*?)(?:```|$)/i);
+  if (!content) return null;
+
+  // 1. Extract code from content - supports python and r blocks anywhere in content
+  const codeMatch = content.match(/```(?:python|r)\n([\s\S]*?)```/i);
   const scriptCode = codeMatch ? codeMatch[1].trim() : "";
 
-  // Look for JSON block marked with json_strategy type - more flexible
-  const jsonMatch = content.match(/```(?:json_strategy|json)[^\n]*\n?([\s\S]*?)\n?```/i);
+  // 2. Look for JSON block marked with json_strategy type
+  const jsonMatch = content.match(/```json_strategy\n([\s\S]*?)```/i);
   
   if (jsonMatch) {
     try {
-      const parsed = JSON.parse(jsonMatch[1]);
+      const parsed = JSON.parse(jsonMatch[1].trim());
       if (parsed.tool_id && parsed.title) {
-        // Combine JSON metadata with extracted code
         return {
           ...parsed,
           code: scriptCode,
@@ -339,7 +340,7 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
     }
   }
 
-  // Also try to find raw JSON object anywhere in content
+  // 3. Also try to find raw JSON object anywhere in content
   const rawMatch = content.match(/\{[\s\S]*?"tool_id"[\s\S]*?\}/);
   if (rawMatch) {
     try {
