@@ -125,11 +125,9 @@ async def chat_stream(
 
             async for event in agent_executor.astream_events({"messages": messages}, config={"recursion_limit": 20}, version="v2"):
                 kind = event["event"]
-                log.info(f"📦 [事件] {kind}")
                 
                 if kind == "on_chain_start":
                     node_name = event.get("name", "")
-                    log.info(f"🔄 [Chain] 开始: {node_name}")
                     worker_names = {
                         "Advisor": "🧑‍🔬 科学顾问",
                         "Cleaner": "🧹 数据清洗专员",
@@ -146,13 +144,11 @@ async def chat_stream(
                     chunk = event.get("data", {}).get("chunk", {})
                     content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     if isinstance(content, str) and content:
-                        log.info(f"📝 [输出] {content[:100]}...")
                         ai_full_response += content
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
                 
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "unknown")
-                    log.info(f"🔧 [工具] 开始: {tool_name}")
                     if tool_name in ["execute_python_code", "rnaseq_qc"]:
                         cost_credits += 4.0
                         msg = f"\n\n*(🚀 Agent 正在调用工具: {tool_name})*\n\n"
@@ -161,11 +157,12 @@ async def chat_stream(
                         
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "unknown")
-                    log.info(f"✅ [工具] 结束: {tool_name}")
                     if tool_name in ["execute_python_code", "rnaseq_qc"]:
                         msg = f"\n*(✅ 工具 {tool_name} 执行完毕)*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+
+            log.info("✅ Agent 流式响应结束。")
 
         except Exception as e:
             import traceback
