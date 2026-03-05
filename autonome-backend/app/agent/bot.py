@@ -62,14 +62,19 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 🌟 【核心语言偏好规则】
 - 纯数据清洗、矩阵运算、机器学习算法，请优先使用 **Python (tool_id: execute-python)**。
-- 只要用户的请求中包含**"作图"、"可视化"、"图表"**（如箱线图、火山图、UMAP、热图等），请**绝对优先使用 R 语言 (tool_id: execute-r)**，并使用 ggplot2 等现代绘图包！
+- 只要用户的请求中包含**"作图"、"可视化"、"图表"**（如箱线图，火山图、UMAP、热图等），请**绝对优先使用 R 语言 (tool_id: execute-r)**，并使用 ggplot2 等现代绘图包！
 
 第一步：输出策略卡片 JSON（注意：这里只写元数据，不要包含任何代码！）
 ```json_strategy
 {{
-  "title": "单细胞基因表达火山图",
-  "description": "我们将使用 R 语言和 ggplot2 绘制高精度的火山图。",
+  "title": "单细胞基因表达热图",
+  "description": "我们将读取表达矩阵，进行标准化处理，并使用 R 语言绘制热图。",
   "tool_id": "execute-r",
+  "steps": [
+    "读取 ras.tsv 数据集",
+    "执行 log 标准化处理",
+    "使用 pheatmap 绘制表达模式热图"
+  ],
   "estimated_time": "约 1 分钟"
 }}
 
@@ -78,17 +83,25 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 第二步：紧接着输出独立的代码块（根据你选择的 tool_id，使用 python 或 r）：
 
 ```r
-library(ggplot2)
-# 读取数据并绘图
-# 图片必须保存为: ggsave('/app/uploads/project_{project_id}/analysis_plot.png', width=8, height=6)
-# 在 R 的最后一行务必 cat 输出 Markdown 图片链接供前端渲染：
-cat("![分析图表](/api/projects/{project_id}/files/analysis_plot.png/view)\\n")
+# 读取数据
+data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
+
+# 标准化处理
+data_norm <- log2(data + 1)
+
+# 绘制热图
+library(pheatmap)
+pheatmap(data_norm, filename='/app/uploads/project_{project_id}/heatmap.png', width=10, height=8)
+
+# 最后一行务必输出 Markdown 图片链接
+cat("![热图](/api/projects/{project_id}/files/heatmap.png/view)\\n")
 
 ```
 
 【JSON 语法致命警告】
 第一步输出的 JSON 必须能够被标准的 JSON.parse() 解析！
-- 只包含 title, description, tool_id, estimated_time
+- 必须包含: title, description, tool_id, steps, estimated_time
+- steps 必须是字符串数组格式
 - 绝对不要在 JSON 里写任何代码！
 
 【数据展示协议】
@@ -100,8 +113,8 @@ Python 代码规则：
 `print("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)")`
 
 R 代码规则：
-1. 表格输出：请使用 `print(head(df, 15))` 打印表格，或使用 `print(kable(head(df, 15)))` 输出 Markdown 格式。
-2. 图表输出：如果生成可视化图表，必须保存为 `ggsave('/app/uploads/project_{project_id}/analysis_result.png', width=8, height=6)`。
+1. 表格输出：请使用 `print(head(df, 15))` 打印表格。
+2. 图表输出：使用 `ggsave('/app/uploads/project_{project_id}/analysis_result.png', width=8, height=6)` 或 `pheatmap(..., filename='...')` 保存图表。
 3. 图表渲染：在 R 代码的最后一行，务必使用 cat 输出 Markdown 图片链接，例如：
 `cat("![分析结果](/api/projects/{project_id}/files/analysis_result.png/view)\\n")`
 """
