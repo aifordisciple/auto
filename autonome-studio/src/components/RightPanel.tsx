@@ -51,7 +51,7 @@ export function RightPanel() {
 
     setIsUploading(true);
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append('file', file); // 确保这里是 'file'
 
     try {
       await fetchAPI(`/projects/${currentProjectId}/files`, {
@@ -59,9 +59,9 @@ export function RightPanel() {
         body: formData,
       });
       fetchProjectFiles();
-    } catch (error) {
-      console.error("Upload failed:", error);
-      alert('❌ 上传失败，请检查网络状态或文件大小限制。');
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      alert(`❌ 右侧边栏上传失败: ${error.message}`);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

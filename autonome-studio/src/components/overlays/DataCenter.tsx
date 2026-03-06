@@ -151,7 +151,7 @@ export function DataCenter() {
     try {
       const uploadPromises = Array.from(files).map(async (file) => {
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", file); // 确保这里是 "file"
         return fetchAPI(`/projects/${currentProjectId}/files`, {
           method: 'POST',
           body: formData
@@ -159,9 +159,9 @@ export function DataCenter() {
       });
       await Promise.all(uploadPromises);
       await handleSync();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Upload failed", error);
-      alert("❌ 上传失败，请检查网络状态。");
+      alert(`❌ 数据中心上传失败: ${error.message}`);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
