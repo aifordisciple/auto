@@ -43,7 +43,7 @@ services:
       - REDIS_PORT=6379
       - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
       # ✨ 修复1：使用 ${PWD} 动态获取物理机绝对路径，保证 AI 跑代码的沙箱也能挂载到正确数据
-      - HOST_UPLOAD_DIR=${PWD}/uploads
+      - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
     volumes:
       # ✨ 修复2：改为绝对直连的 Bind Mount，抛弃具名卷！文件会直接出现在你物理机当前目录的 uploads 下
       - ./uploads:/app/uploads
@@ -67,7 +67,7 @@ services:
       - REDIS_PORT=6379
       - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
       # ✨ 同步修复
-      - HOST_UPLOAD_DIR=${PWD}/uploads
+      - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
     volumes:
       # ✨ 同步修复：Worker也必须挂载同一个物理目录
       - ./uploads:/app/uploads

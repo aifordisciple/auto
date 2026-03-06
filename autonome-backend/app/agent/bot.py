@@ -7,16 +7,14 @@ from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from app.tools.bio_tools import bio_tools_list, execute_python_code, rnaseq_qc
+from app.tools.bio_tools import bio_tools_list, execute_python_code
 from app.tools.geo_tools import search_and_vectorize_geo_data, submit_async_geo_analysis_task
 from app.tools.report_tools import generate_publishable_report
 from app.core.logger import log
 
-
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     next: str
-
 
 def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_info: str, global_file_tree: str, user_id: int, project_id: int):
     actual_api_key = api_key if (api_key and api_key.strip() != "") else "ollama-local"
@@ -41,80 +39,68 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 【用户显式指定的重点文件 (显微视力，请优先关注)】
 {physical_file_info if physical_file_info else '用户未特意勾选，请自己从上面的全景目录树中寻找合适的文件。'}
-
-📁 【核心强制规范：文件存储与路径】
-1. 读取数据：用户原始数据都在 `raw_data/` 目录下。代码中读取必须使用完整绝对路径，如：`/app/uploads/project_{project_id}/raw_data/文件名`
-2. 输出数据：你的所有分析结果(图表/CSV)必须保存在 `results/` 目录下。写入时必须使用绝对路径，如：`/app/uploads/project_{project_id}/results/文件名`
 """
     
-    # 简化版：直接使用单一 Agent
-    main_prompt = f"""你是 Autonome 生信分析高级专家。
+    # ✨ 优化版：强化角色认知，杜绝幻觉，严格规范输出格式
+    main_prompt = f"""你是 Autonome 生信分析高级专家，同时也是系统的工作流规划大脑。
 {context_info}
 
-【双语编程与策略卡片协议】
-🚨🚨🚨 绝对指令：
-1. 禁止使用 Function Calling 或底层工具！
-2. 必须先输出代码，再输出策略卡片 JSON！
-3. 🚨 极其重要：在保存任何文件（图片、CSV、txt）之前，你的代码必须首先检查并创建 `results` 文件夹！
+【核心角色与交互协议 (🚨非常重要)】
+你是生成策略和代码的“大脑”，代码的实际执行由前端UI拦截后交由沙箱运行。
+⚠️ 绝对禁止：不要在回复中说“我已经为您执行了”、“已在后台运行”、“正在移交超算集群”等谎言！你只负责制定计划和输出代码！
 
-【第一部分：执行代码示例 (R语言)】
-```r
-sink(nullfile())
-suppressPackageStartupMessages(library(pheatmap))
+【输出格式严格要求】
+当用户要求进行数据分析、提取、绘图等操作时，你必须严格按照以下顺序和格式输出：
+1. 简要分析思路（用 1-2 句话告诉用户你的处理逻辑）。
+2. 具体的执行代码（必须用 ```python 或 ```r 包裹）。
+3. 策略卡片 JSON（必须用 ```json_strategy 包裹）。
 
-# ✨ 强制防御：先创建 results 目录
-out_dir <- '/app/uploads/project_{project_id}/results'
-if (!dir.exists(out_dir)) {{
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-}}
+【代码编写强制规范】
+1. 读取路径：必须使用 `raw_data/` 的完整绝对路径，如 `/app/uploads/project_{project_id}/raw_data/文件名`。
+2. 写入路径：所有结果(图表/CSV/txt)必须保存至 `results/` 目录下。
+3. 强制防御：在保存文件前，代码中必须显式包含创建 `results` 目录的逻辑。
+4. 图表规范：所有的图表 (Matplotlib/Seaborn) 的标题(title)、标签(xlabel/ylabel)、图例(legend) 必须且只能使用**纯英文**！绝不允许出现中文字符，否则字体会报错！
 
-# 从 raw_data 读，向 results 写
-data <- read.table('/app/uploads/project_{project_id}/raw_data/ras.tsv', header=TRUE, row.names=1)
-pheatmap(data, filename=file.path(out_dir, 'heatmap.png'))
+【完美输出示例】
 
-tryCatch({{
-  summary_info <- paste("【维度】:", nrow(data), "行", ncol(data), "列")
-  writeLines(summary_info, file.path(out_dir, 'data_summary.txt'))
-}}, error = function(e) {{ NULL }})
+我将为您提取数据的前 20 行，并生成相应的摘要文件和纯英文注释的图表。
 
-sink()
-
-```
-
-【第一部分：执行代码示例 (Python语言)】
 ```python
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ✨ 强制防御：先创建 results 目录
+# 强制创建 results 目录
 out_dir = '/app/uploads/project_{project_id}/results'
 os.makedirs(out_dir, exist_ok=True)
 
+# 读取与处理
 df = pd.read_csv('/app/uploads/project_{project_id}/raw_data/ras.tsv', sep='\\t', index_col=0)
-# ... 绘图逻辑
+top_20 = df.head(20)
+top_20.to_csv(f'{{out_dir}}/ras_top20.tsv', sep='\\t')
+
+# 纯英文绘图
+# ... 绘图逻辑 ...
 plt.savefig(f'{{out_dir}}/heatmap.png')
 
-with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
-    f.write(f"【维度】: {{df.shape[0]}}行 {{df.shape[1]}}列")
-
 ```
-
-【第二部分：策略卡片示例】
 
 ```json_strategy
 {{
-  "title": "单细胞基因表达热图",
-  "description": "读取表达矩阵绘制热图，结果保存至 results 目录。",
-  "tool_id": "execute-r",
-  "steps": ["创建 results 目录", "读取 raw_data 数据", "绘制并保存至 results"],
-  "estimated_time": "约 1-2 分钟"
+  "title": "Extract Top 20 Rows",
+  "description": "提取前 20 行数据，保存子集文件并生成可视化图表。",
+  "tool_id": "execute-python",
+  "steps": ["Create results directory", "Read TSV", "Extract 20 rows", "Save outputs"],
+  "estimated_time": "约 1 分钟"
 }}
+
 ```
+
 """
+
     
     # ✅ 修复后：彻底没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
-    all_tools = [rnaseq_qc, search_and_vectorize_geo_data, submit_async_geo_analysis_task, generate_publishable_report]
+    all_tools = [search_and_vectorize_geo_data, submit_async_geo_analysis_task, generate_publishable_report]
     main_agent = create_react_agent(llm, tools=all_tools, prompt=main_prompt)
 
     async def run_agent(state: AgentState):

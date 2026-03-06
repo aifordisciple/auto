@@ -1,22 +1,22 @@
 import os
 import json
 import socket
+import re
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
 
-
 DOCKER_SOCKET = '/var/run/docker.sock'
 
-
-def docker_api_request(method: str, path: str, data: str = None) -> dict:
+# ✨ 新增 return_raw 参数，专门用于读取纯文本日志，防止把报错日志强行解析为 JSON
+def docker_api_request(method: str, path: str, data: str = None, return_raw: bool = False):
     """直接通过 Unix socket 调用 Docker API (完美版)"""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(DOCKER_SOCKET)
     
     body = data.encode('utf-8') if data else None
     
-    # ✨ 核心修复 1：使用 HTTP/1.0 强制服务器发送完毕后断开连接
+    # 使用 HTTP/1.0 强制服务器发送完毕后断开连接
     request = f"{method} {path} HTTP/1.0\r\n"
     request += "Host: localhost\r\n"
     request += "Connection: close\r\n"
@@ -31,7 +31,7 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
     
     sock.sendall(request)
     
-    # ✨ 核心修复 2：安全地读取全部数据，直到连接自然关闭
+    # 安全地读取全部数据，直到连接自然关闭
     response = b""
     while True:
         chunk = sock.recv(4096)
@@ -50,9 +50,13 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
     body_str = raw_body.decode('utf-8', errors='ignore').strip()
     
     if not body_str:
-        return {}
+        return "" if return_raw else {}
 
-    # ✨ 核心修复 3：用最安全的截取方式提取 JSON
+    # ✨ 核心修复 2：如果是获取日志，直接返回纯文本，不走 JSON 解析！
+    if return_raw:
+        return body_str
+
+    # 用最安全的截取方式提取 JSON
     start_dict = body_str.find('{')
     end_dict = body_str.rfind('}')
     
@@ -60,10 +64,8 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
     end_list = body_str.rfind(']')
     
     try:
-        # 如果看起来像字典
         if start_dict != -1 and end_dict != -1 and (start_list == -1 or start_dict < start_list):
             return json.loads(body_str[start_dict:end_dict+1])
-        # 如果看起来像列表
         elif start_list != -1 and end_list != -1:
             return json.loads(body_str[start_list:end_list+1])
             
@@ -74,13 +76,7 @@ def docker_api_request(method: str, path: str, data: str = None) -> dict:
 
 
 def run_container(image: str, command: str, language: str = "python") -> tuple[str, int]:
-    """通过 Docker API 运行容器
-    
-    Args:
-        image: Docker 镜像名称
-        command: 要执行的代码字符串
-        language: "python" 或 "r"
-    """
+    """通过 Docker API 运行容器"""
     try:
         # 根据语言选择执行命令
         if language.lower() == "r":
@@ -88,19 +84,23 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
         else:
             cmd = ["python", "-c", command]
         
-        # 创建容器 - 指定平台为 amd64
-        # ✨ 关键修复：添加 "User": "root" 确保沙箱内有权限创建目录
+        # ✨ 核心修复 1：读取在 docker-compose 中配置的物理机绝对路径
+        host_upload_dir = os.environ.get("HOST_UPLOAD_DIR", "/app/uploads")
+        
+        # 创建容器
         create_data = json.dumps({
             "Image": image,
             "platform": "linux/amd64",
             "Cmd": cmd,
-            "Tty": False,  # 关闭伪终端，防止交互式控制符
-            "User": "root",  # 以 root 身份运行，解决沙箱内 mkdir 权限被拒的问题
+            # ✨ 核心修复 3：开启 Tty。这会让 Docker 放弃写入 8 字节的二进制头部流，彻底解决乱码问题
+            "Tty": True,  
+            "User": "root",  # 以 root 身份运行
             "HostConfig": {
                 "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
                 "NetworkMode": "none",
                 "CapDrop": ["ALL"],
-                "Binds": ["uploads_data:/app/uploads:rw"]
+                # ✨ 核心修复 1：将写死的 uploads_data 替换为动态获取的物理机绝对路径
+                "Binds": [f"{host_upload_dir}:/app/uploads:rw"]
             },
             "Volumes": {"/app/uploads": {}},
             "WorkingDir": "/app"
@@ -122,14 +122,12 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
             if info.get('State', {}).get('Status') == 'exited':
                 break
         
-        # 获取日志
-        logs = docker_api_request("GET", f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100")
-        if isinstance(logs, bytes):
-            log_output = logs.decode('utf-8', errors='ignore')
-        elif isinstance(logs, dict):
-            log_output = json.dumps(logs)
-        else:
-            log_output = str(logs)
+        # ✨ 核心修复 2：使用 return_raw=True 提取纯文本日志
+        log_output = docker_api_request("GET", f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100", return_raw=True)
+        
+        # 防御性清理：剔除无法显示的特殊控制符（保留换行符）
+        if isinstance(log_output, str):
+            log_output = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', log_output)
         
         # 获取退出码
         exit_code = info.get('State', {}).get('ExitCode', 0)
@@ -137,7 +135,7 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
         # 清理容器
         docker_api_request("DELETE", f"/containers/{container_id}?force=true")
         
-        return log_output, exit_code
+        return str(log_output), exit_code
         
     except Exception as e:
         return f"❌ Docker API 错误: {str(e)}", 1
@@ -145,33 +143,18 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
 
 # ✨ 标记沙箱可用
 DOCKER_SANDBOX_AVAILABLE = True
-log.info("🛡️ Docker 沙箱引擎已就绪 (使用原生 socket)")
-
-
-@tool
-def rnaseq_qc(ref_genome: str, qual_threshold: int, remove_adapters: bool):
-    """当用户要求对 RNA-Seq、Fastq 数据进行质控时，调用此工具提取参数。"""
-    pass
-
-
-@tool
-def variant_calling(ref_genome: str, variant_type: str, min_read_depth: int):
-    """当用户要求进行变异检测 (SNP/Indel) 时调用此工具。"""
-    pass
-
-
-@tool
-def sc_rna_analysis(cluster_res: float, min_genes: int, min_cells: int):
-    """当用户要求进行单细胞 RNA-seq 分析时，调用此工具。"""
-    pass
-
+log.info("🛡️ Docker 沙箱引擎已就绪 (纯净算力版)")
 
 @tool
 def execute_python_code(code: str) -> str:
     """
-    执行高算力的生信数据处理 (Scanpy 等)、分析及图表绘制代码。
+    在安全的 Docker 沙箱中执行 Python 数据科学和生信分析代码。
+    此工具拥有完整的 matplotlib, pandas, scanpy 等数据科学生态。
+    代码生成的任何图表或文件必须保存在 /app/uploads 挂载目录中。
+    
+    Args:
+        code: 包含有效 Python 语法的字符串代码。
     """
-    # ✨ 添加调试日志：打印 AI 写的代码
     log.info("========== 🤖 AI 尝试执行的代码 ==========")
     log.info(code[:1000] if len(code) > 1000 else code)
     log.info("==========================================")
@@ -180,7 +163,7 @@ def execute_python_code(code: str) -> str:
         log.error("❌ Docker sandbox not available")
         return "❌ 严重系统错误：沙箱引擎未就绪。"
 
-    log.info("🛡️ 正在拉起重型单细胞分析沙箱 (autonome-tool-env)...")
+    log.info("🛡️ 正在拉起重型分析沙箱...")
     
     try:
         result_output, exit_code = run_container(
@@ -188,7 +171,6 @@ def execute_python_code(code: str) -> str:
             command=code
         )
         
-        # ✨ 添加调试日志：打印沙箱返回的结果
         log.info("========== 📦 沙箱返回的结果 ==========")
         log.info(result_output[:500] if len(result_output) > 500 else result_output)
         log.info("========================================")
@@ -205,5 +187,5 @@ def execute_python_code(code: str) -> str:
         return f"❌ 代码执行报错:\n{str(e)}\n请根据此报错修正代码。"
 
 
-# 导出工具列表供大模型绑定
-bio_tools_list = [rnaseq_qc, variant_calling, sc_rna_analysis, execute_python_code]
+# ✨ 核心修改：只导出这一个真正的底层算力工具！
+bio_tools_list = [execute_python_code]

@@ -175,7 +175,7 @@ async def chat_stream(
                 
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "unknown")
-                    if tool_name in ["execute_python_code", "rnaseq_qc"]:
+                    if tool_name in ["execute_python_code"]:
                         cost_credits += 4.0
                         msg = f"\n\n*(🚀 Agent 正在调用工具: {tool_name})*\n\n"
                         ai_full_response += msg
@@ -183,7 +183,7 @@ async def chat_stream(
                         
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "unknown")
-                    if tool_name in ["execute_python_code", "rnaseq_qc"]:
+                    if tool_name in ["execute_python_code"]:
                         msg = f"\n*(✅ 工具 {tool_name} 执行完毕)*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
