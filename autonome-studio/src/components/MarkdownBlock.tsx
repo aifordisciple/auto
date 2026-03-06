@@ -51,17 +51,17 @@ const SecureImage = ({ src, alt, ...props }: { src?: string; alt?: string }) => 
 
   if (hasError) {
     return (
-      <div className="flex items-center justify-center h-32 w-full bg-red-950/20 border border-red-900/50 rounded-lg text-red-500 text-xs">
+      <span className="flex items-center justify-center h-32 w-full bg-red-950/20 border border-red-900/50 rounded-lg text-red-500 text-xs">
         图片加载失败 (未授权或文件不存在)
-      </div>
+      </span>
     );
   }
 
   if (!imgSrc) {
     return (
-      <div className="flex items-center justify-center h-48 w-full bg-neutral-800/50 rounded-lg animate-pulse text-neutral-500 text-xs border border-neutral-700/50">
+      <span className="flex items-center justify-center h-48 w-full bg-neutral-800/50 rounded-lg animate-pulse text-neutral-500 text-xs border border-neutral-700/50">
         正在安全解密并加载图表...
-      </div>
+      </span>
     );
   }
 
@@ -159,6 +159,8 @@ export function MarkdownBlock({ content }: { content: string }) {
           img: ({ node, ...props }) => {
             return <SecureImage src={props.src} alt={props.alt} />;
           },
+          // ✨ 防止 p 标签包裹 div/span 导致 hydration 错误
+          p: ({ children }) => <>{children}</>,
         }}
       >
         {content}

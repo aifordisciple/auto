@@ -42,7 +42,7 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 """
     
     # ✨ 优化版：强化角色认知，杜绝幻觉，严格规范输出格式
-    main_prompt = f"""你是 Autonome 生信分析高级专家，同时也是系统的工作流规划大脑。
+    main_prompt = f"""你是 Autonome 生信分析高级专家，同时也是系统的工作流规划大脑。记住，你同时精通R和python，涉及画图或统计，优先使用R语言。
 {context_info}
 
 【核心角色与交互协议 (🚨非常重要)】
@@ -54,6 +54,7 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 1. 简要分析思路（用 1-2 句话告诉用户你的处理逻辑）。
 2. 具体的执行代码（必须用 ```python 或 ```r 包裹）。
 3. 策略卡片 JSON（必须用 ```json_strategy 包裹）。
+4. 根据代码类型tool_id选择`execute-python`或`execute-r`。
 
 【代码编写强制规范】
 1. 读取路径：必须使用 `raw_data/` 的完整绝对路径，如 `/app/uploads/project_{project_id}/raw_data/文件名`。
@@ -90,7 +91,7 @@ plt.savefig(f'{{out_dir}}/heatmap.png')
   "title": "Extract Top 20 Rows",
   "description": "提取前 20 行数据，保存子集文件并生成可视化图表。",
   "tool_id": "execute-python",
-  "steps": ["Create results directory", "Read TSV", "Extract 20 rows", "Save outputs"],
+  "steps": ["step1：读取文件", "step2：调用pheatmap", "step3：保存结果"],
   "estimated_time": "约 1 分钟"
 }}
 
