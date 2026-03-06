@@ -4,8 +4,11 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2 } from "lucide-react";
-import { fetchAPI, BASE_URL } from "@/lib/api";
+import { fetchAPI } from "@/lib/api";
 
+// ==========================================
+// 辅助函数：根据文件名分配图标
+// ==========================================
 const getFileIcon = (filename: string) => {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.tsv') || lower.endsWith('.csv') || lower.endsWith('.txt')) {
@@ -17,6 +20,9 @@ const getFileIcon = (filename: string) => {
   return <FileText size={16} className="text-neutral-400 shrink-0" />;
 };
 
+// ==========================================
+// 组件 1：递归渲染单个节点
+// ==========================================
 const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload }: any) => {
   const isFolder = node.type === 'folder';
   const isExpanded = expandedFolders.has(node.path);
@@ -44,17 +50,17 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload }:
           {node.name}
         </span>
 
+        {/* 操作栏 */}
         <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-1 z-10 shrink-0">
           {!isFolder && (
             <button
               onClick={(e) => { e.stopPropagation(); onDownload(node.path); }}
               className="p-1.5 text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
-              title="下载文件 / 浏览器新标签页预览"
+              title="下载文件 / 预览"
             >
               <Download size={14} />
             </button>
           )}
-
           {!isProtectedRoot && !isFolder && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(node.path); }}
@@ -91,12 +97,16 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload }:
   );
 };
 
+// ==========================================
+// 主组件：全景数据中心
+// ==========================================
 export function DataCenter() {
   const { isDataCenterOpen, closeAllOverlays } = useUIStore();
   const { currentProjectId, projectFiles, fetchProjectFiles } = useWorkspaceStore();
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results']));
 
+  // ✨ 核心状态：上传与同步
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -110,11 +120,27 @@ export function DataCenter() {
     });
   };
 
+  const handleDeleteNode = async (filePath: string) => {
+    if (!window.confirm(`⚠️ 危险操作\n\n确定要从物理磁盘彻底删除 \n${filePath} 吗？\n此操作不可逆！`)) return;
+    try {
+      await fetchAPI(`/projects/${currentProjectId}/files/${filePath}`, { method: 'DELETE' });
+      if (currentProjectId) fetchProjectFiles(currentProjectId);
+    } catch (e) {
+      console.error("Failed to delete file:", e);
+      alert("❌ 删除失败，可能文件正被系统占用或无权限。");
+    }
+  };
+
+  const handleDownloadNode = (filePath: string) => {
+    const downloadUrl = `/api/projects/${currentProjectId}/files/${filePath}/view`;
+    window.open(downloadUrl, '_blank');
+  };
+
   const handleSync = async () => {
     if (!currentProjectId) return;
     setIsSyncing(true);
     await fetchProjectFiles(currentProjectId);
-    setTimeout(() => setIsSyncing(false), 600);
+    setTimeout(() => setIsSyncing(false), 600); 
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -123,13 +149,11 @@ export function DataCenter() {
 
     setIsUploading(true);
     try {
-      const token = localStorage.getItem('autonome_access_token');
       const uploadPromises = Array.from(files).map(async (file) => {
         const formData = new FormData();
         formData.append("file", file);
-        return fetch(`/api/projects/${currentProjectId}/files`, {
+        return fetchAPI(`/projects/${currentProjectId}/files`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
           body: formData
         });
       });
@@ -137,35 +161,11 @@ export function DataCenter() {
       await handleSync();
     } catch (error) {
       console.error("Upload failed", error);
-      alert("❌ 上传失败，请检查网络状态或文件大小限制。");
+      alert("❌ 上传失败，请检查网络状态。");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  };
-
-  const handleDeleteNode = async (filePath: string) => {
-    if (!window.confirm(`⚠️ 危险操作\n\n确定要从物理磁盘彻底删除 \n${filePath} 吗？\n此操作不可逆！`)) return;
-    
-    try {
-      const token = localStorage.getItem('autonome_access_token');
-      await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (currentProjectId) {
-        fetchProjectFiles(currentProjectId);
-      }
-    } catch (e) {
-      console.error("Failed to delete file:", e);
-      alert("❌ 删除失败，可能文件正被系统占用或无权限。");
-    }
-  };
-
-  const handleDownloadNode = (filePath: string) => {
-    const token = localStorage.getItem('autonome_access_token');
-    const downloadUrl = `${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view?token=${token}`;
-    window.open(downloadUrl, '_blank');
   };
 
   const fileTree = useMemo(() => {
@@ -194,10 +194,13 @@ export function DataCenter() {
   if (!isDataCenterOpen) return null;
 
   return (
+    // ✨ 修改点 1：fixed inset-0 和 justify-end，保证从右侧划出，并且覆盖全屏遮罩
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
       
+      {/* ✨ 修改点 2：border-l 和 slide-in-from-right 动画 */}
       <div className="relative w-[600px] h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+        
         <div className="h-16 shrink-0 border-b border-neutral-800 px-6 flex items-center justify-between bg-neutral-900/40">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.15)]">
@@ -213,6 +216,7 @@ export function DataCenter() {
           </button>
         </div>
 
+        {/* ✨ 工具栏：上传与同步按钮 */}
         <div className="p-4 border-b border-neutral-800 flex items-center gap-3 bg-neutral-900/20">
           <div className="flex-1 relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
@@ -231,7 +235,6 @@ export function DataCenter() {
               onChange={handleFileUpload} 
               className="hidden" 
             />
-            
             <button 
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading || isSyncing}
@@ -240,7 +243,6 @@ export function DataCenter() {
               {isUploading ? <Loader2 size={16} className="animate-spin text-purple-400" /> : <UploadCloud size={16} className="text-purple-400" />}
               <span>{isUploading ? '上传中...' : '上传'}</span>
             </button>
-
             <button 
               onClick={handleSync}
               disabled={isSyncing || isUploading}
