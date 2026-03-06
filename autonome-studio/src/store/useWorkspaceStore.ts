@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://113.44.66.210:8000';
+
 // Define tool parameter JSON Schema structure
 export type ParamType = 'number' | 'boolean' | 'select' | 'string';
 
@@ -46,6 +48,7 @@ interface WorkspaceState {
   projectFiles: RealFile[];
   setProjectFiles: (files: RealFile[]) => void;
   addProjectFile: (file: RealFile) => void;
+  fetchProjectFiles: (projectId: number) => Promise<void>;
   
   mountedFiles: string[];
   toggleMountFile: (file: string) => void;
@@ -77,6 +80,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       addProjectFile: (file) => set((state) => ({ 
         projectFiles: [...state.projectFiles, file] 
       })),
+      fetchProjectFiles: async (projectId: number) => {
+        const token = localStorage.getItem('autonome_access_token');
+        try {
+          const res = await fetch(`${BASE_URL}/api/projects/${projectId}/files`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.status === 'success') {
+            set({ projectFiles: data.data });
+          }
+        } catch (e) {
+          console.error('Failed to fetch project files:', e);
+        }
+      },
 
       mountedFiles: [],
       toggleMountFile: (file) => 
