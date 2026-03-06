@@ -83,7 +83,7 @@ def generate_expert_report(user_prompt: str, source_code: str, data_summary: str
         )
         
         payload = {
-            "model": "qwen3.5:35b",
+            "model": "qwen3-coder:30b",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.4
         }
@@ -439,7 +439,9 @@ def run_custom_r_task(self, params: dict):
         
         # Extract actual filename from code using regex
         img_match = re.search(r"filename\s*=\s*['\"]?/?app/uploads/project_\d+/([^'\"]+)['\"]?", code)
-        actual_filename = img_match.group(1) if img_match else "heatmap.png"
+        # ✨ 修复：确保文件名包含 results/ 路径
+        extracted_path = img_match.group(1) if img_match else "heatmap.png"
+        actual_filename = extracted_path if "results/" in extracted_path else f"results/{extracted_path.split('/')[-1]}"
         
         # 2. ✨ 读取数据指纹摘要 (data_summary.txt)
         summary_path = f"/app/uploads/project_{actual_project_id}/results/data_summary.txt"
