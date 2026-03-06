@@ -424,7 +424,7 @@ def run_custom_r_task(self, params: dict):
         actual_filename = img_match.group(1) if img_match else "heatmap.png"
         
         # 2. ✨ 读取数据指纹摘要 (data_summary.txt)
-        summary_path = f"/app/uploads/project_{actual_project_id}/data_summary.txt"
+        summary_path = f"/app/uploads/project_{actual_project_id}/results/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
             with open(summary_path, 'r', encoding='utf-8') as f:

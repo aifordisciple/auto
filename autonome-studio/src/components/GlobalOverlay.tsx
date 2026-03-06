@@ -11,6 +11,7 @@ import { ProjectCenter } from "./overlays/ProjectCenter";
 import { SettingsCenter } from "./overlays/SettingsCenter";
 import { TaskCenter } from "./overlays/TaskCenter";
 import { TopUpModal } from "./overlays/TopUpModal";
+import { DataCenter } from "./overlays/DataCenter";
 
 export function GlobalOverlay() {
   const { activeOverlay, closeOverlay } = useUIStore();
@@ -40,6 +41,9 @@ export function GlobalOverlay() {
         isOpen={activeOverlay === 'topup'} 
         onClose={() => useUIStore.getState().closeOverlay()} 
       />
+      
+      {/* DataCenter - 左侧滑出的数据中心面板 */}
+      <DataCenter />
       
       <AnimatePresence>
         {activeOverlay !== 'none' && activeOverlay !== 'topup' && (

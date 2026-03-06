@@ -1,16 +1,58 @@
 import { create } from 'zustand';
 
-// 定义所有可能的大屏视图枚举
-export type OverlayView = 'none' | 'projects' | 'tasks' | 'settings' | 'control' | 'topup';
-
 interface UIState {
-  activeOverlay: OverlayView;
-  setActiveOverlay: (view: OverlayView) => void;
-  closeOverlay: () => void;
+  isTaskCenterOpen: boolean;
+  isSettingsOpen: boolean;
+  isProjectCenterOpen: boolean;
+  isDataCenterOpen: boolean;
+  setActiveOverlay: (view: string) => void;
+  toggleTaskCenter: () => void;
+  toggleSettings: () => void;
+  toggleProjectCenter: () => void;
+  toggleDataCenter: () => void;
+  closeAllOverlays: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  activeOverlay: 'none',
-  setActiveOverlay: (view) => set({ activeOverlay: view }),
-  closeOverlay: () => set({ activeOverlay: 'none' }),
+  isTaskCenterOpen: false,
+  isSettingsOpen: false,
+  isProjectCenterOpen: false,
+  isDataCenterOpen: false,
+
+  setActiveOverlay: () => {},
+
+  toggleTaskCenter: () => set((state) => ({ 
+    isTaskCenterOpen: !state.isTaskCenterOpen, 
+    isSettingsOpen: false, 
+    isProjectCenterOpen: false, 
+    isDataCenterOpen: false 
+  })),
+  
+  toggleSettings: () => set((state) => ({ 
+    isSettingsOpen: !state.isSettingsOpen, 
+    isTaskCenterOpen: false, 
+    isProjectCenterOpen: false, 
+    isDataCenterOpen: false 
+  })),
+  
+  toggleProjectCenter: () => set((state) => ({ 
+    isProjectCenterOpen: !state.isProjectCenterOpen, 
+    isTaskCenterOpen: false, 
+    isSettingsOpen: false, 
+    isDataCenterOpen: false 
+  })),
+  
+  toggleDataCenter: () => set((state) => ({ 
+    isDataCenterOpen: !state.isDataCenterOpen, 
+    isTaskCenterOpen: false, 
+    isSettingsOpen: false, 
+    isProjectCenterOpen: false 
+  })),
+  
+  closeAllOverlays: () => set({ 
+    isTaskCenterOpen: false, 
+    isSettingsOpen: false, 
+    isProjectCenterOpen: false, 
+    isDataCenterOpen: false 
+  })
 }));

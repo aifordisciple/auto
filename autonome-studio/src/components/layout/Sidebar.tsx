@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LayoutDashboard, Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard } from "lucide-react";
+import { LayoutDashboard, Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { SessionSidebar } from "./SessionSidebar";
 
 export function Sidebar() {
-  const { setActiveOverlay } = useUIStore();
-  const { user, logout, credits } = useAuthStore();
+  const { setActiveOverlay, toggleProjectCenter, toggleDataCenter, isProjectCenterOpen, isDataCenterOpen } = useUIStore();
+  const { user, logout } = useAuthStore();
   const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -76,6 +76,14 @@ export function Sidebar() {
           className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-neutral-800/50 hover:text-white"
         >
           <FolderGit2 size={18} /> <span>项目中心</span>
+        </div>
+
+        {/* Data Center */}
+        <div 
+          onClick={toggleDataCenter}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isDataCenterOpen ? 'bg-purple-600 text-white' : 'hover:bg-neutral-800/50 hover:text-white'}`}
+        >
+          <HardDrive size={18} /> <span>数据中心</span>
         </div>
       </div>
 
