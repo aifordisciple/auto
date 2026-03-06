@@ -190,11 +190,22 @@ export function MarkdownBlock({ content }: { content: string }) {
               </div>
             );
           },
-          // ✨ 用安全组件劫持所有 Markdown 里的图片
-          // 彻底抛弃 node, title 等幽灵属性，只传最干净的 src 和 alt
-          img: ({ src, alt }) => {
+          // ✨ 终极暴力净化：只提取字符串类型的 src 和 alt，其他一概不理
+          img: (props: any) => {
+            // 1. 安全地提取 src
+            const src = typeof props.src === 'string' ? props.src : undefined;
+
+            // 2. 安全地提取 alt (如果没有，给个默认值)
+            let alt = '数据可视化图表';
+            if (typeof props.alt === 'string' && props.alt.trim() !== '') {
+                alt = props.alt;
+            }
+
+            // 3. 如果连 src 都没有，直接返回 null，什么都不渲染
             if (!src) return null;
-            return <SecureImage src={src} alt={alt || '数据图表'} />;
+
+            // 4. 绝对干净地调用 SecureImage，不传递任何多余的 props
+            return <SecureImage src={src} alt={alt} />;
           },
           // ✨ 防止 p 标签包裹 div/span 导致 hydration 错误
           p: ({ children }) => <>{children}</>,
