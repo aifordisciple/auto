@@ -354,13 +354,17 @@ def run_custom_python_task(self, params: dict):
     try:
         result_output, exit_code = run_container("autonome-tool-env", code, language="python")
 
-        # 1. 清理终端乱码
+        # 1. ✨ 终极终端乱码清理
         if result_output:
+            # 清理标准 ANSI 转义序列
             result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+            # 清理残余的光标控制符 (解决 [?25h 满屏的问题)
+            result_output = re.sub(r'\[\?\d+[hl]', '', result_output)
+            # 清理其他不可见字符
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
             result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
 
-        # ✨ 核心防御 1：拦截执行失败的代码！不再生成幽灵图片！
+        # 核心防御 1：拦截执行失败的代码
         if exit_code != 0:
             log_msg(f"💥 代码执行失败 (Exit Code {exit_code})", level="ERROR")
             with Session(engine) as db:
@@ -376,15 +380,16 @@ def run_custom_python_task(self, params: dict):
 
         log_msg("🎉 代码执行成功！准备生成专家解读...")
 
-        # ✨ 核心防御 2：精准抓取 Python 的 savefig 图片名
-        img_match = re.search(r"savefig\(['\"](?:/app/uploads/project_\d+/)?([^'\"]+\.(png|pdf|jpg|svg))['\"]", code)
+        # 2. ✨ 核心防御 2：宽泛正则提取图片名
+        # 只要代码中包含诸如 heatmap.png, plot_1.pdf 这样的文件名，直接抓取！
+        img_match = re.search(r"([a-zA-Z0-9_.-]+\.(?:png|pdf|jpg|jpeg|svg))", code, re.IGNORECASE)
         if img_match:
-            extracted_path = img_match.group(1)
-            # 确保路径被锁定在 results/ 目录下
-            actual_filename = extracted_path if "results/" in extracted_path else f"results/{extracted_path.split('/')[-1]}"
+            extracted_filename = img_match.group(1)
+            # 强制指向 results/ 目录
+            actual_filename = f"results/{extracted_filename}"
             markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
         else:
-            markdown_img = "" # 如果没匹配到，依赖前端正则从 print 日志里接管
+            markdown_img = ""
 
         # 读取数据指纹
         summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
@@ -432,13 +437,13 @@ def run_custom_r_task(self, params: dict):
     try:
         result_output, exit_code = run_container("autonome-tool-env", code, language="r")
 
-        # 1. 清理终端乱码
+        # 1. ✨ 终极终端乱码清理
         if result_output:
             result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+            result_output = re.sub(r'\[\?\d+[hl]', '', result_output)  # 专门杀掉 [?25h
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
             result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
 
-        # ✨ 核心防御 1：拦截执行失败的代码
         if exit_code != 0:
             log_msg(f"💥 R代码执行失败 (Exit Code {exit_code})", level="ERROR")
             with Session(engine) as db:
@@ -454,14 +459,14 @@ def run_custom_r_task(self, params: dict):
 
         log_msg("🎉 R 代码执行成功！准备生成专家解读...")
 
-        # ✨ 核心防御 2：精准抓取 R 语言里的 filename 图片名
-        img_match = re.search(r"filename\s*=\s*['\"]?(?:/?app/uploads/project_\d+/)?([^'\"]+\.(png|pdf|jpg|svg))['\"]?", code)
+        # 2. ✨ 核心防御 2：极简正则，只抓文件名本身
+        img_match = re.search(r"([a-zA-Z0-9_.-]+\.(?:png|pdf|jpg|jpeg|svg))", code, re.IGNORECASE)
         if img_match:
-            extracted_path = img_match.group(1)
-            actual_filename = extracted_path if "results/" in extracted_path else f"results/{extracted_path.split('/')[-1]}"
+            extracted_filename = img_match.group(1)
+            actual_filename = f"results/{extracted_filename}"
             markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
         else:
-            markdown_img = "\n*(未检测到图片输出指令)*\n"
+            markdown_img = "\n*(本次分析似乎没有生成可视化图表)*\n"
 
         summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
         data_summary = "暂无详细数据特征"
