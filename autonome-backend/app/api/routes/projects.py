@@ -246,22 +246,25 @@ async def toggle_project_share(
 async def view_project_file(
     project_id: int,
     file_path: str,
-    token: str = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ):
     """
     提供给前端 Markdown 渲染图片的直链读取接口
     """
-    if not token:
-        raise HTTPException(status_code=401, detail="未授权的访问")
-    
     # 安全检查：防止路径穿越攻击
-    if ".." in file_path:
+    if ".." in file_path or file_path.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid file path")
-    
+
+    # 验证用户是否有权访问该项目
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问该项目")
+
     project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
     full_path = project_dir / file_path
-    
-    if not full_path.exists():
-        raise HTTPException(status_code=404, detail="图片或文件不存在")
-    
+
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
     return FileResponse(full_path)
