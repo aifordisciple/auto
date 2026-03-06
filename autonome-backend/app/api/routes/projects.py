@@ -1,14 +1,9 @@
 import os
 import shutil
 import secrets
+from pathlib import Path
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
-from sqlmodel import Session, select
-from pydantic import BaseModel
-import shutil
-import secrets
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
@@ -115,12 +110,13 @@ async def upload_file(project_id: int, file: UploadFile = File(...), session: Se
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作该项目")
 
-    # ✨ 创建项目专属文件夹: /app/uploads/project_{project_id}
-    project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
-    os.makedirs(project_dir, exist_ok=True)
+    # ✨ 创建项目专属文件夹: /app/uploads/project_{project_id}/raw_data
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    raw_data_dir = project_dir / "raw_data"  # ✨ 目标存入原始数据区
+    raw_data_dir.mkdir(parents=True, exist_ok=True)
     
-    # ✨ 文件保存在专属文件夹里，使用干净的文件名
-    file_path = os.path.join(project_dir, file.filename)
+    # ✨ 文件保存在 raw_data 目录里
+    file_path = raw_data_dir / file.filename
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -149,41 +145,64 @@ async def upload_file(project_id: int, file: UploadFile = File(...), session: Se
 
 @router.get("/{project_id}/files")
 async def get_project_files(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    """获取项目下的所有文件（递归扫描 raw_data 和 results 目录）"""
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作")
-        
-    files = session.exec(select(DataFile).where(DataFile.project_id == project_id)).all()
+    
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    
+    # 如果目录不存在，顺手把标准结构建好
+    raw_data_dir = project_dir / "raw_data"
+    results_dir = project_dir / "results"
+    raw_data_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    files = []
+    # 递归遍历整个 project 目录
+    for root, _, filenames in os.walk(project_dir):
+        for filename in filenames:
+            full_path = Path(root) / filename
+            # 获取相对于项目根目录的相对路径，例如：raw_data/ras.tsv
+            rel_path = full_path.relative_to(project_dir)
+            
+            # 过滤掉隐藏系统文件
+            if filename.startswith('.'):
+                continue
+                
+            files.append({
+                "name": filename,
+                "path": str(rel_path),
+                "size": full_path.stat().st_size,
+                "url": f"/api/projects/{project_id}/files/{str(rel_path)}/view"
+            })
+            
     return {"status": "success", "data": files}
 
-@router.delete("/{project_id}/files/{file_id}")
+@router.delete("/{project_id}/files/{file_path:path}")
 async def delete_project_file(
     project_id: int,
-    file_id: int,
+    file_path: str,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    彻底删除文件：清理物理硬盘 + 清理数据库记录
-    """
+    """删除项目下的文件（通过相对路径）"""
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作")
     
-    # 查找文件记录
-    db_file = session.get(DataFile, file_id)
-    if not db_file or db_file.project_id != project_id:
-        raise HTTPException(status_code=404, detail="文件不存在")
+    # 安全检查：防止路径穿越攻击
+    if ".." in file_path:
+        raise HTTPException(status_code=400, detail="Invalid file path")
     
-    # 1. 尝试删除物理文件（容错处理）
-    try:
-        if db_file.file_path and os.path.exists(db_file.file_path):
-            os.remove(db_file.file_path)
-            log.info(f"🗑️ 物理文件已删除: {db_file.file_path}")
-        else:
-            log.info(f"👻 物理文件本就不存在，跳过: {db_file.file_path}")
-    except Exception as e:
-        log.warning(f"⚠️ 删除物理文件时出错: {e}")
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    full_path = project_dir / file_path
+
+    if full_path.exists():
+        full_path.unlink()
+        return {"status": "success", "message": "File deleted"}
+    
+    raise HTTPException(status_code=404, detail="File not found")
     
     # 2. 删除数据库记录
     session.delete(db_file)
@@ -223,10 +242,10 @@ async def toggle_project_share(
 
 
 
-@router.get("/{project_id}/files/{filename:path}/view")
+@router.get("/{project_id}/files/{file_path:path}/view")
 async def view_project_file(
     project_id: int,
-    filename: str,
+    file_path: str,
     token: str = None,
 ):
     """
@@ -235,10 +254,14 @@ async def view_project_file(
     if not token:
         raise HTTPException(status_code=401, detail="未授权的访问")
     
-    project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
-    file_path = os.path.join(project_dir, filename)
+    # 安全检查：防止路径穿越攻击
+    if ".." in file_path:
+        raise HTTPException(status_code=400, detail="Invalid file path")
     
-    if not os.path.exists(file_path):
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    full_path = project_dir / file_path
+    
+    if not full_path.exists():
         raise HTTPException(status_code=404, detail="图片或文件不存在")
     
-    return FileResponse(file_path)
+    return FileResponse(full_path)

@@ -56,8 +56,6 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 
 【第一部分：先输出执行代码】（只写作图逻辑，绝对不要写任何图形解读的文本！）
 ```r
-# 强制开启静音模式，防止任何输出污染
-sink(nullfile())
 suppressPackageStartupMessages(library(pheatmap))
 
 # 1. 读取数据与画图
@@ -76,8 +74,6 @@ tryCatch({{
   writeLines("无法提取标准矩阵特征", '/app/uploads/project_{project_id}/data_summary.txt')
 }})
 
-# 关闭静音模式
-sink()
 ```
 
 【第二部分：最后输出策略卡片】（必须放在代码之后）
