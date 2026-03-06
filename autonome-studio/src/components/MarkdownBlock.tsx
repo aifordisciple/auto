@@ -101,11 +101,11 @@ const SecureImage = ({ src, alt, ...props }: any) => {
 
   // 成功渲染
   return (
+    // ✨ 拿掉 {...props}，防止 React 将未知属性渲染成奇怪的 DOM 节点或文字
     <img
       src={imgSrc}
       alt={alt || '数据可视化'}
-      className="max-w-full h-auto rounded-lg shadow-lg border border-neutral-700 my-4"
-      {...props}
+      className="max-w-full h-auto rounded-lg shadow-lg border border-neutral-700 my-4 bg-white"
     />
   );
 };
@@ -149,7 +149,7 @@ export function MarkdownBlock({ content }: { content: string }) {
 
             if (!match) {
               return (
-                <code className="bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono" {...props}>
+                <code className="bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono">
                   {children}
                 </code>
               );
@@ -191,8 +191,10 @@ export function MarkdownBlock({ content }: { content: string }) {
             );
           },
           // ✨ 用安全组件劫持所有 Markdown 里的图片
-          img: ({ node, ...props }) => {
-            return <SecureImage src={props.src} alt={props.alt} />;
+          // 彻底抛弃 node, title 等幽灵属性，只传最干净的 src 和 alt
+          img: ({ src, alt }) => {
+            if (!src) return null;
+            return <SecureImage src={src} alt={alt || '数据图表'} />;
           },
           // ✨ 防止 p 标签包裹 div/span 导致 hydration 错误
           p: ({ children }) => <>{children}</>,
