@@ -55,23 +55,48 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 🚨🚨🚨 绝对指令：
 1. 禁止使用 Function Calling 或底层工具！
 2. 必须先输出代码，再输出策略卡片 JSON！
+3. 🚨 极其重要：在保存任何文件（图片、CSV、txt）之前，你的代码必须首先检查并创建 `results` 文件夹！
 
-【第一部分：执行代码示例】
+【第一部分：执行代码示例 (R语言)】
 ```r
 sink(nullfile())
 suppressPackageStartupMessages(library(pheatmap))
 
-# ✨ 注意路径：从 raw_data 读，向 results 写
+# ✨ 强制防御：先创建 results 目录
+out_dir <- '/app/uploads/project_{project_id}/results'
+if (!dir.exists(out_dir)) {{
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+}}
+
+# 从 raw_data 读，向 results 写
 data <- read.table('/app/uploads/project_{project_id}/raw_data/ras.tsv', header=TRUE, row.names=1)
-pheatmap(data, filename='/app/uploads/project_{project_id}/results/heatmap.png')
+pheatmap(data, filename=file.path(out_dir, 'heatmap.png'))
 
 tryCatch({{
   summary_info <- paste("【维度】:", nrow(data), "行", ncol(data), "列")
-  # 写入 results 目录
-  writeLines(summary_info, '/app/uploads/project_{project_id}/results/data_summary.txt')
+  writeLines(summary_info, file.path(out_dir, 'data_summary.txt'))
 }}, error = function(e) {{ NULL }})
 
 sink()
+
+```
+
+【第一部分：执行代码示例 (Python语言)】
+```python
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ✨ 强制防御：先创建 results 目录
+out_dir = '/app/uploads/project_{project_id}/results'
+os.makedirs(out_dir, exist_ok=True)
+
+df = pd.read_csv('/app/uploads/project_{project_id}/raw_data/ras.tsv', sep='\\t', index_col=0)
+# ... 绘图逻辑
+plt.savefig(f'{{out_dir}}/heatmap.png')
+
+with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
+    f.write(f"【维度】: {{df.shape[0]}}行 {{df.shape[1]}}列")
 
 ```
 
@@ -82,7 +107,7 @@ sink()
   "title": "单细胞基因表达热图",
   "description": "读取表达矩阵绘制热图，结果保存至 results 目录。",
   "tool_id": "execute-r",
-  "steps": ["读取 raw_data 数据", "绘制并保存至 results"],
+  "steps": ["创建 results 目录", "读取 raw_data 数据", "绘制并保存至 results"],
   "estimated_time": "约 1-2 分钟"
 }}
 ```

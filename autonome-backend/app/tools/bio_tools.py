@@ -89,11 +89,13 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
             cmd = ["python", "-c", command]
         
         # 创建容器 - 指定平台为 amd64
+        # ✨ 关键修复：添加 "User": "root" 确保沙箱内有权限创建目录
         create_data = json.dumps({
             "Image": image,
             "platform": "linux/amd64",
             "Cmd": cmd,
             "Tty": False,  # 关闭伪终端，防止交互式控制符
+            "User": "root",  # 以 root 身份运行，解决沙箱内 mkdir 权限被拒的问题
             "HostConfig": {
                 "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
                 "NetworkMode": "none",
