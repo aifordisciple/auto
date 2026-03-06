@@ -332,7 +332,11 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
     // Try json_strategy block first
     const jsonMatch = content.match(/```json_strategy\s*\n([\s\S]*?)```/);
     if (jsonMatch) {
-      jsonStr = jsonMatch[1].replace(/\u00A0/g, ' ').trim();
+      jsonStr = jsonMatch[1]
+        .replace(/\u00A0/g, ' ')
+        .replace(/^[\s\n]+/, '')  // Remove leading whitespace/newlines
+        .replace(/[\s\n]+$/, '')  // Remove trailing whitespace/newlines
+        .trim();
       try {
         data = JSON.parse(jsonStr);
       } catch (e) {
@@ -342,7 +346,7 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
           jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
           data = JSON.parse(jsonStr);
         } catch (e2) {
-          console.error("JSON parse failed:", e2);
+          console.error("JSON parse failed:", e2, "Raw:", jsonStr.substring(0, 100));
         }
       }
     }
@@ -352,7 +356,12 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
       const fallbackMatch = content.match(/\{[\s\S]*"tool_id"[\s\S]*\}/);
       if (fallbackMatch) {
         try {
-          data = JSON.parse(fallbackMatch[0]);
+          let fallbackStr = fallbackMatch[0]
+            .replace(/^[\s\n]+/, '')
+            .replace(/[\s\n]+$/, '')
+            .replace(/,\s*}/g, '}')
+            .replace(/,\s*]/g, ']');
+          data = JSON.parse(fallbackStr);
         } catch (e) {
           console.error("Fallback JSON parse failed:", e);
         }
