@@ -53,3 +53,4 @@ sftp.json
 
 __pycache__/
 bkup/
+uploads/

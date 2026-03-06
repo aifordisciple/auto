@@ -14,8 +14,8 @@ services:
       # 保留容器内的依赖和虚拟环境
       - /app/__pycache__
       - /app/.venv
-      # ✨ 持久化上传文件 (使用具名卷与沙箱共享)
-      - uploads_data:/app/uploads
+      # ✨ 修改1：强制使用物理路径直连，抛弃具名卷！
+      - ./uploads:/app/uploads
       # Docker 控制
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -34,8 +34,8 @@ services:
       - ./autonome-backend/main.py:/app/main.py:cached
       - /app/__pycache__
       - /app/.venv
-      # ✨ 持久化上传文件 (使用具名卷与沙箱共享)
-      - uploads_data:/app/uploads
+      # ✨ 修改2：强制使用物理路径直连，与 backend-api 共享同一个宿主机目录！
+      - ./uploads:/app/uploads
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONPATH=/app
@@ -58,12 +58,10 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
-      # ✅ API 地址（根据部署环境修改）
+      # ✅ API 地址保持你的公网 IP 配置
       - NEXT_PUBLIC_API_URL=http://113.44.66.210:8000
     # 覆盖默认命令，启用开发模式
     command: npm run dev
 
-
-volumes:
-  uploads_data:
-    name: uploads_data
+# ✨ 修改3：彻底移除 uploads_data 的声明，防止幽灵卷产生
+# (如果原文件底部还有其他 volume 声明可以保留，但绝对不能有 uploads_data)

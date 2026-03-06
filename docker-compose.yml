@@ -41,11 +41,12 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - HOST_UPLOAD_DIR=/app/uploads
       - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+      # ✨ 修复1：使用 ${PWD} 动态获取物理机绝对路径，保证 AI 跑代码的沙箱也能挂载到正确数据
+      - HOST_UPLOAD_DIR=${PWD}/uploads
     volumes:
-      # ✨ 使用具名卷，让后端和沙箱可以共享数据
-      - uploads_data:/app/uploads
+      # ✨ 修复2：改为绝对直连的 Bind Mount，抛弃具名卷！文件会直接出现在你物理机当前目录的 uploads 下
+      - ./uploads:/app/uploads
       # 将宿主机的 Docker 引擎控制权赋予后端
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -64,11 +65,12 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - HOST_UPLOAD_DIR=/app/uploads
       - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+      # ✨ 同步修复
+      - HOST_UPLOAD_DIR=${PWD}/uploads
     volumes:
-      # ✨ 使用具名卷
-      - uploads_data:/app/uploads
+      # ✨ 同步修复：Worker也必须挂载同一个物理目录
+      - ./uploads:/app/uploads
       # Worker 同样需要 Docker 控制权
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -94,4 +96,4 @@ services:
 volumes:
   redis_data:
   pgdata:
-  uploads_data:
+  # ✨ 修复3：彻底移除了 uploads_data 具名卷定义
