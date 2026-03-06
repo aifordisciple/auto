@@ -11,60 +11,88 @@ interface MarkdownBlockProps {
   content: string;
 }
 
-// ✨ 商业级安全图片组件：带 Token 请求并转换成 Blob URL
-const SecureImage = ({ src, alt, ...props }: { src?: string; alt?: string }) => {
+// ✨ 商业级安全图片组件：精准报错与内存回收
+const SecureImage = ({ src, alt, ...props }: any) => {
   const [imgSrc, setImgSrc] = useState<string>('');
-  const [hasError, setHasError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!src) return;
 
-    // 如果不是后端的 API 图片（比如外部网络图片），直接显示
     if (!src.includes('/api/projects/')) {
       setImgSrc(src);
       return;
     }
 
+    const controller = new AbortController();
+
     const fetchImage = async () => {
       try {
         const token = localStorage.getItem('autonome_access_token');
+        if (!token) {
+          setErrorMsg('未授权 (本地无访问令牌)');
+          return;
+        }
+
         const response = await fetch(src, {
           headers: {
-            'Authorization': `Bearer ${token}` // 🛡️ 核心：带上用户的钥匙
-          }
+            'Authorization': `Bearer ${token}`
+          },
+          signal: controller.signal
         });
 
-        if (!response.ok) throw new Error('Unauthorized or not found');
+        if (!response.ok) {
+          // 🔍 精准定位报错原因，彻底粉碎 AI 幻觉障眼法
+          if (response.status === 404) {
+            setErrorMsg('文件不存在 (AI 代码未实际生成此图片)');
+          } else if (response.status === 401) {
+            setErrorMsg('访问被拒绝 (Token 失效或越权访问)');
+          } else {
+            setErrorMsg(`加载失败 (HTTP ${response.status})`);
+          }
+          return;
+        }
 
-        // 将返回的文件流转换为浏览器本地的对象 URL
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
         setImgSrc(objectUrl);
-      } catch (err) {
-        console.error('Failed to load secure image:', err);
-        setHasError(true);
+
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Failed to load secure image:', err);
+          setErrorMsg('网络拦截或跨域错误');
+        }
       }
     };
 
     fetchImage();
+
+    return () => {
+      controller.abort();
+    };
   }, [src]);
 
-  if (hasError) {
+  // 如果出错，优雅地展示具体的错误原因
+  if (errorMsg) {
     return (
-      <span className="flex items-center justify-center h-32 w-full bg-red-950/20 border border-red-900/50 rounded-lg text-red-500 text-xs">
-        图片加载失败 (未授权或文件不存在)
-      </span>
+      <div className="flex flex-col items-center justify-center h-32 w-full bg-neutral-900 border border-neutral-700/50 rounded-lg text-neutral-400 text-sm my-4 gap-2">
+        <span className="font-medium text-neutral-300">🖼️ 图片加载中断</span>
+        <span className="text-xs text-red-400">{errorMsg}</span>
+        <code className="text-[10px] text-neutral-600 px-4 text-center break-all">{src}</code>
+      </div>
     );
   }
 
+  // 加载中骨架屏
   if (!imgSrc) {
     return (
-      <span className="flex items-center justify-center h-48 w-full bg-neutral-800/50 rounded-lg animate-pulse text-neutral-500 text-xs border border-neutral-700/50">
+      <div className="flex items-center justify-center h-48 w-full bg-neutral-800/50 rounded-lg animate-pulse text-neutral-500 text-xs border border-neutral-700/50 my-4">
         正在安全解密并加载图表...
-      </span>
+      </div>
     );
   }
 
+  // 成功渲染
   return (
     <img
       src={imgSrc}
