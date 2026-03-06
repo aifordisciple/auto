@@ -322,10 +322,47 @@ export function ChatStage() {
                           <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
                         ) : (
                           <div className="flex flex-col gap-4 w-full">
+
+                            {/* ✨ 调整顺序 1：先渲染文本、代码、以及执行完成后的结果 */}
                             {msg.content && (() => {
                               let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
+
+                              // 🌟 魔法拦截器：自动将后台物理路径升级为前端可见的图片和链接
+                              const apiBase = BASE_URL.replace(/\/$/, '');
+
+                              // 使用正则将内容按代码块进行分割，保护代码块内部的路径不被替换
+                              const parts = cleanText.split(/(```[\s\S]*?```)/g);
+
+                              cleanText = parts.map(part => {
+                                // 如果是包裹在 ``` 里的代码块，直接跳过，防止破坏 AI 写的代码
+                                if (part.startsWith('```')) return part;
+
+                                let text = part;
+
+                                // 1. 匹配图片格式 (png, jpg, svg等)，自动转成 Markdown 图片显示
+                                text = text.replace(
+                                  /\/app\/uploads\/project_(\d+)\/([^\s'"]+\.(png|jpg|jpeg|gif|svg))/gi,
+                                  (match, pId, filePath) => {
+                                    return `\n\n![分析图表](${apiBase}/api/projects/${pId}/files/${filePath}/view)\n\n`;
+                                  }
+                                );
+
+                                // 2. 匹配数据文档格式 (tsv, csv, txt等)，自动转成可点击的下载/预览链接
+                                text = text.replace(
+                                  /\/app\/uploads\/project_(\d+)\/([^\s'"]+\.(csv|tsv|txt|h5ad|pdf|xlsx))/gi,
+                                  (match, pId, filePath) => {
+                                    const fileName = filePath.split('/').pop();
+                                    return `[📥 下载/查看 ${fileName}](${apiBase}/api/projects/${pId}/files/${filePath}/view)`;
+                                  }
+                                );
+
+                                return text;
+                              }).join('');
+
                               return cleanText ? <MarkdownBlock content={cleanText} /> : null;
                             })()}
+
+                            {/* ✨ 调整顺序 2：把策略卡片放到最后面，作为用户的下一步行动入口 */}
                             {strategyCard && <StrategyCard data={strategyCard} />}
                           </div>
                         )}
