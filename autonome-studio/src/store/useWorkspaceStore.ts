@@ -48,7 +48,7 @@ interface WorkspaceState {
   projectFiles: RealFile[];
   setProjectFiles: (files: RealFile[]) => void;
   addProjectFile: (file: RealFile) => void;
-  fetchProjectFiles: (projectId: number) => Promise<void>;
+  fetchProjectFiles: (projectId?: number) => Promise<void>;
   
   mountedFiles: string[];
   toggleMountFile: (file: string) => void;
@@ -80,10 +80,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       addProjectFile: (file) => set((state) => ({ 
         projectFiles: [...state.projectFiles, file] 
       })),
-      fetchProjectFiles: async (projectId: number) => {
+      fetchProjectFiles: async (projectId?: number) => {
+        let pid = projectId;
+        if (!pid) {
+          const stored = localStorage.getItem('autonome_current_project_id');
+          pid = stored ? parseInt(stored) : undefined;
+        }
+        if (!pid) return;
         const token = localStorage.getItem('autonome_access_token');
         try {
-          const res = await fetch(`${BASE_URL}/api/projects/${projectId}/files`, {
+          const res = await fetch(`${BASE_URL}/api/projects/${pid}/files`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           const data = await res.json();

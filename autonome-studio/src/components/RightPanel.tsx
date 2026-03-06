@@ -47,29 +47,21 @@ export function RightPanel() {
   // Handle file upload
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !currentProjectId) return;
 
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
-      const response = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files`, {
+      await fetchAPI(`/projects/${currentProjectId}/files`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
         body: formData,
       });
-      const data = await response.json();
-      
-      if (data.status === 'success') {
-        // ✨ 上传成功后刷新整个列表，确保同步
-        fetchProjectFiles();
-      }
+      fetchProjectFiles();
     } catch (error) {
       console.error("Upload failed:", error);
+      alert('❌ 上传失败，请检查网络状态或文件大小限制。');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
