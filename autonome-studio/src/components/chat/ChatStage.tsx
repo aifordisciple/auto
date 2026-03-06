@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Bot, User, Sparkles } from "lucide-react";
+import { Bot, User, Sparkles, Copy, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
@@ -11,6 +11,28 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StrategyCard, parseStrategyCard } from "./StrategyCard";
 import { BASE_URL } from "@/lib/api";
+
+function MessageActionButtons({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <button 
+        onClick={handleCopy}
+        className="p-1.5 rounded-full hover:bg-neutral-800 text-neutral-500 hover:text-neutral-300 transition-colors"
+        title="复制全文"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+    </div>
+  );
+}
 
 export function ChatStage() {
   const { currentProjectId, mountedFiles, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
@@ -268,31 +290,36 @@ export function ChatStage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
-                    className={`flex items-start gap-3 max-w-4xl mx-auto w-full ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}
+                    className={`flex flex-col group ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-4xl mx-auto w-full`}
                   >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                      msg.role === 'user' 
-                        ? 'bg-neutral-800 text-neutral-300' 
-                        : 'bg-blue-900/40 text-blue-400'
-                    }`}>
-                      {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+                    <div className={`flex items-start gap-3 w-full ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                        msg.role === 'user' 
+                          ? 'bg-neutral-800 text-neutral-300' 
+                          : 'bg-blue-900/40 text-blue-400'
+                      }`}>
+                        {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+                      </div>
+                      <div className={`flex-1 rounded-xl p-4 ${
+                        msg.role === 'user' 
+                          ? 'bg-neutral-800/50 text-neutral-200' 
+                          : 'bg-neutral-900/60 text-neutral-300'
+                      }`}>
+                        {msg.role === 'user' ? (
+                          <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+                        ) : (
+                          <div className="flex flex-col gap-4 w-full">
+                            {strategyCard && <StrategyCard data={strategyCard} />}
+                            {msg.content && (() => {
+                              let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
+                              return cleanText ? <MarkdownBlock content={cleanText} /> : null;
+                            })()}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className={`flex-1 rounded-xl p-4 ${
-                      msg.role === 'user' 
-                        ? 'bg-neutral-800/50 text-neutral-200' 
-                        : 'bg-neutral-900/60 text-neutral-300'
-                    }`}>
-                      {msg.role === 'user' ? (
-                        <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-                      ) : (
-                        <div className="flex flex-col gap-4 w-full">
-                          {strategyCard && <StrategyCard data={strategyCard} />}
-                          {msg.content && (() => {
-                            let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
-                            return cleanText ? <MarkdownBlock content={cleanText} /> : null;
-                          })()}
-                        </div>
-                      )}
+                    <div className={`flex items-center gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity ${msg.role === 'user' ? 'mr-11' : 'ml-11'}`}>
+                      <MessageActionButtons content={msg.content} />
                     </div>
                   </motion.div>
                 )})}

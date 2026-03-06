@@ -59,7 +59,8 @@ INTERPRETER_PROMPT = """你现在是一位顶尖的计算生物学家和高分 S
 ### 📝 图注与方法 (Legends & Methods)
 - **中文图注**：用一句话概括图表内容。
 - **English Legend**：Translate the Chinese legend into standard academic English.
-- **材料与方法**：根据源码，用学术语言描述该图是使用什么数据转化方式以及什么 R 包（如 pheatmap）生成的。
+- **材料与方法**：根据源码，用学术语言描述该图是如何分析，使用什么软件/包生成的。
+- **English Methods**：Translate the Chinese Methods into standard academic English.
 
 ### 🔬 图表深度解读 (Interpretation)
 - **技术解读**：解释图表中的视觉元素（例如：横轴代表样本，纵轴代表基因，颜色的深浅代表表达量高低）。
@@ -82,7 +83,7 @@ def generate_expert_report(user_prompt: str, source_code: str, data_summary: str
         )
         
         payload = {
-            "model": "qwen3-coder:30b",
+            "model": "qwen3.5:35b",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.4
         }

@@ -1,10 +1,12 @@
 "use client";
 
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactECharts from 'echarts-for-react';
+import { Copy, Check } from 'lucide-react';
 
 import { DatasetCards } from "./chat/DatasetCards";
 
@@ -25,22 +27,39 @@ export function MarkdownBlock({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          img: ({ node, ...props }) => {
-            const srcUrl = getImageUrl(props.src);
+          img: ({ src, alt }) => {
+            const srcUrl = getImageUrl(src);
             return (
               <img 
-                {...props} 
                 src={srcUrl} 
                 className="max-w-full max-h-96 my-4 rounded-lg border border-neutral-700 hover:opacity-90 transition-opacity shadow-lg"
-                alt={props.alt || "Analysis Chart"}
+                alt={alt || "Analysis Chart"}
               />
             );
           },
 
-          code({ node, inline, className, children, ...props }: any) {
+          code({ className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || '');
+            const [copied, setCopied] = useState(false);
             
-            if (!inline && match && match[1] === 'echarts') {
+            const handleCopy = () => {
+              const codeString = String(children).replace(/\n$/, '');
+              navigator.clipboard.writeText(codeString);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            };
+            
+            if (!match) {
+              return (
+                <code className="bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono" {...props}>
+                  {children}
+                </code>
+              );
+            }
+            
+            const lang = match[1];
+            
+            if (lang === 'echarts') {
               try {
                 const echartOption = JSON.parse(String(children));
                 return (
@@ -55,7 +74,7 @@ export function MarkdownBlock({ content }: { content: string }) {
                     />
                   </div>
                 );
-              } catch (error) {
+              } catch {
                 return (
                   <div className="my-4 border border-red-900/50 bg-red-950/20 rounded-md p-4">
                     <p className="text-red-500 text-xs mb-2">⚠️ Chart JSON parsing failed, showing source:</p>
@@ -65,11 +84,11 @@ export function MarkdownBlock({ content }: { content: string }) {
               }
             }
 
-            if (!inline && match && match[1] === 'dataset_cards') {
+            if (lang === 'dataset_cards') {
               try {
                 const datasets = JSON.parse(String(children).replace(/\n$/, ""));
                 return <DatasetCards datasets={datasets} />;
-              } catch (e) {
+              } catch {
                 return (
                   <div className="p-4 bg-red-950/30 text-red-400 border border-red-900/50 rounded-lg text-xs font-mono">
                     ⚠️ 数据解析失败：大模型返回的 JSON 格式有误。
@@ -78,26 +97,32 @@ export function MarkdownBlock({ content }: { content: string }) {
               }
             }
 
-            return !inline && match ? (
-              <div className="rounded-md overflow-hidden border border-neutral-700 my-4 shadow-lg">
-                <div className="bg-neutral-800 px-4 py-1 text-xs text-neutral-400 font-mono border-b border-neutral-700 flex justify-between items-center">
-                  <span>{match[1]}</span>
-                  <button className="hover:text-white transition-colors">Copy</button>
-                </div>
+            return (
+              <div className="relative group my-4">
+                <button
+                  onClick={handleCopy}
+                  className="absolute right-2 top-2 p-1.5 rounded-md bg-neutral-800 border border-neutral-700 text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:text-white hover:bg-neutral-700"
+                  title="复制代码"
+                >
+                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                </button>
                 <SyntaxHighlighter
-                  {...props}
                   style={vscDarkPlus}
-                  language={match[1]}
+                  language={lang}
                   PreTag="div"
-                  customStyle={{ margin: 0, padding: '1rem', background: '#0a0a0a' }}
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: '0.75rem',
+                    fontSize: '0.875rem',
+                    lineHeight: '1.5',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                    background: '#0a0a0a',
+                  }}
                 >
                   {String(children).replace(/\n$/, '')}
                 </SyntaxHighlighter>
               </div>
-            ) : (
-              <code {...props} className="bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono">
-                {children}
-              </code>
             );
           },
           table({ children }) {
