@@ -341,19 +341,21 @@ print(f"SUCCESS: Analysis pipeline completed. Target output -> {out_filename}")
 # ==========================================
 @celery_app.task(bind=True)
 def run_custom_python_task(self, params: dict):
-    """通用 Python 代码沙箱执行任务，并在完成后将结果写回聊天记录"""
+    """通用 Python 代码沙箱执行任务，并在完成后将结果与专家解读写回聊天记录"""
     task_id = self.request.id
     code = params.get("code")
-    session_id = params.get("session_id")
-    project_id = params.get("project_id")
-    
+    session_id = params.get("session_id", 1)
+    project_id = params.get("project_id", 1)
+    user_message = params.get("message", "用户执行了生信数据分析与可视化任务")
+
     log_msg = create_task_logger(task_id)
     log_msg(f"🚀 初始化通用沙箱引擎 (Task ID: {task_id})")
-    
+
     try:
+        # 1. 运行沙箱代码
         result_output, exit_code = run_container("autonome-tool-env", code)
-        
-        # Clean output of control characters
+
+        # 2. 清理控制台乱码字符
         if result_output:
             result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
@@ -361,15 +363,31 @@ def run_custom_python_task(self, params: dict):
             result_output = result_output.replace('\r\n', '\n').replace('\r', '\n')
             result_output = re.sub(r'\n{3,}', '\n\n', result_output)
             result_output = result_output.strip()
-        
-        log_msg("🎉 沙箱代码执行完毕！")
-        
+
+        log_msg("🎉 Python 脚本执行完毕！开始收集数据指纹...")
+
+        # 3. ✨ 读取数据指纹摘要 (data_summary.txt)
+        summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
+        data_summary = "暂无详细数据特征"
+        if os.path.exists(summary_path):
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                data_summary = f.read()
+
+        # 4. ✨ 调用专家 Agent 生成报告
+        log_msg("🧠 正在呼叫生物学专家 Agent 进行深度解读... (约需 10-30 秒，请稍候)")
+        expert_report = generate_expert_report(user_message, code, data_summary)
+
+        # 5. 拼装成极其华丽的 Markdown 报告
+        log_msg("📝 报告生成完毕，正在推送到界面...")
+
         with Session(engine) as db:
             final_content = (
-                f"✅ **分析任务已完成 (Task ID: `{task_id[:8]}`)**\n\n"
+                f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                 f"---\n"
-                f"### 📊 执行结果\n\n"
-                f"{result_output}"
+                f"### 📊 执行日志与图表\n\n"
+                f"{result_output}\n\n"  # 👈 前端的正则魔法会在这里把路径瞬间变成高清图片！
+                f"---\n"
+                f"{expert_report}"      # 👈 华丽的专家解读紧跟其后
             )
             new_msg = ChatMessage(
                 session_id=session_id,
@@ -378,8 +396,8 @@ def run_custom_python_task(self, params: dict):
             )
             db.add(new_msg)
             db.commit()
-            log_msg(f"✅ 结果已成功回写至 ChatSession: {session_id}")
-            
+            log_msg(f"✅ 结果与解读已成功回写至 ChatSession: {session_id}")
+
         return {"status": "success"}
     except Exception as e:
         log_msg(f"💥 执行失败: {str(e)}", level="ERROR")
