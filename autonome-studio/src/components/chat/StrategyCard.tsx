@@ -395,7 +395,6 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
     }
 
     data.code = codeStr.trim();
-    console.log("🛠️ [完美卡片数据]:", data);
 
     return data;
   } catch (e) {
