@@ -159,18 +159,25 @@ export function RightPanel() {
           ) : (
             <ul className="space-y-2">
               {projectFiles.map(fileObj => {
-                const isMounted = mountedFiles.includes(fileObj.filename);
+                // ✨ 兼容新后端的 relative_path 字段，如果没有则回退到 filename
+                const filePath = (fileObj as any).path || fileObj.filename; 
+                // 获取不带文件夹的纯文件名
+                const baseName = filePath.split('/').pop();
+                // 获取所在的文件夹名称
+                const folder = filePath.includes('/') ? filePath.split('/')[0] : '';
+                
+                const isMounted = mountedFiles.includes(filePath);
                 const sizeMB = (fileObj.file_size / (1024 * 1024)).toFixed(2);
                 
                 return (
                   <li 
-                    key={fileObj.id}
+                    key={fileObj.id || filePath}
                     className={`group relative flex items-center justify-between p-2.5 rounded-lg border text-sm transition-all duration-300 cursor-pointer overflow-hidden ${
                       isMounted 
                         ? "bg-blue-900/10 border-blue-500/40 text-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.15)] transform scale-[1.02]" 
                         : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:bg-neutral-800/80 hover:border-neutral-600 hover:text-neutral-200"
                     }`}
-                    onClick={() => toggleMountFile(fileObj.filename)}
+                    onClick={() => toggleMountFile(filePath)}
                   >
                     {/* 左侧的霓虹指示条 */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1 transition-all duration-300 ${
@@ -183,7 +190,12 @@ export function RightPanel() {
                       }`}>
                         {isMounted && <Check size={12} strokeWidth={4} />}
                       </button>
-                      <span className="truncate font-medium tracking-wide" title={fileObj.filename}>{fileObj.filename}</span>
+                      <span className="truncate font-medium tracking-wide flex items-center gap-1.5" title={filePath}>
+                        {/* ✨ 美化显示：如果在特定目录下，加一个小标签 */}
+                        {folder === 'raw_data' && <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">RAW</span>}
+                        {folder === 'results' && <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">OUT</span>}
+                        {baseName}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-neutral-500 shrink-0 z-10 relative bg-neutral-950 px-2 py-1 rounded-md border border-neutral-800 group-hover:border-neutral-600">{sizeMB} MB</span>

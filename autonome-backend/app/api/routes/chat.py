@@ -64,17 +64,31 @@ async def chat_stream(
     # 提取用户 ID
     user_id = current_user.id
     
-    # 4. 解析物理文件路径
+    # ========================================================
+    # ✨ 核心升级：基于纯物理文件系统的全景视力构建
+    # ========================================================
+    # 4. 扫描整个项目硬盘，构建【全景目录树】
+    project_dir = os.path.join("uploads", f"project_{request.project_id}")
+    global_file_tree = "当前项目文件目录树：\n"
+    
+    if os.path.exists(project_dir):
+        for root, dirs, files in os.walk(project_dir):
+            for file in files:
+                if file.startswith('.'): continue
+                rel_path = os.path.relpath(os.path.join(root, file), project_dir)
+                global_file_tree += f"- {rel_path}\n"
+    else:
+        global_file_tree += "（当前项目为空）\n"
+
+    # 5. 解析用户勾选的重点文件，提供【显微视力】（绝对路径供代码读取）
     physical_file_info = ""
     if request.context_files:
-        files_in_db = session.exec(
-            select(DataFile).where(
-                DataFile.project_id == request.project_id, 
-                DataFile.filename.in_(request.context_files)
-            )
-        ).all()
-        for f in files_in_db:
-            physical_file_info += f"- {f.filename} (物理路径: {os.path.abspath(f.file_path)})\n"
+        for rel_path in request.context_files:
+            if ".." not in rel_path:
+                abs_path = os.path.abspath(os.path.join(project_dir, rel_path))
+                sandbox_path = f"/app/uploads/project_{request.project_id}/{rel_path}"
+                physical_file_info += f"- {rel_path} (沙箱绝对路径: {sandbox_path})\n"
+    # ========================================================
 
     # 5. 动态加载 LLM 配置
     config = session.get(SystemConfig, 1)
@@ -115,6 +129,7 @@ async def chat_stream(
                 base_url=base_url,
                 model_name=model_name,
                 physical_file_info=physical_file_info,
+                global_file_tree=global_file_tree,
                 user_id=user_id,
                 project_id=request.project_id
             )

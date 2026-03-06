@@ -18,7 +18,7 @@ class AgentState(TypedDict):
     next: str
 
 
-def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_info: str, user_id: int, project_id: int):
+def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_info: str, global_file_tree: str, user_id: int, project_id: int):
     actual_api_key = api_key if (api_key and api_key.strip() != "") else "ollama-local"
     
     llm = ChatOpenAI(
@@ -34,55 +34,55 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
     
     context_info = f"""
 [当前系统上下文]
-当前用户 ID: {user_id}
 当前项目 ID: {project_id}
-已挂载物理文件: {physical_file_info if physical_file_info else '当前项目为空，没有文件'}
 
-📁 【重要】文件存储位置说明：
-- 用户的物理文件都已经列在上面的"已挂载物理文件"中了，当用户询问有哪些文件时，请直接回答上述列表，不要写代码。
-- 当你在策略卡片中编写读取文件的 Python 代码时，请务必使用完整路径，例如：pd.read_csv('/app/uploads/project_{project_id}/ras.tsv')
+【项目全景目录树 (Agent 你的全局视力)】
+{global_file_tree}
+
+【用户显式指定的重点文件 (显微视力，请优先关注)】
+{physical_file_info if physical_file_info else '用户未特意勾选，请自己从上面的全景目录树中寻找合适的文件。'}
+
+📁 【核心强制规范：文件存储与路径】
+1. 读取数据：用户原始数据都在 `raw_data/` 目录下。代码中读取必须使用完整绝对路径，如：`/app/uploads/project_{project_id}/raw_data/文件名`
+2. 输出数据：你的所有分析结果(图表/CSV)必须保存在 `results/` 目录下。写入时必须使用绝对路径，如：`/app/uploads/project_{project_id}/results/文件名`
 """
     
     # 简化版：直接使用单一 Agent
-    main_prompt = f"""你是 Autonome 生信分析助手。
+    main_prompt = f"""你是 Autonome 生信分析高级专家。
 {context_info}
 
 【双语编程与策略卡片协议】
-你具备 Python 和 R 语言的双语能力。
+🚨🚨🚨 绝对指令：
+1. 禁止使用 Function Calling 或底层工具！
+2. 必须先输出代码，再输出策略卡片 JSON！
 
-🚨🚨🚨 绝对指令（防截断与纯净输出生命线）：
-1. 绝对禁止使用 Function Calling 或任何底层工具调用！
-2. 为了防止前端解析失败，你**必须且只能**先输出执行代码，然后再输出策略卡片！
-
-【第一部分：先输出执行代码】（只写作图逻辑，绝对不要写任何图形解读的文本！）
+【第一部分：执行代码示例】
 ```r
+sink(nullfile())
 suppressPackageStartupMessages(library(pheatmap))
 
-# 1. 读取数据与画图
-data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
-pheatmap(data, filename='/app/uploads/project_{project_id}/heatmap.png')
+# ✨ 注意路径：从 raw_data 读，向 results 写
+data <- read.table('/app/uploads/project_{project_id}/raw_data/ras.tsv', header=TRUE, row.names=1)
+pheatmap(data, filename='/app/uploads/project_{project_id}/results/heatmap.png')
 
-# 2. ✨ [新增] 提取数据特征指纹，供后续 AI 专家解读使用
 tryCatch({{
-  # 简单计算行列数和均值最高的 Top 3 基因
-  summary_info <- paste(
-    "【数据集维度】: 包含", nrow(data), "个特征(行) 和", ncol(data), "个样本(列)。\\n",
-    "【高表达特征】: 均值最高的 Top 3 特征是:", paste(rownames(data)[order(rowMeans(data, na.rm=TRUE), decreasing=TRUE)[1:3]], collapse=", ")
-  )
-  writeLines(summary_info, '/app/uploads/project_{project_id}/data_summary.txt')
-}}, error = function(e) {{
-  writeLines("无法提取标准矩阵特征", '/app/uploads/project_{project_id}/data_summary.txt')
-}})
+  summary_info <- paste("【维度】:", nrow(data), "行", ncol(data), "列")
+  # 写入 results 目录
+  writeLines(summary_info, '/app/uploads/project_{project_id}/results/data_summary.txt')
+}}, error = function(e) {{ NULL }})
+
+sink()
 
 ```
 
-【第二部分：最后输出策略卡片】（必须放在代码之后）
+【第二部分：策略卡片】
+
 ```json_strategy
 {{
   "title": "单细胞基因表达热图",
-  "description": "读取表达矩阵并使用 R 语言绘制热图。",
+  "description": "读取表达矩阵绘制热图，结果保存至 results 目录。",
   "tool_id": "execute-r",
-  "steps": ["读取 ras.tsv", "绘制热图并保存", "提取数据指纹"],
+  "steps": ["读取 raw_data 数据", "绘制并保存至 results"],
   "estimated_time": "约 1-2 分钟"
 }}
 ```
