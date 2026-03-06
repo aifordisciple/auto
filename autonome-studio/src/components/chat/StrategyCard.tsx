@@ -325,59 +325,65 @@ export function parseStrategyCard(content: string): StrategyCardData | null {
   if (!content) return null;
 
   try {
-    // 1. Extract JSON - try multiple patterns
-    let jsonStr = "";
     let data = null;
-    
-    // Try json_strategy block first
-    const jsonMatch = content.match(/```json_strategy\s*\n([\s\S]*?)```/);
+    let jsonStr = "";
+
+    // 🛡️ 终极防御：利用大括号深度匹配，完美抠出最准确的 JSON 对象，绝不会多包含任何 R 代码
+    const extractJSON = (str: string) => {
+      const start = str.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0;
+      for (let i = start; i < str.length; i++) {
+        if (str[i] === '{') depth++;
+        else if (str[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            return str.substring(start, i + 1);
+          }
+        }
+      }
+      return null;
+    };
+
+    // 1. 优先尝试从规范的代码块中提取
+    const jsonMatch = content.match(/```(?:json_strategy|json)\s*\n([\s\S]*?)```/);
     if (jsonMatch) {
-      jsonStr = jsonMatch[1]
-        .replace(/\u00A0/g, ' ')
-        .replace(/^[\s\n]+/, '')  // Remove leading whitespace/newlines
-        .replace(/[\s\n]+$/, '')  // Remove trailing whitespace/newlines
-        .trim();
-      try {
-        data = JSON.parse(jsonStr);
-      } catch (e) {
-        // Try to fix common JSON issues
-        try {
-          // Remove trailing commas
-          jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
-          data = JSON.parse(jsonStr);
-        } catch (e2) {
-          console.error("JSON parse failed:", e2, "Raw:", jsonStr.substring(0, 100));
+      jsonStr = jsonMatch[1];
+    } else {
+      // 2. 如果没有代码块，去全文寻找包含 "tool_id" 的最近的那个大括号包裹层
+      const toolIdIndex = content.indexOf('"tool_id"');
+      if (toolIdIndex !== -1) {
+        const start = content.lastIndexOf('{', toolIdIndex);
+        if (start !== -1) {
+          jsonStr = extractJSON(content.substring(start)) || "";
         }
       }
     }
-    
-    // Fallback: try to find any JSON with tool_id
-    if (!data) {
-      const fallbackMatch = content.match(/\{[\s\S]*"tool_id"[\s\S]*\}/);
-      if (fallbackMatch) {
-        try {
-          let fallbackStr = fallbackMatch[0]
-            .replace(/^[\s\n]+/, '')
-            .replace(/[\s\n]+$/, '')
-            .replace(/,\s*}/g, '}')
-            .replace(/,\s*]/g, ']');
-          data = JSON.parse(fallbackStr);
-        } catch (e) {
-          console.error("Fallback JSON parse failed:", e);
-        }
+
+    // 清洗常见的 JSON 语法错误（如零宽空格、多余逗号）
+    if (jsonStr) {
+      jsonStr = jsonStr
+        .replace(/\u00A0/g, ' ')
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']');
+        
+      try {
+        data = JSON.parse(jsonStr);
+      } catch (e) {
+        console.error("JSON parse failed:", e, "\nRaw:", jsonStr.substring(0, 100));
       }
     }
     
     if (!data || !data.tool_id || !data.title) return null;
 
-    // Normalize tool_id to use dash format (as expected by backend)
+    // 强制统一工具 ID 命名规范
     if (data.tool_id === 'execute_r' || data.tool_id === 'R') {
       data.tool_id = 'execute-r';
     } else if (data.tool_id === 'execute_python' || data.tool_id === 'python') {
       data.tool_id = 'execute-python';
     }
 
-    // 2. Extract code block
+    // 2. 提取需要执行的代码块
     let codeStr = "";
     const rMatch = content.match(/```(?:r|R)\s*\n([\s\S]*?)```/);
     const pyMatch = content.match(/```(?:python|Python)\s*\n([\s\S]*?)```/);
