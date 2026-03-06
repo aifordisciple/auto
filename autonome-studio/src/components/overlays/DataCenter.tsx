@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download } from "lucide-react";
-import { api } from "@/lib/api";
+import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2 } from "lucide-react";
+import { fetchAPI, BASE_URL } from "@/lib/api";
 
 const getFileIcon = (filename: string) => {
   const lower = filename.toLowerCase();
@@ -97,6 +97,10 @@ export function DataCenter() {
   
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results']));
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
   const toggleExpand = (path: string) => {
     setExpandedFolders(prev => {
       const next = new Set(prev);
@@ -106,11 +110,49 @@ export function DataCenter() {
     });
   };
 
+  const handleSync = async () => {
+    if (!currentProjectId) return;
+    setIsSyncing(true);
+    await fetchProjectFiles(currentProjectId);
+    setTimeout(() => setIsSyncing(false), 600);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !currentProjectId) return;
+
+    setIsUploading(true);
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+      const uploadPromises = Array.from(files).map(async (file) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        return fetch(`/api/projects/${currentProjectId}/files`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
+      });
+      await Promise.all(uploadPromises);
+      await handleSync();
+    } catch (error) {
+      console.error("Upload failed", error);
+      alert("❌ 上传失败，请检查网络状态或文件大小限制。");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleDeleteNode = async (filePath: string) => {
     if (!window.confirm(`⚠️ 危险操作\n\n确定要从物理磁盘彻底删除 \n${filePath} 吗？\n此操作不可逆！`)) return;
     
     try {
-      await api.delete(`/projects/${currentProjectId}/files/${filePath}`);
+      const token = localStorage.getItem('autonome_access_token');
+      await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (currentProjectId) {
         fetchProjectFiles(currentProjectId);
       }
@@ -121,7 +163,8 @@ export function DataCenter() {
   };
 
   const handleDownloadNode = (filePath: string) => {
-    const downloadUrl = `/api/projects/${currentProjectId}/files/${filePath}/view`;
+    const token = localStorage.getItem('autonome_access_token');
+    const downloadUrl = `${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view?token=${token}`;
     window.open(downloadUrl, '_blank');
   };
 
@@ -170,7 +213,7 @@ export function DataCenter() {
           </button>
         </div>
 
-        <div className="p-4 border-b border-neutral-800 flex gap-4 bg-neutral-900/20">
+        <div className="p-4 border-b border-neutral-800 flex items-center gap-3 bg-neutral-900/20">
           <div className="flex-1 relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
             <input 
@@ -178,6 +221,35 @@ export function DataCenter() {
               placeholder="在项目中搜索文件..." 
               className="w-full bg-neutral-950 border border-neutral-800 rounded-lg pl-9 pr-4 py-2 text-sm text-neutral-300 outline-none focus:border-purple-500/50 focus:bg-neutral-900 transition-all placeholder:text-neutral-600"
             />
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <input 
+              type="file" 
+              multiple 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+              className="hidden" 
+            />
+            
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || isSyncing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isUploading ? <Loader2 size={16} className="animate-spin text-purple-400" /> : <UploadCloud size={16} className="text-purple-400" />}
+              <span>{isUploading ? '上传中...' : '上传'}</span>
+            </button>
+
+            <button 
+              onClick={handleSync}
+              disabled={isSyncing || isUploading}
+              className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg shadow-lg shadow-purple-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+              title="从服务器底层重新扫描硬盘文件"
+            >
+              <RefreshCw size={16} className={isSyncing ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"} />
+              <span>物理同步</span>
+            </button>
           </div>
         </div>
 

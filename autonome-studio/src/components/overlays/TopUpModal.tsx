@@ -4,12 +4,12 @@ import { X, Zap, CreditCard, CheckCircle2, Loader2 } from "lucide-react";
 import { fetchAPI, BASE_URL } from "../../lib/api";
 
 interface TopUpModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
   onSuccess?: () => void;
 }
 
-export function TopUpModal({ isOpen, onClose, onSuccess }: TopUpModalProps) {
+export function TopUpModal({ isOpen = false, onClose = () => {}, onSuccess }: TopUpModalProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

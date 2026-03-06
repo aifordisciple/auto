@@ -174,18 +174,6 @@ export function ChatStage() {
             throw new Error(`Server responded with ${res.status}`);
           }
         },
-        body: JSON.stringify({
-          project_id: currentProjectId,
-          message: currentInput,
-          context_files: mountedFiles,
-          session_id: currentSessionId
-        }),
-        openWhenHidden: true,
-        onopen: async (res) => {
-          if (!res.ok || res.status !== 200) {
-            throw new Error(`Server responded with ${res.status}`);
-          }
-        },
         onmessage(event) {
           if (event.event === 'session_info') {
             const data = JSON.parse(event.data);

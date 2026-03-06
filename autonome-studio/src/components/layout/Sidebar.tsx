@@ -182,7 +182,7 @@ export function Sidebar() {
               </span>
               <span className="text-[10px] text-neutral-500 flex items-center gap-1 font-mono leading-none mt-1.5">
                 <Sparkles size={9} className="text-indigo-400/80" />
-                {credits?.toFixed(1) || user?.credits_balance.toFixed(1) || '0.0'}
+                {user?.credits_balance?.toFixed(1) || '0.0'}
               </span>
             </div>
           </div>

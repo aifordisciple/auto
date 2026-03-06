@@ -9,7 +9,7 @@ export function ProjectCenter() {
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { currentProjectId, setCurrentProjectId } = useWorkspaceStore();
-  const { closeOverlay } = useUIStore();
+  const { closeAllOverlays } = useUIStore();
 
   useEffect(() => {
     setIsLoading(true);
@@ -42,7 +42,7 @@ export function ProjectCenter() {
               key={proj.id} 
               onClick={() => {
                 setCurrentProjectId(proj.id);
-                closeOverlay(); // 点击瞬间切换项目并关闭大屏
+                closeAllOverlays(); // 点击瞬间切换项目并关闭大屏
               }}
               className={`group bg-neutral-900 border ${currentProjectId === proj.id ? 'border-blue-500 shadow-lg shadow-blue-900/20' : 'border-neutral-800 hover:border-purple-500/50'} rounded-xl p-5 cursor-pointer transition-all flex flex-col`}
             >
