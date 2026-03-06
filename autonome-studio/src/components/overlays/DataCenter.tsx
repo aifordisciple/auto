@@ -194,10 +194,10 @@ export function DataCenter() {
   if (!isDataCenterOpen) return null;
 
   return (
-    <div className="absolute inset-y-0 left-20 right-0 z-40 flex">
+    <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
       
-      <div className="relative w-[600px] h-full bg-[#121212] border-r border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
+      <div className="relative w-[600px] h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
         <div className="h-16 shrink-0 border-b border-neutral-800 px-6 flex items-center justify-between bg-neutral-900/40">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.15)]">

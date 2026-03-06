@@ -8,7 +8,7 @@ import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { SessionSidebar } from "./SessionSidebar";
 
 export function Sidebar() {
-  const { setActiveOverlay, toggleProjectCenter, toggleDataCenter, isProjectCenterOpen, isDataCenterOpen } = useUIStore();
+  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, isProjectCenterOpen, isDataCenterOpen } = useUIStore();
   const { user, logout } = useAuthStore();
   const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
@@ -56,7 +56,7 @@ export function Sidebar() {
 
         {/* Control Panel */}
         <div 
-          onClick={() => setActiveOverlay('control')}
+          onClick={() => toggleControlPanel()}
           className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-neutral-800/50 hover:text-white"
         >
           <Activity size={18} /> <span>控制面板</span>
@@ -64,7 +64,7 @@ export function Sidebar() {
         
         {/* Task Center */}
         <div 
-          onClick={() => setActiveOverlay('tasks')}
+          onClick={() => toggleTaskCenter()}
           className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-neutral-800/50 hover:text-white"
         >
           <ListTodo size={18} /> <span>任务中心</span>
@@ -72,7 +72,7 @@ export function Sidebar() {
         
         {/* Projects */}
         <div 
-          onClick={() => setActiveOverlay('projects')}
+          onClick={() => toggleProjectCenter()}
           className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-neutral-800/50 hover:text-white"
         >
           <FolderGit2 size={18} /> <span>项目中心</span>
@@ -120,7 +120,7 @@ export function Sidebar() {
             {/* 菜单操作区 */}
             <div className="p-1">
               <button 
-                onClick={() => { setActiveOverlay('settings'); setIsUserMenuOpen(false); }}
+                onClick={() => { toggleSettings(); setIsUserMenuOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-neutral-300 hover:text-white hover:bg-neutral-800/60 rounded-lg transition-colors"
               >
                 <Settings size={14} className="text-neutral-400" /> 
@@ -138,7 +138,7 @@ export function Sidebar() {
               )}
               
               <button 
-                onClick={() => { setActiveOverlay('topup'); setIsUserMenuOpen(false); }}
+                onClick={() => { toggleSettings(); setIsUserMenuOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-neutral-300 hover:text-white hover:bg-neutral-800/60 rounded-lg transition-colors"
               >
                 <CreditCard size={14} className="text-neutral-400" /> 

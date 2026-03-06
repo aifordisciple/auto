@@ -13,25 +13,35 @@ import { TopUpModal } from "./overlays/TopUpModal";
 import { DataCenter } from "./overlays/DataCenter";
 
 export function GlobalOverlay() {
-  const { isTaskCenterOpen, isSettingsOpen, isProjectCenterOpen, closeAllOverlays } = useUIStore();
+  const { isTaskCenterOpen, isSettingsOpen, isProjectCenterOpen, isControlPanelOpen, isDataCenterOpen, closeAllOverlays } = useUIStore();
 
   useKeyboardShortcut("Escape", () => {
     closeAllOverlays();
   });
 
-  const anyOverlayOpen = isTaskCenterOpen || isSettingsOpen || isProjectCenterOpen;
-
   const renderContent = () => {
     if (isProjectCenterOpen) return <ProjectCenter />;
     if (isSettingsOpen) return <SettingsCenter />;
     if (isTaskCenterOpen) return <TaskCenter />;
+    if (isControlPanelOpen) return <ControlPanel />;
     return null;
   };
 
+  const getTitle = () => {
+    if (isProjectCenterOpen) return 'Projects';
+    if (isSettingsOpen) return 'Settings';
+    if (isTaskCenterOpen) return 'Tasks';
+    if (isControlPanelOpen) return 'Control Panel';
+    return '';
+  };
+
+  const anyOverlayOpen = isTaskCenterOpen || isSettingsOpen || isProjectCenterOpen || isControlPanelOpen;
+
   return (
     <>
-      <TopUpModal />
+      <ControlPanel />
       <DataCenter />
+      <TopUpModal />
       
       <AnimatePresence>
         {anyOverlayOpen && (
@@ -53,7 +63,7 @@ export function GlobalOverlay() {
             >
               <div className="h-16 border-b border-neutral-800 flex items-center justify-between px-8 shrink-0">
                 <h2 className="text-lg font-semibold text-white tracking-wide uppercase">
-                  {isProjectCenterOpen ? 'Projects' : isSettingsOpen ? 'Settings' : 'Tasks'}
+                  {getTitle()}
                 </h2>
                 <button 
                   onClick={closeAllOverlays}
