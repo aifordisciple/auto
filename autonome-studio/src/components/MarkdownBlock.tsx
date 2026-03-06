@@ -34,7 +34,14 @@ const SecureImage = ({ src, alt, ...props }: any) => {
           return;
         }
 
-        const response = await fetch(src, {
+        // ✨ 核心修复：强制拼接后端的 8000 端口地址，防止发给 3001
+        let fetchUrl = src;
+        if (src.startsWith('/api/')) {
+          const apiBase = BASE_URL.replace(/\/$/, '');
+          fetchUrl = `${apiBase}${src}`;
+        }
+
+        const response = await fetch(fetchUrl, {
           headers: {
             'Authorization': `Bearer ${token}`
           },
