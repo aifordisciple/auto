@@ -47,27 +47,46 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
     main_prompt = f"""你是 Autonome 生信分析助手。
 {context_info}
 
-🚨🚨🚨 绝对指令（防截断生命线）：
-1. 绝对禁止使用 Function Calling 或任何底层工具调用！
-2. 为了防止代码截断，你**必须且只能**先输出执行代码，然后再输出策略卡片！
+【双语编程与策略卡片协议】
+你具备 Python 和 R 语言的双语能力。
 
-【第一部分：先输出执行代码】
+🚨🚨🚨 绝对指令（防截断与纯净输出生命线）：
+1. 绝对禁止使用 Function Calling 或任何底层工具调用！
+2. 为了防止前端解析失败，你**必须且只能**先输出执行代码，然后再输出策略卡片！
+
+【第一部分：先输出执行代码】（只写作图逻辑，绝对不要写任何图形解读的文本！）
 ```r
+# 强制开启静音模式，防止任何输出污染
 sink(nullfile())
 suppressPackageStartupMessages(library(pheatmap))
 
+# 1. 读取数据与画图
 data <- read.table('/app/uploads/project_{project_id}/ras.tsv', header=TRUE, row.names=1)
 pheatmap(data, filename='/app/uploads/project_{project_id}/heatmap.png')
+
+# 2. ✨ [新增] 提取数据特征指纹，供后续 AI 专家解读使用
+tryCatch({{
+  # 简单计算行列数和均值最高的 Top 3 基因
+  summary_info <- paste(
+    "【数据集维度】: 包含", nrow(data), "个特征(行) 和", ncol(data), "个样本(列)。\\n",
+    "【高表达特征】: 均值最高的 Top 3 特征是:", paste(rownames(data)[order(rowMeans(data, na.rm=TRUE), decreasing=TRUE)[1:3]], collapse=", ")
+  )
+  writeLines(summary_info, '/app/uploads/project_{project_id}/data_summary.txt')
+}}, error = function(e) {{
+  writeLines("无法提取标准矩阵特征", '/app/uploads/project_{project_id}/data_summary.txt')
+}})
+
+# 关闭静音模式
 sink()
 ```
 
-【第二部分：最后输出策略卡片】
+【第二部分：最后输出策略卡片】（必须放在代码之后）
 ```json_strategy
 {{
   "title": "单细胞基因表达热图",
   "description": "读取表达矩阵并使用 R 语言绘制热图。",
   "tool_id": "execute-r",
-  "steps": ["读取 ras.tsv", "绘制热图并保存"],
+  "steps": ["读取 ras.tsv", "绘制热图并保存", "提取数据指纹"],
   "estimated_time": "约 1-2 分钟"
 }}
 ```

@@ -2,6 +2,7 @@ import time
 import json
 import re
 import traceback
+import requests
 from celery import Celery
 import redis
 
@@ -36,6 +37,64 @@ celery_app.conf.update(
     result_serializer='json',
     timezone='UTC',
 )
+
+
+# ==========================================
+# ✨ 新增：生信图表专家解读 Agent
+# ==========================================
+INTERPRETER_PROMPT = """你现在是一位顶尖的计算生物学家和高分 SCI 论文撰稿人。
+用户刚刚成功运行了一段生信分析代码，生成了对应的图表。
+
+【输入信息】
+1. 用户的原始意图: {user_prompt}
+2. 用于生成图表的源码:
+{source_code}
+3. 数据的基本特征摘要: 
+{data_summary}
+
+【任务要求】
+请你根据上述信息，为这幅生成的图表撰写一份专业报告。请严格按照以下 Markdown 结构输出。如果有些数据你无法确定，请用泛用的专业学术词汇描述，绝对不要编造具体数字：
+
+### 📝 图注与方法 (Legends & Methods)
+- **中文图注**：用一句话概括图表内容。
+- **English Legend**：Translate the Chinese legend into standard academic English.
+- **材料与方法**：根据源码，用学术语言描述该图是使用什么数据转化方式以及什么 R 包（如 pheatmap）生成的。
+
+### 🔬 图表深度解读 (Interpretation)
+- **技术解读**：解释图表中的视觉元素（例如：横轴代表样本，纵轴代表基因，颜色的深浅代表表达量高低）。
+- **科学洞察**：结合【数据的基本特征摘要】，指出图表中呈现出的生物学趋势或结论（例如哪些基因高表达）。
+
+### 💡 专家启发与建议 (Suggestions)
+- **图形优化**：提出 1-2 个可以让这张图更适合发表的改进建议（如：调整配色、添加样本注释条、Z-score 标准化）。
+- **下游分析**：基于当前的分析，建议用户接下来可以做什么深度分析（如：进行差异基因提取、GO/KEGG 富集分析）。
+"""
+
+def generate_expert_report(user_prompt: str, source_code: str, data_summary: str) -> str:
+    """调用本地大模型生成解读报告"""
+    try:
+        api_base = "http://host.docker.internal:11434/v1"
+        
+        prompt = INTERPRETER_PROMPT.format(
+            user_prompt=user_prompt,
+            source_code=source_code,
+            data_summary=data_summary
+        )
+        
+        payload = {
+            "model": "qwen3-coder:30b",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.4
+        }
+        
+        response = requests.post(
+            f"{api_base}/chat/completions", 
+            json=payload, 
+            timeout=60
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"> *(⚠️ AI 专家解读生成超时或失败，您可以尝试直接观察图表。错误信息: {str(e)})*"
 
 
 # ✨ 统一的日志函数：同时写入 Redis 和文件
@@ -335,6 +394,7 @@ def run_custom_r_task(self, params: dict):
     code = params.get("code")
     session_id = params.get("session_id")
     project_id = params.get("project_id")
+    user_message = params.get("message", "用户执行了生信数据可视化任务")
     
     log_msg = create_task_logger(task_id)
     log_msg(f"🚀 初始化 R 语言作图引擎 (Task ID: {task_id})")
@@ -351,7 +411,7 @@ def run_custom_r_task(self, params: dict):
             result_output = re.sub(r'\n{3,}', '\n\n', result_output)
             result_output = result_output.strip()
         
-        log_msg("🎉 R 脚本执行完毕！开始组装渲染结果...")
+        log_msg("🎉 R 脚本执行完毕！开始收集数据指纹...")
         
         # Extract project_id and session_id from params, with fallback
         actual_project_id = project_id if project_id else 1
@@ -361,14 +421,29 @@ def run_custom_r_task(self, params: dict):
         img_match = re.search(r"filename\s*=\s*['\"]?/?app/uploads/project_\d+/([^'\"]+)['\"]?", code)
         actual_filename = img_match.group(1) if img_match else "heatmap.png"
         
+        # 2. ✨ 读取数据指纹摘要 (data_summary.txt)
+        summary_path = f"/app/uploads/project_{actual_project_id}/data_summary.txt"
+        data_summary = "暂无详细数据特征"
+        if os.path.exists(summary_path):
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                data_summary = f.read()
+
+        # 3. ✨ 调用专家 Agent 生成报告
+        log_msg("🧠 正在呼叫生物学专家 Agent 进行深度解读... (约需 10-30 秒，请稍候)")
+        
+        expert_report = generate_expert_report(user_message, code, data_summary)
+
+        # 4. 拼装成极其华丽的 Markdown 报告
+        log_msg("📝 报告生成完毕，正在推送到界面...")
+        
         with Session(engine) as db:
             final_content = (
                 f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                 f"---\n"
-                f"### 📊 分析结果\n\n"
+                f"### 📊 可视化结果\n\n"
                 f"![Analysis_Result](/api/projects/{actual_project_id}/files/{actual_filename}/view)\n\n"
-                f"### 💡 智能解读\n"
-                f"> *系统已成功渲染高定图表。该图直观地展示了数据在不同维度的聚类与分布模式。红色系通常代表数值上升或高表达，蓝色系代表数值下降或低表达。详细的分组相关性可通过观察树状拓扑图得出。*"
+                f"---\n"
+                f"{expert_report}"
             )
             new_msg = ChatMessage(
                 session_id=actual_session_id,
