@@ -13,7 +13,7 @@ interface Session {
 interface SessionSidebarProps {
   projectId: number;
   currentSessionId: number | null;
-  onSelectSession: (id: number | null) => void;
+  onSelectSession: (id: number | null, title?: string | null) => void;
 }
 
 export function SessionSidebar({ projectId, currentSessionId, onSelectSession }: SessionSidebarProps) {
@@ -33,7 +33,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
         setSessions(sessionList);
 
         if (!currentSessionId && sessionList.length > 0) {
-          onSelectSession(sessionList[0].id);
+          onSelectSession(sessionList[0].id, sessionList[0].title);
         }
       }
     } catch (e) {
@@ -122,7 +122,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     return (
       <div 
         key={session.id}
-        onClick={() => onSelectSession(session.id)}
+        onClick={() => onSelectSession(session.id, session.title)}
         className={`group relative flex items-center justify-between px-2 py-1.5 mx-2 rounded-md cursor-pointer transition-all duration-200 ${
           isActive 
             ? 'bg-neutral-800/40 text-neutral-200' 

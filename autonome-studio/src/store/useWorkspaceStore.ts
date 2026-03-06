@@ -39,7 +39,8 @@ interface WorkspaceState {
   
   // Current chat session
   currentSessionId: number | null;
-  setCurrentSessionId: (id: number | null) => void;
+  currentSessionTitle: string | null;
+  setCurrentSessionId: (id: number | null, title?: string | null) => void;
   
   // Data Center: mounted files for AI context
   projectFiles: RealFile[];
@@ -63,9 +64,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       currentProjectId: 1,
       setCurrentProjectId: (id) => set({ currentProjectId: id }),
 
-      // Current session ID
+      // Current session ID and title
       currentSessionId: null,
-      setCurrentSessionId: (id) => set({ currentSessionId: id }),
+      currentSessionTitle: null,
+      setCurrentSessionId: (id, title = null) => set({ 
+        currentSessionId: id,
+        currentSessionTitle: title 
+      }),
 
       projectFiles: [],
       setProjectFiles: (files) => set({ projectFiles: files }),
@@ -103,9 +108,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
     }),
     {
-      name: 'autonome-workspace-storage', // 存在 localStorage 里的 key
-      // 关键：只持久化 currentProjectId，像文件列表和运行时参数不应该存进本地存储
-      partialize: (state) => ({ currentProjectId: state.currentProjectId }),
+      name: 'autonome-workspace-storage',
+      partialize: (state) => ({ 
+        currentProjectId: state.currentProjectId,
+        currentSessionId: state.currentSessionId,
+        currentSessionTitle: state.currentSessionTitle
+      }),
     }
   )
 );

@@ -49,8 +49,8 @@ export default function AutonomeStudio() {
     }
   }, []);
 
-  const handleSelectSession = (id: number | null) => {
-    setCurrentSessionId(id);
+  const handleSelectSession = (id: number | null, title?: string | null) => {
+    setCurrentSessionId(id, title);
   };
 
   if (!projectId) {
