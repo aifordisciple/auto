@@ -69,16 +69,17 @@ export function RightPanel() {
   };
 
   // Handle file deletion
-  const handleDeleteFile = async (fileId: number) => {
+  const handleDeleteFile = async (filePath: string) => {
     if (!confirm("确定要彻底删除这个文件吗？")) return;
-    
+
     try {
       const token = localStorage.getItem('autonome_access_token');
-      const response = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${fileId}`, {
+      // ✨ 修复：使用物理路径拼接请求
+      const response = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         // 删除成功后刷新列表
         fetchProjectFiles();
@@ -193,7 +194,8 @@ export function RightPanel() {
                       <span className="text-[10px] text-neutral-500 shrink-0 z-10 relative bg-neutral-950 px-2 py-1 rounded-md border border-neutral-800 group-hover:border-neutral-600">{sizeMB} MB</span>
                       {/* Delete button - only visible on hover */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteFile(fileObj.id); }}
+                        // ✨ 修复：传入物理路径 filePath
+                        onClick={(e) => { e.stopPropagation(); handleDeleteFile(filePath); }}
                         className="opacity-0 group-hover:opacity-100 p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
                         title="删除文件"
                       >
