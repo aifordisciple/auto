@@ -133,7 +133,7 @@ async def upload_file(project_id: int, file: UploadFile = File(...), session: Se
 
     new_file = DataFile(
         filename=file.filename,
-        file_path=file_path,
+        file_path=str(file_path),
         file_size=os.path.getsize(file_path),
         file_type=file_type,
         project_id=project_id
