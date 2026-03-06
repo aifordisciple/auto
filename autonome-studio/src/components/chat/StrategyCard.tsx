@@ -90,7 +90,16 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
                 taskId: id,
                 taskStatus: message.status
               }));
+
+              // 1. 刷新聊天列表，显示刚刚存入数据库的图表
               window.dispatchEvent(new CustomEvent('refresh-chat'));
+
+              // 2. ✨ [魔法机制] 延迟 1.5 秒后（等图表刷出来），发送全局事件，让大模型开始流式解读！
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('trigger-expert-analysis', {
+                  detail: { toolTitle: data.title }
+                }));
+              }, 1500);
             }
             ws.close();
           }

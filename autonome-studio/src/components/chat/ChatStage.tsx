@@ -131,6 +131,21 @@ export function ChatStage() {
     return () => window.removeEventListener('refresh-chat', handleRefreshChat);
   }, [setMessages, currentSessionId]);
 
+  // ✨ 监听来自策略卡片的接力追问信号
+  useEffect(() => {
+    const handleExpertAnalysis = (e: any) => {
+      const title = e.detail?.toolTitle || "数据分析";
+      // 构造一条极具专家感的隐藏 prompt 替用户发送
+      const silentPrompt = `刚刚在沙箱中成功执行了关于"${title}"的图表可视化代码。请你作为计算生物学专家，主动读取 results 目录下最新的数据摘要，结合刚才的代码逻辑，为这张图表撰写一份高水准的学术解读报告（包含图注、技术解读和下游分析建议）。请直接开始解读，无需寒暄。`;
+
+      // 调用现有的发送函数（此时界面上会出现流式的打字机效果！）
+      handleSend(silentPrompt);
+    };
+
+    window.addEventListener('trigger-expert-analysis', handleExpertAnalysis);
+    return () => window.removeEventListener('trigger-expert-analysis', handleExpertAnalysis);
+  }, [currentSessionId]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };

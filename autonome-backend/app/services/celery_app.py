@@ -40,65 +40,6 @@ celery_app.conf.update(
 )
 
 
-# ==========================================
-# ✨ 新增：生信图表专家解读 Agent
-# ==========================================
-INTERPRETER_PROMPT = """你现在是一位顶尖的计算生物学家和高分 SCI 论文撰稿人。
-用户刚刚成功运行了一段生信分析代码，生成了对应的图表。
-
-【输入信息】
-1. 用户的原始意图: {user_prompt}
-2. 用于生成图表的源码:
-{source_code}
-3. 数据的基本特征摘要: 
-{data_summary}
-
-【任务要求】
-请你根据上述信息，为这幅生成的图表撰写一份专业报告。请严格按照以下 Markdown 结构输出。如果有些数据你无法确定，请用泛用的专业学术词汇描述，绝对不要编造具体数字：
-
-### 📝 图注与方法 (Legends & Methods)
-- **中文图注**：用一句话概括图表内容。
-- **English Legend**：Translate the Chinese legend into standard academic English.
-- **材料与方法**：根据源码，用学术语言描述该图是如何分析，使用什么软件/包生成的。
-- **English Methods**：Translate the Chinese Methods into standard academic English.
-
-### 🔬 图表深度解读 (Interpretation)
-- **技术解读**：解释图表中的视觉元素（例如：横轴代表样本，纵轴代表基因，颜色的深浅代表表达量高低）。
-- **科学洞察**：结合【数据的基本特征摘要】，指出图表中呈现出的生物学趋势或结论（例如哪些基因高表达）。
-
-### 💡 专家启发与建议 (Suggestions)
-- **图形优化**：提出 1-2 个可以让这张图更适合发表的改进建议（如：调整配色、添加样本注释条、Z-score 标准化）。
-- **下游分析**：基于当前的分析，建议用户接下来可以做什么深度分析（如：进行差异基因提取、GO/KEGG 富集分析）。
-"""
-
-def generate_expert_report(user_prompt: str, source_code: str, data_summary: str) -> str:
-    """调用本地大模型生成解读报告"""
-    try:
-        api_base = "http://host.docker.internal:11434/v1"
-        
-        prompt = INTERPRETER_PROMPT.format(
-            user_prompt=user_prompt,
-            source_code=source_code,
-            data_summary=data_summary
-        )
-        
-        payload = {
-            "model": "qwen3.5:35b",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.4
-        }
-        
-        response = requests.post(
-            f"{api_base}/chat/completions", 
-            json=payload, 
-            timeout=60
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"> *(⚠️ AI 专家解读生成超时或失败，您可以尝试直接观察图表。错误信息: {str(e)})*"
-
-
 # ✨ 统一的日志函数：同时写入 Redis 和文件
 def create_task_logger(task_id: str):
     def log_to_redis_and_file(message: str, level: str = "INFO"):
@@ -337,16 +278,15 @@ print(f"SUCCESS: Analysis pipeline completed. Target output -> {out_filename}")
 
 
 # ==========================================
-# 通用 Python 代码沙箱执行任务
+# 通用 Python 代码沙箱执行任务 (减负版)
 # ==========================================
 @celery_app.task(bind=True)
 def run_custom_python_task(self, params: dict):
-    """通用 Python 代码沙箱执行任务，并在完成后将结果与专家解读写回聊天记录"""
+    """通用 Python 代码沙箱执行任务，纯粹负责算力和出图，不阻塞等待 AI 解读"""
     task_id = self.request.id
     code = params.get("code")
     session_id = params.get("session_id", 1)
     project_id = params.get("project_id", 1)
-    user_message = params.get("message", "用户执行了生信数据分析与可视化任务")
 
     log_msg = create_task_logger(task_id)
     log_msg(f"🚀 初始化通用沙箱引擎 (Task ID: {task_id})")
@@ -354,6 +294,55 @@ def run_custom_python_task(self, params: dict):
     try:
         # 1. 运行沙箱代码
         result_output, exit_code = run_container("autonome-tool-env", code)
+
+        # 2. 清理日志控制台乱码字符
+        if result_output:
+            result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+            result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
+            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
+
+        log_msg("🎉 沙箱代码执行完毕，图表已生成！")
+
+        # 3. ✨ 去掉所有阻塞的大模型调用，直接将图表链接回写！
+        with Session(engine) as db:
+            final_content = (
+                f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                f"---\n"
+                f"### 📊 执行日志与图表\n\n"
+                f"{result_output}"
+            )
+            new_msg = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=final_content,
+            )
+            db.add(new_msg)
+            db.commit()
+
+        # 完美撒花，秒速返回 SUCCESS
+        return {"status": "success"}
+    except Exception as e:
+        log_msg(f"💥 执行失败: {str(e)}", level="ERROR")
+        raise e
+
+
+# ==========================================
+# 通用 R 语言沙箱执行任务 (减负版)
+# ==========================================
+@celery_app.task(bind=True)
+def run_custom_r_task(self, params: dict):
+    """通用 R 语言沙箱执行任务，纯粹负责算力和出图，不阻塞等待 AI 解读"""
+    task_id = self.request.id
+    code = params.get("code")
+    session_id = params.get("session_id", 1)
+    project_id = params.get("project_id", 1)
+
+    log_msg = create_task_logger(task_id)
+    log_msg(f"🚀 初始化 R 语言作图引擎 (Task ID: {task_id})")
+
+    try:
+        # 1. 运行沙箱代码
+        result_output, exit_code = run_container("autonome-tool-env", code, language="r")
 
         # 2. 清理控制台乱码字符
         if result_output:
@@ -364,30 +353,16 @@ def run_custom_python_task(self, params: dict):
             result_output = re.sub(r'\n{3,}', '\n\n', result_output)
             result_output = result_output.strip()
 
-        log_msg("🎉 Python 脚本执行完毕！开始收集数据指纹...")
+        log_msg("🎉 R 脚本执行完毕，图表已生成！")
 
-        # 3. ✨ 读取数据指纹摘要 (data_summary.txt)
-        summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
-        data_summary = "暂无详细数据特征"
-        if os.path.exists(summary_path):
-            with open(summary_path, 'r', encoding='utf-8') as f:
-                data_summary = f.read()
-
-        # 4. ✨ 调用专家 Agent 生成报告
-        log_msg("🧠 正在呼叫生物学专家 Agent 进行深度解读... (约需 10-30 秒，请稍候)")
-        expert_report = generate_expert_report(user_message, code, data_summary)
-
-        # 5. 拼装成极其华丽的 Markdown 报告
-        log_msg("📝 报告生成完毕，正在推送到界面...")
-
+        # 3. ✨ 彻底剔除之前阻塞的 generate_expert_report 同步调用！
+        # 直接回写日志，前端的正则会接管图片渲染，并触发流式解读
         with Session(engine) as db:
             final_content = (
                 f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                 f"---\n"
                 f"### 📊 执行日志与图表\n\n"
-                f"{result_output}\n\n"  # 👈 前端的正则魔法会在这里把路径瞬间变成高清图片！
-                f"---\n"
-                f"{expert_report}"      # 👈 华丽的专家解读紧跟其后
+                f"{result_output}"
             )
             new_msg = ChatMessage(
                 session_id=session_id,
@@ -396,84 +371,8 @@ def run_custom_python_task(self, params: dict):
             )
             db.add(new_msg)
             db.commit()
-            log_msg(f"✅ 结果与解读已成功回写至 ChatSession: {session_id}")
+            log_msg(f"✅ 结果已成功回写至 ChatSession: {session_id}")
 
-        return {"status": "success"}
-    except Exception as e:
-        log_msg(f"💥 执行失败: {str(e)}", level="ERROR")
-        raise e
-
-
-# ==========================================
-# 通用 R 语言沙箱执行任务
-# ==========================================
-@celery_app.task(bind=True)
-def run_custom_r_task(self, params: dict):
-    """通用 R 语言沙箱执行任务，并在完成后将结果写回聊天记录"""
-    task_id = self.request.id
-    code = params.get("code")
-    session_id = params.get("session_id")
-    project_id = params.get("project_id")
-    user_message = params.get("message", "用户执行了生信数据可视化任务")
-    
-    log_msg = create_task_logger(task_id)
-    log_msg(f"🚀 初始化 R 语言作图引擎 (Task ID: {task_id})")
-    
-    try:
-        result_output, exit_code = run_container("autonome-tool-env", code, language="r")
-        
-        # Clean output of control characters
-        if result_output:
-            result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
-            result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
-            result_output = re.sub(r'^\[\d+\]\s*', '', result_output, flags=re.MULTILINE)
-            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n')
-            result_output = re.sub(r'\n{3,}', '\n\n', result_output)
-            result_output = result_output.strip()
-        
-        log_msg("🎉 R 脚本执行完毕！开始收集数据指纹...")
-        
-        # Extract project_id and session_id from params, with fallback
-        actual_project_id = project_id if project_id else 1
-        actual_session_id = session_id if session_id else 1
-        
-        # Extract actual filename from code using regex
-        img_match = re.search(r"filename\s*=\s*['\"]?/?app/uploads/project_\d+/([^'\"]+)['\"]?", code)
-        actual_filename = img_match.group(1) if img_match else "heatmap.png"
-        
-        # 2. ✨ 读取数据指纹摘要 (data_summary.txt)
-        summary_path = f"/app/uploads/project_{actual_project_id}/results/data_summary.txt"
-        data_summary = "暂无详细数据特征"
-        if os.path.exists(summary_path):
-            with open(summary_path, 'r', encoding='utf-8') as f:
-                data_summary = f.read()
-
-        # 3. ✨ 调用专家 Agent 生成报告
-        log_msg("🧠 正在呼叫生物学专家 Agent 进行深度解读... (约需 10-30 秒，请稍候)")
-        
-        expert_report = generate_expert_report(user_message, code, data_summary)
-
-        # 4. 拼装成极其华丽的 Markdown 报告
-        log_msg("📝 报告生成完毕，正在推送到界面...")
-        
-        with Session(engine) as db:
-            final_content = (
-                f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                f"---\n"
-                f"### 📊 可视化结果\n\n"
-                f"![Analysis_Result](/api/projects/{actual_project_id}/files/{actual_filename}/view)\n\n"
-                f"---\n"
-                f"{expert_report}"
-            )
-            new_msg = ChatMessage(
-                session_id=actual_session_id,
-                role="assistant",
-                content=final_content,
-            )
-            db.add(new_msg)
-            db.commit()
-            log_msg(f"✅ 结果已成功回写至 ChatSession: {actual_session_id}")
-            
         return {"status": "success"}
     except Exception as e:
         log_msg(f"💥 R 脚本执行失败: {str(e)}", level="ERROR")
