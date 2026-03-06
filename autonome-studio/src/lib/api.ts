@@ -1,7 +1,7 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const url = `${BASE_URL}${endpoint}`;
+  const url = `${BASE_URL}/api${endpoint}`;
   
   const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null;
   
