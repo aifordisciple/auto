@@ -337,148 +337,156 @@ print(f"SUCCESS: Analysis pipeline completed. Target output -> {out_filename}")
 
 
 # ==========================================
-# 通用 Python 代码沙箱执行任务
+# ==========================================
+# 通用 Python 代码沙箱执行任务 (专家解读防弹版)
 # ==========================================
 @celery_app.task(bind=True)
 def run_custom_python_task(self, params: dict):
-    """通用 Python 代码沙箱执行任务，并在完成后将结果与专家解读写回聊天记录"""
     task_id = self.request.id
     code = params.get("code")
     session_id = params.get("session_id", 1)
     project_id = params.get("project_id", 1)
-    user_message = params.get("message", "用户执行了生信数据分析与可视化任务")
+    user_message = params.get("message", "用户执行了生信数据分析任务")
 
     log_msg = create_task_logger(task_id)
-    log_msg(f"🚀 初始化通用沙箱引擎 (Task ID: {task_id})")
+    log_msg(f"🚀 初始化 Python 沙箱引擎 (Task ID: {task_id})")
 
     try:
-        # 1. 运行沙箱代码
-        result_output, exit_code = run_container("autonome-tool-env", code)
+        result_output, exit_code = run_container("autonome-tool-env", code, language="python")
 
-        # 2. 清理控制台乱码字符
+        # 1. 清理终端乱码
         if result_output:
             result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
-            result_output = re.sub(r'^\[\d+\]\s*', '', result_output, flags=re.MULTILINE)
-            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n')
-            result_output = re.sub(r'\n{3,}', '\n\n', result_output)
-            result_output = result_output.strip()
+            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
 
-        log_msg("🎉 Python 脚本执行完毕！开始收集数据指纹...")
+        # ✨ 核心防御 1：拦截执行失败的代码！不再生成幽灵图片！
+        if exit_code != 0:
+            log_msg(f"💥 代码执行失败 (Exit Code {exit_code})", level="ERROR")
+            with Session(engine) as db:
+                final_content = (
+                    f"❌ **代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                    f"### ⚠️ 错误终端日志\n"
+                    f"```text\n{result_output}\n```\n\n"
+                    f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
+                )
+                db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
+                db.commit()
+            return {"status": "failure"}
 
-        # 3. ✨ 读取数据指纹摘要 (data_summary.txt)
+        log_msg("🎉 代码执行成功！准备生成专家解读...")
+
+        # ✨ 核心防御 2：精准抓取 Python 的 savefig 图片名
+        img_match = re.search(r"savefig\(['\"](?:/app/uploads/project_\d+/)?([^'\"]+\.(png|pdf|jpg|svg))['\"]", code)
+        if img_match:
+            extracted_path = img_match.group(1)
+            # 确保路径被锁定在 results/ 目录下
+            actual_filename = extracted_path if "results/" in extracted_path else f"results/{extracted_path.split('/')[-1]}"
+            markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
+        else:
+            markdown_img = "" # 如果没匹配到，依赖前端正则从 print 日志里接管
+
+        # 读取数据指纹
         summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
             with open(summary_path, 'r', encoding='utf-8') as f:
                 data_summary = f.read()
 
-        # 4. ✨ 调用专家 Agent 生成报告
-        log_msg("🧠 正在呼叫生物学专家 Agent 进行深度解读... (约需 10-30 秒，请稍候)")
+        # 生成专家解读
         expert_report = generate_expert_report(user_message, code, data_summary)
-
-        # 5. 拼装成极其华丽的 Markdown 报告
-        log_msg("📝 报告生成完毕，正在推送到界面...")
 
         with Session(engine) as db:
             final_content = (
                 f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                 f"---\n"
                 f"### 📊 执行日志与图表\n\n"
-                f"{result_output}\n\n"  # 👈 前端的正则魔法会在这里把路径瞬间变成高清图片！
+                f"```text\n{result_output}\n```\n"
+                f"{markdown_img}\n"
                 f"---\n"
-                f"{expert_report}"      # 👈 华丽的专家解读紧跟其后
+                f"{expert_report}"
             )
-            new_msg = ChatMessage(
-                session_id=session_id,
-                role="assistant",
-                content=final_content,
-            )
-            db.add(new_msg)
+            db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
             db.commit()
-            log_msg(f"✅ 结果与解读已成功回写至 ChatSession: {session_id}")
 
         return {"status": "success"}
     except Exception as e:
-        log_msg(f"💥 执行失败: {str(e)}", level="ERROR")
+        log_msg(f"💥 发生系统错误: {str(e)}", level="ERROR")
         raise e
 
 
 # ==========================================
-# 通用 R 语言沙箱执行任务
+# 通用 R 语言沙箱执行任务 (专家解读防弹版)
 # ==========================================
 @celery_app.task(bind=True)
 def run_custom_r_task(self, params: dict):
-    """通用 R 语言沙箱执行任务，并在完成后将结果写回聊天记录"""
     task_id = self.request.id
     code = params.get("code")
-    session_id = params.get("session_id")
-    project_id = params.get("project_id")
-    user_message = params.get("message", "用户执行了生信数据可视化任务")
-    
+    session_id = params.get("session_id", 1)
+    project_id = params.get("project_id", 1)
+    user_message = params.get("message", "用户执行了生信 R 语言任务")
+
     log_msg = create_task_logger(task_id)
-    log_msg(f"🚀 初始化 R 语言作图引擎 (Task ID: {task_id})")
-    
+    log_msg(f"🚀 初始化 R 沙箱引擎 (Task ID: {task_id})")
+
     try:
         result_output, exit_code = run_container("autonome-tool-env", code, language="r")
-        
-        # Clean output of control characters
+
+        # 1. 清理终端乱码
         if result_output:
             result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
-            result_output = re.sub(r'^\[\d+\]\s*', '', result_output, flags=re.MULTILINE)
-            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n')
-            result_output = re.sub(r'\n{3,}', '\n\n', result_output)
-            result_output = result_output.strip()
-        
-        log_msg("🎉 R 脚本执行完毕！开始收集数据指纹...")
-        
-        # Extract project_id and session_id from params, with fallback
-        actual_project_id = project_id if project_id else 1
-        actual_session_id = session_id if session_id else 1
-        
-        # Extract actual filename from code using regex
-        img_match = re.search(r"filename\s*=\s*['\"]?/?app/uploads/project_\d+/([^'\"]+)['\"]?", code)
-        # ✨ 修复：确保文件名包含 results/ 路径
-        extracted_path = img_match.group(1) if img_match else "heatmap.png"
-        actual_filename = extracted_path if "results/" in extracted_path else f"results/{extracted_path.split('/')[-1]}"
-        
-        # 2. ✨ 读取数据指纹摘要 (data_summary.txt)
-        summary_path = f"/app/uploads/project_{actual_project_id}/results/data_summary.txt"
+            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
+
+        # ✨ 核心防御 1：拦截执行失败的代码
+        if exit_code != 0:
+            log_msg(f"💥 R代码执行失败 (Exit Code {exit_code})", level="ERROR")
+            with Session(engine) as db:
+                final_content = (
+                    f"❌ **R 代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                    f"### ⚠️ 错误终端日志\n"
+                    f"```text\n{result_output}\n```\n\n"
+                    f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
+                )
+                db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
+                db.commit()
+            return {"status": "failure"}
+
+        log_msg("🎉 R 代码执行成功！准备生成专家解读...")
+
+        # ✨ 核心防御 2：精准抓取 R 语言里的 filename 图片名
+        img_match = re.search(r"filename\s*=\s*['\"]?(?:/?app/uploads/project_\d+/)?([^'\"]+\.(png|pdf|jpg|svg))['\"]?", code)
+        if img_match:
+            extracted_path = img_match.group(1)
+            actual_filename = extracted_path if "results/" in extracted_path else f"results/{extracted_path.split('/')[-1]}"
+            markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
+        else:
+            markdown_img = "\n*(未检测到图片输出指令)*\n"
+
+        summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
             with open(summary_path, 'r', encoding='utf-8') as f:
                 data_summary = f.read()
 
-        # 3. ✨ 调用专家 Agent 生成报告
-        log_msg("🧠 正在呼叫生物学专家 Agent 进行深度解读... (约需 10-30 秒，请稍候)")
-        
         expert_report = generate_expert_report(user_message, code, data_summary)
 
-        # 4. 拼装成极其华丽的 Markdown 报告
-        log_msg("📝 报告生成完毕，正在推送到界面...")
-        
         with Session(engine) as db:
             final_content = (
                 f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                 f"---\n"
-                f"### 📊 可视化结果\n\n"
-                f"![Analysis_Result](/api/projects/{actual_project_id}/files/{actual_filename}/view)\n\n"
+                f"### 📊 执行日志与图表\n\n"
+                f"```text\n{result_output}\n```\n"
+                f"{markdown_img}\n"
                 f"---\n"
                 f"{expert_report}"
             )
-            new_msg = ChatMessage(
-                session_id=actual_session_id,
-                role="assistant",
-                content=final_content,
-            )
-            db.add(new_msg)
+            db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
             db.commit()
-            log_msg(f"✅ 结果已成功回写至 ChatSession: {actual_session_id}")
-            
+
         return {"status": "success"}
     except Exception as e:
-        log_msg(f"💥 R 脚本执行失败: {str(e)}", level="ERROR")
+        log_msg(f"💥 发生系统错误: {str(e)}", level="ERROR")
         raise e
 
 
