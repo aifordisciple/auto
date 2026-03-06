@@ -12,11 +12,32 @@ import { MarkdownBlock } from "../MarkdownBlock";
 import { StrategyCard, parseStrategyCard } from "./StrategyCard";
 import { BASE_URL } from "@/lib/api";
 
+const copyToClipboard = async (text: string) => {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    textArea.style.top = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+    } catch (err) {
+      console.error('Fallback copy failed', err);
+    }
+    document.body.removeChild(textArea);
+  }
+};
+
 function MessageActionButtons({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(content);
+  const handleCopy = async () => {
+    await copyToClipboard(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -25,10 +46,14 @@ function MessageActionButtons({ content }: { content: string }) {
     <div className="flex items-center gap-1">
       <button 
         onClick={handleCopy}
-        className="p-1.5 rounded-full hover:bg-neutral-800 text-neutral-500 hover:text-neutral-300 transition-colors"
+        className="flex items-center gap-1.5 p-1.5 rounded-md hover:bg-neutral-800 text-neutral-500 hover:text-neutral-300 transition-all border border-transparent hover:border-neutral-700"
         title="复制全文"
       >
-        {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? (
+          <><Check className="w-3.5 h-3.5 text-green-500" /><span className="text-[10px]">已复制</span></>
+        ) : (
+          <><Copy className="w-3.5 h-3.5" /><span className="text-[10px]">复制</span></>
+        )}
       </button>
     </div>
   );
