@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Terminal, CheckCircle2, Loader2, AlertCircle, CircleDashed, ListTodo, RefreshCw } from "lucide-react";
+import { X, Terminal, CheckCircle2, Loader2, AlertCircle, CircleDashed, ListTodo, RefreshCw, Trash2 } from "lucide-react";
 import { useTaskStore, Task } from "../../store/useTaskStore";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { BASE_URL } from "../../lib/api";
+import { BASE_URL, fetchAPI } from "../../lib/api";
 
 // 状态配置
 const statusConfig: Record<string, { icon: any; color: string; bg: string; border: string; label: string }> = {
@@ -73,6 +73,29 @@ export function TaskCenter() {
     return () => controller.abort();
   }, [selectedTask, setActiveTaskId, appendLog, clearLogs]);
 
+  // 新增：删除并终止任务
+  const handleDeleteTask = async (e: React.MouseEvent, task: Task) => {
+    e.stopPropagation(); // 阻止点击卡片触发进入日志视图的事件
+
+    const isRunning = task.status === 'STARTED' || task.status === 'PROGRESS';
+    const msg = isRunning
+      ? `⚠️ 警告：该任务正在后台算力集群中运行！\n\n确定要强制终止并彻底删除任务 ${task.task_id.slice(0,8)} 吗？`
+      : `确定要从历史看板中清理该任务吗？`;
+
+    if (!window.confirm(msg)) return;
+
+    try {
+      await fetchAPI(`/api/tasks/${task.task_id}`, { method: 'DELETE' });
+      // 如果删除的是当前正在查看的任务，退出日志视图
+      if (selectedTask === task.task_id) {
+        setSelectedTask(null);
+      }
+      fetchTasks(); // 刷新看板
+    } catch (err) {
+      alert("❌ 删除任务失败，请检查网络。");
+    }
+  };
+
   // 按列分组任务
   const columns = [
     { key: 'PENDING', title: '队列中', tasks: tasks.filter(t => t.status === 'PENDING') },
@@ -105,9 +128,23 @@ export function TaskCenter() {
                       onClick={() => setSelectedTask(task.task_id)}
                       className={`p-3 rounded-lg border ${Cfg.border} ${Cfg.bg} hover:bg-neutral-800/50 cursor-pointer transition-all group`}
                     >
-                      <div className="flex justify-between items-start mb-1.5">
+                      {/* 卡片头部：悬浮删除按钮 */}
+                      <div className="flex justify-between items-start mb-1.5 relative">
                         <span className="text-[10px] font-mono text-neutral-500">{task.task_id.slice(0, 8)}...</span>
-                        <Icon size={14} className={`${Cfg.color} ${task.status === 'PROGRESS' || task.status === 'STARTED' ? 'animate-spin' : ''}`} />
+
+                        <div className="flex items-center gap-1.5">
+                          {/* 默认显示的状态图标 */}
+                          <Icon size={14} className={`${Cfg.color} ${task.status === 'PROGRESS' || task.status === 'STARTED' ? 'animate-spin' : ''} group-hover:opacity-0 transition-opacity absolute right-0`} />
+
+                          {/* Hover 时才显示的红色终止/删除按钮 (覆盖在原来的图标上) */}
+                          <button
+                            onClick={(e) => handleDeleteTask(e, task)}
+                            className="text-red-400 hover:text-red-300 hover:bg-red-500/20 p-1 rounded opacity-0 group-hover:opacity-100 transition-all absolute right-0 -top-1"
+                            title={task.status === 'PROGRESS' || task.status === 'STARTED' ? "强制终止并删除" : "删除记录"}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
                       <h4 className="text-xs text-neutral-200 font-medium leading-snug group-hover:text-blue-400 transition-colors line-clamp-2">{task.name}</h4>
                       {task.status === 'PROGRESS' && task.progress !== null && (
