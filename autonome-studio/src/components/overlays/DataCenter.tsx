@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2 } from "lucide-react";
+import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock } from "lucide-react";
 import { fetchAPI } from "@/lib/api";
 
 // ==========================================
@@ -26,7 +26,10 @@ const getFileIcon = (filename: string) => {
 const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload }: any) => {
   const isFolder = node.type === 'folder';
   const isExpanded = expandedFolders.has(node.path);
-  const isProtectedRoot = isFolder && (node.path === 'raw_data' || node.path === 'results');
+  const isProtectedRoot = isFolder && (node.path === 'raw_data' || node.path === 'results' || node.path === 'references');
+
+  // 新增：判断当前文件或文件夹是否在只读的 references 目录下
+  const isReadOnly = node.path.startsWith('references');
 
   return (
     <div className="flex flex-col">
@@ -39,16 +42,23 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload }:
             {isExpanded ? <ChevronDown size={15} strokeWidth={2.5} /> : <ChevronRight size={15} strokeWidth={2.5} />}
           </span>
         )}
-        
+
         {isFolder ? (
-          isExpanded ? <FolderOpen size={16} className="text-purple-400 shrink-0" /> : <Folder size={16} className="text-purple-400 shrink-0" />
+          isExpanded ? <FolderOpen size={16} className={`${isReadOnly ? 'text-emerald-500' : 'text-purple-400'} shrink-0`} /> : <Folder size={16} className={`${isReadOnly ? 'text-emerald-500' : 'text-purple-400'} shrink-0`} />
         ) : (
           getFileIcon(node.name)
         )}
-        
+
         <span className={`text-sm tracking-wide truncate ${isFolder ? 'text-neutral-200 font-semibold' : 'text-neutral-400 group-hover:text-neutral-200'}`}>
           {node.name}
         </span>
+
+        {/* 新增：如果是只读目录，显示一个极其优雅的小锁头标识 */}
+        {isFolder && isReadOnly && node.path === 'references' && (
+          <span className="flex items-center gap-1 text-[9px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/20 uppercase tracking-wider">
+            <Lock size={10} /> 只读共享
+          </span>
+        )}
 
         {/* 操作栏 */}
         <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-1 z-10 shrink-0">
@@ -61,7 +71,8 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload }:
               <Download size={14} />
             </button>
           )}
-          {!isProtectedRoot && !isFolder && (
+          {/* 核心防御：只有非保护根目录，且【非只读目录】下的文件，才能显示删除按钮 */}
+          {!isProtectedRoot && !isFolder && !isReadOnly && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(node.path); }}
               className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all"

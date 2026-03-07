@@ -217,38 +217,57 @@ async def upload_file(project_id: str, file: UploadFile = File(...), session: Se
 
 @router.get("/{project_id}/files")
 async def get_project_files(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    """获取项目下的所有文件（递归扫描 raw_data 和 results 目录）"""
+    """获取项目下的所有文件（递归扫描 raw_data, results 和 references 目录）"""
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作")
-    
+
     project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
-    
-    # 如果目录不存在，顺手把标准结构建好
+
+    # 1. 顺手把标准物理结构建好
     raw_data_dir = project_dir / "raw_data"
     results_dir = project_dir / "results"
     raw_data_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    # 2. 初始化全局参考目录
+    global_ref_dir = Path(settings.UPLOAD_DIR) / "global_references"
+    global_ref_dir.mkdir(parents=True, exist_ok=True)
+
+    # 3. 注入防空洞机制：放一个说明文件，确保文件夹非空，从而能被前端树状图识别和渲染
+    readme_path = global_ref_dir / "README.txt"
+    if not readme_path.exists():
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write("系统级全局共享参考库 (Global References)\n存放于此的文件可被所有分析任务共享使用，不占用当前项目的存储空间。")
+
+    # 4. 建立相对软链接
+    ref_symlink = project_dir / "references"
+    if not ref_symlink.exists() and not ref_symlink.is_symlink():
+        try:
+            # 建立相对路径软链接 (指向 ../global_references)
+            os.symlink("../global_references", str(ref_symlink))
+        except OSError:
+            pass  # 忽略操作系统不支持或已存在的情况
+
     files = []
-    # 递归遍历整个 project 目录
-    for root, _, filenames in os.walk(project_dir):
+    # 5. 核心修复：必须加 followlinks=True 才能穿透软链接，读取共享库里的文件
+    for root, _, filenames in os.walk(project_dir, followlinks=True):
         for filename in filenames:
             full_path = Path(root) / filename
-            # 获取相对于项目根目录的相对路径，例如：raw_data/ras.tsv
             rel_path = full_path.relative_to(project_dir)
-            
+
             # 过滤掉隐藏系统文件
             if filename.startswith('.'):
                 continue
-                
+
             files.append({
                 "name": filename,
-                "path": str(rel_path),
+                # 兼容 Windows 系统的路径分隔符
+                "path": str(rel_path).replace('\\', '/'),
                 "size": full_path.stat().st_size,
-                "url": f"/api/projects/{project_id}/files/{str(rel_path)}/view"
+                "url": f"/api/projects/{project_id}/files/{str(rel_path).replace('\\', '/')}/view"
             })
-            
+
     return {"status": "success", "data": files}
 
 @router.delete("/{project_id}/files/{file_path:path}")
@@ -262,11 +281,15 @@ async def delete_project_file(
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作")
-    
-    # 安全检查：防止路径穿越攻击
+
+    # 1. 防御路径穿越攻击
     if ".." in file_path:
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    
+        raise HTTPException(status_code=400, detail="非法的文件路径")
+
+    # 2. 核心防御：绝对禁止修改或删除全局参考库里的任何文件！
+    if file_path.startswith("references/") or file_path == "references":
+        raise HTTPException(status_code=403, detail="全局参考库 (references) 是系统级共享资源，对所有用户严格只读，禁止删除。")
+
     project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
     full_path = project_dir / file_path
 
