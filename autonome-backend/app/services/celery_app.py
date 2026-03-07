@@ -352,7 +352,17 @@ def run_custom_python_task(self, params: dict):
     log_msg(f"🚀 初始化 Python 沙箱引擎 (Task ID: {task_id})")
 
     try:
-        result_output, exit_code = run_container("autonome-tool-env", code, language="python")
+        # 1. ✨ 生成本次任务专属的目录
+        task_short_id = str(task_id)[:8]
+        task_dir_name = f"task_{task_short_id}"
+        # 容器内看到的绝对路径
+        task_out_dir = f"/app/uploads/project_{project_id}/results/{task_dir_name}"
+        os.makedirs(task_out_dir, exist_ok=True)
+        log_msg(f"📁 已分配专属输出目录: results/{task_dir_name}")
+
+        # 2. ✨ 将专属目录作为环境变量注入沙箱
+        env = {"TASK_OUT_DIR": task_out_dir}
+        result_output, exit_code = run_container("autonome-tool-env", code, language="python", environment=env)
 
         # 1. ✨ 终极终端乱码清理
         if result_output:
@@ -385,14 +395,14 @@ def run_custom_python_task(self, params: dict):
         img_match = re.search(r"([a-zA-Z0-9_.-]+\.(?:png|pdf|jpg|jpeg|svg))", code, re.IGNORECASE)
         if img_match:
             extracted_filename = img_match.group(1)
-            # 强制指向 results/ 目录
-            actual_filename = f"results/{extracted_filename}"
+            # 强制指向 results/task_xxx/ 目录
+            actual_filename = f"results/{task_dir_name}/{extracted_filename}"
             markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
         else:
             markdown_img = ""
 
-        # 读取数据指纹
-        summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
+        # 3. ✨ 从专属子目录中读取数据指纹
+        summary_path = f"{task_out_dir}/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
             with open(summary_path, 'r', encoding='utf-8') as f:
@@ -435,7 +445,17 @@ def run_custom_r_task(self, params: dict):
     log_msg(f"🚀 初始化 R 沙箱引擎 (Task ID: {task_id})")
 
     try:
-        result_output, exit_code = run_container("autonome-tool-env", code, language="r")
+        # 1. ✨ 生成本次任务专属的目录
+        task_short_id = str(task_id)[:8]
+        task_dir_name = f"task_{task_short_id}"
+        # 容器内看到的绝对路径
+        task_out_dir = f"/app/uploads/project_{project_id}/results/{task_dir_name}"
+        os.makedirs(task_out_dir, exist_ok=True)
+        log_msg(f"📁 已分配专属输出目录: results/{task_dir_name}")
+
+        # 2. ✨ 将专属目录作为环境变量注入沙箱
+        env = {"TASK_OUT_DIR": task_out_dir}
+        result_output, exit_code = run_container("autonome-tool-env", code, language="r", environment=env)
 
         # 1. ✨ 终极终端乱码清理
         if result_output:
@@ -459,16 +479,18 @@ def run_custom_r_task(self, params: dict):
 
         log_msg("🎉 R 代码执行成功！准备生成专家解读...")
 
-        # 2. ✨ 核心防御 2：极简正则，只抓文件名本身
+        # 3. ✨ 核心防御 2：极简正则，只抓文件名本身
         img_match = re.search(r"([a-zA-Z0-9_.-]+\.(?:png|pdf|jpg|jpeg|svg))", code, re.IGNORECASE)
         if img_match:
             extracted_filename = img_match.group(1)
-            actual_filename = f"results/{extracted_filename}"
+            # 强制指向 results/task_xxx/ 目录
+            actual_filename = f"results/{task_dir_name}/{extracted_filename}"
             markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
         else:
             markdown_img = "\n*(本次分析似乎没有生成可视化图表)*\n"
 
-        summary_path = f"/app/uploads/project_{project_id}/results/data_summary.txt"
+        # 4. ✨ 从专属子目录中读取数据指纹
+        summary_path = f"{task_out_dir}/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
             with open(summary_path, 'r', encoding='utf-8') as f:

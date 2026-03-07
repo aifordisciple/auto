@@ -32,6 +32,23 @@ async def create_project(project: ProjectCreate, session: Session = Depends(get_
     session.add(new_proj)
     session.commit()
     session.refresh(new_proj)
+
+    # ✨ 1. 基础物理目录划分
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{new_proj.id}"
+    (project_dir / "raw_data").mkdir(parents=True, exist_ok=True)
+    (project_dir / "results").mkdir(parents=True, exist_ok=True)
+
+    # ✨ 2. 初始化系统级全局参考数据库目录
+    # 放在 UPLOAD_DIR 下，确保 Docker 沙箱能一并挂载
+    global_ref_dir = Path(settings.UPLOAD_DIR) / "global_references"
+    global_ref_dir.mkdir(parents=True, exist_ok=True)
+
+    # ✨ 3. 为当前项目创建相对路径的软链接
+    ref_symlink = project_dir / "references"
+    if not ref_symlink.exists():
+        # 相当于在 Linux 中执行 ln -s ../global_references references
+        os.symlink("../global_references", str(ref_symlink))
+
     return {"status": "success", "data": new_proj}
 
 @router.delete("/{project_id}")

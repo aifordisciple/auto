@@ -57,9 +57,9 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 4. 根据代码类型tool_id选择`execute-python`或`execute-r`。
 
 【代码编写强制规范】
-1. 读取路径：必须使用 `raw_data/` 的完整绝对路径，如 `/app/uploads/project_{project_id}/raw_data/文件名`。
-2. 写入路径：所有结果(图表/CSV/txt)必须保存至 `results/` 目录下。
-3. 强制防御：在保存文件前，代码中必须显式包含创建 `results` 目录的逻辑。
+1. 读取路径：原始数据使用 `/app/uploads/project_{project_id}/raw_data/文件名`。参考基因组使用 `/app/uploads/project_{project_id}/references/`。
+2. 写入路径：⚠️ 所有结果(图表/CSV/txt)必须保存至系统环境变量 `TASK_OUT_DIR` 指定的目录下！绝不允许硬编码为 `results` 目录！
+3. 强制防御：代码中必须先获取 `TASK_OUT_DIR` 环境变量，如果未获取到，请给一个默认路径，并显式创建该目录。
 4. 图表规范：所有的图表 (Matplotlib/Seaborn) 的标题(title)、标签(xlabel/ylabel)、图例(legend) 必须且只能使用**纯英文**！绝不允许出现中文字符，否则字体会报错！
 
 【完美输出示例】
@@ -71,8 +71,8 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# 强制创建 results 目录
-out_dir = '/app/uploads/project_{project_id}/results'
+# ✨ 强制获取系统分配的专属任务目录
+out_dir = os.environ.get('TASK_OUT_DIR', '/app/uploads/project_{project_id}/results/default_task')
 os.makedirs(out_dir, exist_ok=True)
 
 # 读取与处理
@@ -80,11 +80,15 @@ df = pd.read_csv('/app/uploads/project_{project_id}/raw_data/ras.tsv', sep='\\t'
 top_20 = df.head(20)
 top_20.to_csv(f'{{out_dir}}/ras_top20.tsv', sep='\\t')
 
-# 纯英文绘图
-# ... 绘图逻辑 ...
+# 写入文件和图片必须指向 out_dir
 plt.savefig(f'{{out_dir}}/heatmap.png')
 
+with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
+    f.write(f"Rows: 20")
+
 ```
+
+*(如果 AI 使用 R 语言，请在 R 示例中加上 `out_dir <- Sys.getenv("TASK_OUT_DIR")`，逻辑相同)*
 
 ```json_strategy
 {{

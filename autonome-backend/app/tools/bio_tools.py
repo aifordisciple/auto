@@ -75,7 +75,7 @@ def docker_api_request(method: str, path: str, data: str = None, return_raw: boo
         return {"body": body_str}
 
 
-def run_container(image: str, command: str, language: str = "python") -> tuple[str, int]:
+def run_container(image: str, command: str, language: str = "python", environment: dict = None) -> tuple[str, int]:
     """通过 Docker API 运行容器"""
     try:
         # 根据语言选择执行命令
@@ -83,18 +83,25 @@ def run_container(image: str, command: str, language: str = "python") -> tuple[s
             cmd = ["Rscript", "-e", command]
         else:
             cmd = ["python", "-c", command]
-        
+
         # ✨ 核心修复 1：读取在 docker-compose 中配置的物理机绝对路径
         host_upload_dir = os.environ.get("HOST_UPLOAD_DIR", "/app/uploads")
-        
+
+        # ✨ 新增：准备环境变量（如果有）
+        env_list = []
+        if environment:
+            for key, value in environment.items():
+                env_list.append(f"{key}={value}")
+
         # 创建容器
         create_data = json.dumps({
             "Image": image,
             "platform": "linux/amd64",
             "Cmd": cmd,
             # ✨ 核心修复 3：开启 Tty。这会让 Docker 放弃写入 8 字节的二进制头部流，彻底解决乱码问题
-            "Tty": True,  
+            "Tty": True,
             "User": "root",  # 以 root 身份运行
+            "Env": env_list if env_list else None,
             "HostConfig": {
                 "Memory": 4 * 1024 * 1024 * 1024,  # 4GB
                 "NetworkMode": "none",
