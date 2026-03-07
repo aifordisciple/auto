@@ -3,7 +3,7 @@
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 import { useTaskStore } from "../store/useTaskStore";
 import { useState, useRef, useEffect } from "react";
-import { Check, Play, Settings2, Database, UploadCloud, Loader2, Trash2 } from "lucide-react";
+import { Check, Play, Settings2, Database, UploadCloud, Loader2, Trash2, Eye, X, Download } from "lucide-react";
 import { fetchAPI, BASE_URL } from "../lib/api";
 
 export function RightPanel() {
@@ -20,6 +20,12 @@ export function RightPanel() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 预览弹窗状态
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'text' | 'pdf' | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   // ✨ 统一的文件列表拉取函数
   const fetchProjectFiles = () => {
@@ -92,7 +98,7 @@ export function RightPanel() {
   // Handle task execution
   const handleExecuteTask = async () => {
     if (!activeTool) return;
-    
+
     setIsExecuting(true);
     try {
       const data = await fetchAPI('/api/tasks/submit', {
@@ -103,7 +109,7 @@ export function RightPanel() {
           parameters: toolParams
         })
       });
-      
+
       if (data.status === 'success' && data.data?.task_id) {
         setActiveTaskId(data.data.task_id);
       }
@@ -111,6 +117,87 @@ export function RightPanel() {
       console.error("Task execution failed:", error);
     } finally {
       setIsExecuting(false);
+    }
+  };
+
+  // 安全预览文件
+  const handlePreviewFile = async (filePath: string) => {
+    if (!currentProjectId) return;
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const isImage = ['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext);
+    const isText = ['txt', 'csv', 'tsv', 'md', 'py', 'r', 'json', 'sh', 'log', 'yaml', 'yml'].includes(ext);
+    const isPdf = ext === 'pdf';
+
+    if (!isImage && !isText && !isPdf) {
+      alert("💡 当前文件格式暂不支持预览，请点击右侧全景数据中心下载。");
+      return;
+    }
+
+    setPreviewPath(filePath);
+    setIsPreviewLoading(true);
+    setPreviewContent(null);
+
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) throw new Error("获取文件失败");
+
+      if (isImage) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        setPreviewContent(url);
+        setPreviewType('image');
+      } else if (isPdf) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        setPreviewContent(url);
+        setPreviewType('pdf');
+      } else {
+        const text = await res.text();
+        const MAX_LENGTH = 100000;
+        setPreviewContent(text.length > MAX_LENGTH ? text.substring(0, MAX_LENGTH) + '\n\n... [数据表过大，已截断]' : text);
+        setPreviewType('text');
+      }
+    } catch (e) {
+      alert("❌ 预览加载失败");
+      setPreviewPath(null);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if ((previewType === 'image' || previewType === 'pdf') && previewContent) {
+      URL.revokeObjectURL(previewContent);
+    }
+    setPreviewPath(null);
+    setPreviewContent(null);
+  };
+
+  // 安全下载文件
+  const handleDownloadFile = async (filePath: string) => {
+    if (!currentProjectId) return;
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("获取文件失败");
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filePath.split('/').pop() || 'download';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("❌ 下载失败");
     }
   };
 
@@ -183,24 +270,39 @@ export function RightPanel() {
                       }`}>
                         {isMounted && <Check size={12} strokeWidth={4} />}
                       </button>
-                      <span className="truncate font-medium tracking-wide flex items-center gap-1.5" title={filePath}>
-                        {/* ✨ 美化显示：如果在特定目录下，加一个小标签 */}
+                      <span
+                        onClick={(e) => { e.stopPropagation(); handlePreviewFile(filePath); }}
+                        className="truncate font-medium tracking-wide flex items-center gap-1.5 cursor-pointer hover:text-emerald-400 transition-colors"
+                        title="点击预览"
+                      >
                         {folder === 'raw_data' && <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">RAW</span>}
                         {folder === 'results' && <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">OUT</span>}
+                        {folder === 'references' && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">REF</span>}
                         {baseName}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-neutral-500 shrink-0 z-10 relative bg-neutral-950 px-2 py-1 rounded-md border border-neutral-800 group-hover:border-neutral-600">{sizeMB} MB</span>
-                      {/* Delete button - only visible on hover */}
-                      <button
-                        // ✨ 修复：传入物理路径 filePath
-                        onClick={(e) => { e.stopPropagation(); handleDeleteFile(filePath); }}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                        title="删除文件"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {/* 操作按钮 - 仅 hover 时显示 */}
+                      <div className="hidden group-hover:flex items-center gap-1 bg-neutral-900/90 rounded relative z-10">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handlePreviewFile(filePath); }}
+                          className="p-1.5 text-neutral-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-all"
+                          title="预览文件"
+                        >
+                          <Eye size={14} />
+                        </button>
+                        {/* 屏蔽 references 目录的删除按钮 */}
+                        {folder !== 'references' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteFile(filePath); }}
+                            className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
+                            title="删除文件"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );
@@ -299,6 +401,50 @@ export function RightPanel() {
           )}
         </div>
       </div>
+
+      {/* 预览弹窗 */}
+      {previewPath && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 md:p-12 animate-in fade-in duration-200">
+          <div className="bg-[#1a1a1c] border border-neutral-800 rounded-2xl w-full max-w-5xl h-full flex flex-col shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200">
+
+            <div className="h-14 shrink-0 border-b border-neutral-800 px-6 flex items-center justify-between bg-neutral-900">
+              <div className="flex items-center gap-3">
+                <Eye size={18} className="text-emerald-400"/>
+                <h3 className="text-white font-medium text-sm tracking-wide truncate max-w-lg">{previewPath}</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleDownloadFile(previewPath)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium rounded-lg transition-colors border border-blue-500/20">
+                  <Download size={14} /> 保存到本地
+                </button>
+                <div className="w-px h-4 bg-neutral-800 mx-1"></div>
+                <button onClick={closePreview} className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6 flex items-start justify-center bg-[#121212] relative">
+              {isPreviewLoading ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-neutral-500">
+                  <Loader2 size={32} className="animate-spin text-emerald-500" />
+                  <span className="text-sm tracking-widest">安全加载中...</span>
+                </div>
+              ) : previewType === 'image' && previewContent ? (
+                <img src={previewContent} alt="Preview" className="max-w-full max-h-full object-contain rounded drop-shadow-2xl" />
+              ) : previewType === 'pdf' && previewContent ? (
+                <iframe src={previewContent} className="w-full h-full rounded-xl border border-neutral-800 bg-white" title="PDF Preview" />
+              ) : previewType === 'text' && previewContent ? (
+                <div className="w-full h-full bg-[#1e1e1e] rounded-xl border border-neutral-800 p-4 overflow-auto custom-scrollbar">
+                  <pre className="text-[13px] leading-relaxed text-neutral-300 font-mono whitespace-pre-wrap">
+                    {previewContent}
+                  </pre>
+                </div>
+              ) : null}
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
