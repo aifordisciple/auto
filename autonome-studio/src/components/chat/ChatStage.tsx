@@ -136,6 +136,19 @@ export function ChatStage() {
   };
   useEffect(() => { scrollToBottom(); }, [messages, isTyping]);
 
+  // ✨ 监听全局快捷键发来的聚焦信号
+  useEffect(() => {
+    const handleFocusInput = () => {
+      const inputEl = document.getElementById("chat-input-box");
+      if (inputEl) {
+        inputEl.focus();
+      }
+    };
+
+    window.addEventListener('shortcut-focus-input', handleFocusInput);
+    return () => window.removeEventListener('shortcut-focus-input', handleFocusInput);
+  }, []);
+
   const handleSend = async (messageText?: string) => {
     const currentInput = messageText || inputValue;
     if (!currentInput?.trim()) return;
@@ -227,6 +240,7 @@ export function ChatStage() {
   const renderInputBox = () => (
     <div className="w-full bg-[#1e1e1f] border border-neutral-800/60 rounded-3xl p-2 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-xl flex flex-col">
       <textarea
+        id="chat-input-box"
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={(e) => {

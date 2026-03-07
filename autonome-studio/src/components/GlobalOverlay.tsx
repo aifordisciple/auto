@@ -11,6 +11,7 @@ import { SettingsCenter } from "./overlays/SettingsCenter";
 import { TaskCenter } from "./overlays/TaskCenter";
 import { TopUpModal } from "./overlays/TopUpModal";
 import { DataCenter } from "./overlays/DataCenter";
+import { ShortcutManager } from "./ShortcutManager";
 
 export function GlobalOverlay() {
   const { isTaskCenterOpen, isSettingsOpen, isProjectCenterOpen, isControlPanelOpen, isDataCenterOpen, closeAllOverlays } = useUIStore();
@@ -39,6 +40,9 @@ export function GlobalOverlay() {
 
   return (
     <>
+      {/* ✨ 挂载隐形快捷键引擎，只要页面打开它就在后台安静地运行 */}
+      <ShortcutManager />
+
       <ControlPanel />
       <DataCenter />
       <TopUpModal />
