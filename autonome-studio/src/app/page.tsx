@@ -9,12 +9,14 @@ import { RightPanel } from "../components/RightPanel";
 import { GlobalOverlay } from "../components/GlobalOverlay";
 import { useAuthStore } from "../store/useAuthStore";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
+import { useUIStore } from "../store/useUIStore";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { useKeyboardShortcut } from "../hooks/useKeyboardShortcut";
 
 export default function AutonomeStudio() {
   const { token, user } = useAuthStore();
   const { currentProjectId, setCurrentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
+  const { toggleProjectCenter } = useUIStore();
   const [mounted, setMounted] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string>("加载中...");
@@ -43,7 +45,8 @@ export default function AutonomeStudio() {
     
     const currentId = localStorage.getItem('autonome_current_project_id');
     if (!currentId) {
-      // 没有选中的项目，停留在当前页面，会显示项目中心让用户选择
+      // 没有选中的项目，自动打开项目中心让用户选择
+      toggleProjectCenter();
     } else {
       setProjectId(currentId);
       setCurrentProjectId(currentId);
@@ -102,9 +105,10 @@ export default function AutonomeStudio() {
     fetchProjectName();
   }, [currentProjectId]);
 
-  if (!projectId) {
-    return <div className="h-screen bg-[#131314]" />;
-  }
+  // 当没有项目时，仍然渲染布局，项目中心会通过 GlobalOverlay 显示
+  // if (!projectId) {
+  //   return <div className="h-screen bg-[#131314]" />;
+  // }
 
   return (
     <main className="h-screen w-full bg-neutral-950 flex overflow-hidden font-sans">
