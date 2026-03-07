@@ -21,6 +21,17 @@ const getFileIcon = (filename: string) => {
 };
 
 // ==========================================
+// 辅助函数：智能转换文件大小
+// ==========================================
+const formatBytes = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+// ==========================================
 // 组件 1：递归渲染单个节点
 // ==========================================
 const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, onPreview }: any) => {
@@ -92,9 +103,9 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
           )}
         </div>
 
-        {!isFolder && node.fileData?.file_size && (
+        {!isFolder && node.fileData?.file_size !== undefined && (
           <span className="text-[10px] text-neutral-600 font-mono bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800 group-hover:hidden shrink-0 ml-auto">
-            {(node.fileData.file_size / 1024).toFixed(1)} KB
+            {formatBytes(node.fileData.file_size)}
           </span>
         )}
       </div>

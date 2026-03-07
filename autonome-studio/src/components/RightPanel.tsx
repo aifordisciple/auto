@@ -226,8 +226,7 @@ export function RightPanel() {
                 const folder = filePath.includes('/') ? filePath.split('/')[0] : '';
                 
                 const isMounted = mountedFiles.includes(filePath);
-                const sizeMB = (fileObj.file_size / (1024 * 1024)).toFixed(2);
-                
+
                 return (
                   <li 
                     key={fileObj.id || filePath}
@@ -260,9 +259,8 @@ export function RightPanel() {
                         {baseName}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-neutral-500 shrink-0 z-10 relative bg-neutral-950 px-2 py-1 rounded-md border border-neutral-800 group-hover:border-neutral-600">{sizeMB} MB</span>
-                      {/* 操作按钮 - 仅 hover 时显示 */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* 只有在 hover 时才显示预览小眼睛 */}
                       <div className="hidden group-hover:flex items-center gap-1 bg-neutral-900/90 rounded relative z-10">
                         <button
                           onClick={(e) => { e.stopPropagation(); handlePreviewFile(filePath); }}
