@@ -90,7 +90,11 @@ class Project(SQLModel, table=True):
     id: str = Field(default_factory=generate_project_id, primary_key=True, index=True)
     name: str = Field(index=True, max_length=100)
     description: Optional[str] = None
+    # ✨ 新增字段
+    icon: str = Field(default="📁")
+    status: str = Field(default="active", index=True)  # "active" 或 "archived"
     created_at: datetime = Field(default_factory=get_utc_now)
+    updated_at: datetime = Field(default_factory=get_utc_now)
 
     # ✨ 多租户：增加项目所有者
     owner_id: int = Field(foreign_key="user.id", index=True)
@@ -183,6 +187,16 @@ class SystemConfig(SQLModel, table=True):
     default_model: str = Field(default="gpt-3.5-turbo")
     theme: str = Field(default="dark")
     updated_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 7.1 项目更新 Schema
+# ==========================================
+class ProjectUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    status: Optional[str] = None
 
 
 # ==========================================

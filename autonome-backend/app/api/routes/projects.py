@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.core.config import settings
-from app.models.domain import Project, ChatSession, ChatMessage, DataFile, User
+from app.models.domain import Project, ChatSession, ChatMessage, DataFile, User, ProjectUpdate
 from app.api.deps import get_current_user
 from app.core.logger import log
 
@@ -32,6 +32,53 @@ async def get_project(project_id: str, session: Session = Depends(get_session), 
     if not project:
         return {"status": "error", "message": "Project not found"}
     return {"status": "success", "data": project}
+
+
+# ✨ 2.3 & 2.5: 更新项目信息与状态 (包括重命名、改图标、软删除归档)
+@router.put("/{project_id}")
+async def update_project(
+    project_id: str,
+    project_in: ProjectUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    project = session.exec(select(Project).where(Project.id == project_id, Project.owner_id == current_user.id)).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    # 更新传入的非空字段
+    project_data = project_in.model_dump(exclude_unset=True)
+    for key, value in project_data.items():
+        setattr(project, key, value)
+
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    return {"status": "success", "data": project, "message": "项目已更新"}
+
+
+# ✨ 2.5: 硬删除 (彻底销毁数据库记录与底层物理硬盘文件)
+@router.delete("/{project_id}")
+async def delete_project(
+    project_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    project = session.exec(select(Project).where(Project.id == project_id, Project.owner_id == current_user.id)).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    # 1. 物理层抹除：彻底删除该项目的沙箱工作区及所有数据
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    if project_dir.exists():
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+    # 2. 逻辑层抹除：从数据库中删除记录 (级联的外键会自动处理)
+    session.delete(project)
+    session.commit()
+
+    return {"status": "success", "message": "项目及其所有物理数据已彻底销毁"}
 
 @router.post("")
 async def create_project(project: ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
