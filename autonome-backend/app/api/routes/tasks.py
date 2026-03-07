@@ -252,6 +252,33 @@ async def list_available_tasks():
     return {"tasks": list(TASK_REGISTRY.keys())}
 
 
+# ✨ 新增：一键清空所有任务 (⚠️ 必须放在 /{task_id} 路由的前面)
+@router.delete("/clear")
+async def clear_all_tasks(current_user: User = Depends(get_current_user)):
+    """强行终止所有正在运行的任务，并清空用户的整个任务列表"""
+    from loguru import logger
+
+    # 1. 获取用户所有的任务 ID
+    task_ids = redis_client.lrange(f"user_tasks:{current_user.id}", 0, -1)
+
+    for task_id in task_ids:
+        # 尝试强行杀死对应的计算容器 (对 PENDING/STARTED 的任务生效)
+        try:
+            celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
+            logger.info(f"Task {task_id} has been revoked with SIGKILL during clear all")
+        except Exception:
+            pass
+
+        # 清理该任务的元数据与日志
+        redis_client.delete(f"task_info:{task_id}")
+        redis_client.delete(f"task_logs:{task_id}")
+
+    # 2. 彻底抹除用户的历史记录列表
+    redis_client.delete(f"user_tasks:{current_user.id}")
+
+    return {"status": "success", "message": "所有任务已被强制终止并清空"}
+
+
 @router.delete("/{task_id}")
 async def terminate_and_delete_task(task_id: str, current_user: User = Depends(get_current_user)):
     """终止正在运行的任务并从看板中彻底删除"""

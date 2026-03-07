@@ -96,6 +96,19 @@ export function TaskCenter() {
     }
   };
 
+  // ✨ 新增：一键清空所有任务
+  const handleClearAllTasks = async () => {
+    if (!window.confirm("⚠️ 终极警告\n\n这将强行终止后台所有正在运行的分析任务，并彻底清空历史记录！\n此操作不可逆！\n\n确定要一键清空吗？")) return;
+
+    try {
+      await fetchAPI('/api/tasks/clear', { method: 'DELETE' });
+      setSelectedTask(null);
+      fetchTasks(); // 刷新看板，此时应该空空如也
+    } catch (err) {
+      alert("❌ 清空失败，请检查网络连接。");
+    }
+  };
+
   // 按列分组任务
   const columns = [
     { key: 'PENDING', title: '队列中', tasks: tasks.filter(t => t.status === 'PENDING') },
@@ -107,9 +120,28 @@ export function TaskCenter() {
 
   return (
     <div className="flex h-full">
-      {/* 看板视图 */}
-      <div className={`flex-1 p-4 flex gap-3 transition-all duration-300 ${selectedTask ? '-translate-x-full opacity-0 absolute' : 'translate-x-0 opacity-100'}`}>
-        {columns.map(col => (
+      {/* ✨ 升级版看板视图：包含全局 Header */}
+      <div className={`flex-1 flex flex-col transition-all duration-300 ${selectedTask ? '-translate-x-full opacity-0 absolute pointer-events-none' : 'translate-x-0 opacity-100'}`}>
+
+        {/* 全局工具栏 */}
+        <div className="px-5 py-3 border-b border-neutral-800/60 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-2 text-neutral-300 font-medium text-sm">
+            <ListTodo size={16} className="text-blue-400" />
+            任务调度中心 (Dispatch Center)
+          </div>
+          <button
+            onClick={handleClearAllTasks}
+            disabled={tasks.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            title="强制杀死所有进程并清空面板"
+          >
+            <Trash2 size={14} /> 一键清空
+          </button>
+        </div>
+
+        {/* 原来的列渲染区域 */}
+        <div className="flex-1 p-4 flex gap-3">
+          {columns.map(col => (
           <div key={col.key} className="flex-1 flex flex-col bg-[#1a1a1b] border border-neutral-800/60 rounded-xl overflow-hidden min-w-0">
             <div className="px-3 py-2.5 border-b border-neutral-800/60 bg-neutral-900/50 text-sm font-medium text-neutral-300 flex items-center justify-between shrink-0">
               <span>{col.title}</span>
@@ -166,6 +198,7 @@ export function TaskCenter() {
             </div>
           </div>
         ))}
+        </div>
       </div>
 
       {/* 日志视图 */}
