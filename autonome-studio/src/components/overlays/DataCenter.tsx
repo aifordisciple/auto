@@ -132,7 +132,7 @@ export function DataCenter() {
 
   // 预览弹窗状态
   const [previewPath, setPreviewPath] = useState<string | null>(null);
-  const [previewType, setPreviewType] = useState<'image' | 'text' | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'text' | 'pdf' | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
@@ -155,9 +155,31 @@ export function DataCenter() {
     }
   };
 
-  const handleDownloadNode = (filePath: string) => {
-    const downloadUrl = `/api/projects/${currentProjectId}/files/${filePath}/view`;
-    window.open(downloadUrl, '_blank');
+  // 基于内存 Blob 流的安全下载，完美携带 Token
+  const handleDownloadNode = async (filePath: string) => {
+    if (!currentProjectId) return;
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) throw new Error("获取文件失败");
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filePath.split('/').pop() || 'download';
+      document.body.appendChild(a);
+      a.click();
+
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("❌ 下载失败，可能是网络问题或无权限访问该文件。");
+    }
   };
 
   // 核心逻辑：安全拉取文件并在内存中渲染
@@ -166,8 +188,9 @@ export function DataCenter() {
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
     const isImage = ['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext);
     const isText = ['txt', 'csv', 'tsv', 'md', 'py', 'r', 'json', 'sh', 'log', 'yaml', 'yml'].includes(ext);
+    const isPdf = ext === 'pdf';
 
-    if (!isImage && !isText) {
+    if (!isImage && !isText && !isPdf) {
       alert("💡 当前文件格式暂不支持内存预览，请点击右侧【下载】按钮直接下载。");
       return;
     }
@@ -189,9 +212,13 @@ export function DataCenter() {
         const url = URL.createObjectURL(blob);
         setPreviewContent(url);
         setPreviewType('image');
+      } else if (isPdf) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        setPreviewContent(url);
+        setPreviewType('pdf');
       } else {
         const text = await res.text();
-        // 防御：如果文本文件极大，截断前 100KB 防止浏览器卡死
         const MAX_LENGTH = 100000;
         setPreviewContent(text.length > MAX_LENGTH ? text.substring(0, MAX_LENGTH) + '\n\n... [⚠️ 数据表过大，内存预览已截断，请下载查看完整全貌]' : text);
         setPreviewType('text');
@@ -205,7 +232,7 @@ export function DataCenter() {
   };
 
   const closePreview = () => {
-    if (previewType === 'image' && previewContent) {
+    if ((previewType === 'image' || previewType === 'pdf') && previewContent) {
       URL.revokeObjectURL(previewContent);
     }
     setPreviewPath(null);
@@ -363,6 +390,8 @@ export function DataCenter() {
                 </div>
               ) : previewType === 'image' && previewContent ? (
                 <img src={previewContent} alt="Preview" className="max-w-full max-h-full object-contain rounded drop-shadow-2xl" />
+              ) : previewType === 'pdf' && previewContent ? (
+                <iframe src={previewContent} className="w-full h-full rounded-xl border border-neutral-800 bg-white" title="PDF Preview" />
               ) : previewType === 'text' && previewContent ? (
                 <div className="w-full h-full bg-[#1e1e1e] rounded-xl border border-neutral-800 p-4 overflow-auto custom-scrollbar">
                   <pre className="text-[13px] leading-relaxed text-neutral-300 font-mono whitespace-pre-wrap">
