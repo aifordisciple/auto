@@ -25,6 +25,14 @@ async def get_projects(session: Session = Depends(get_session), current_user: Us
     projects = session.exec(select(Project).where(Project.owner_id == current_user.id)).all()
     return {"status": "success", "data": projects}
 
+@router.get("/{project_id}")
+async def get_project(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    # ✨ 获取单个项目详情
+    project = session.exec(select(Project).where(Project.id == project_id, Project.owner_id == current_user.id)).first()
+    if not project:
+        return {"status": "error", "message": "Project not found"}
+    return {"status": "success", "data": project}
+
 @router.post("")
 async def create_project(project: ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     # ✨ 创建项目时，强制绑定 owner_id

@@ -17,6 +17,7 @@ export default function AutonomeStudio() {
   const { currentProjectId, setCurrentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
   const [mounted, setMounted] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState<string>("加载中...");
   
   // 左右侧边栏开关状态
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
@@ -45,13 +46,61 @@ export default function AutonomeStudio() {
       window.location.href = '/dashboard';
     } else {
       setProjectId(currentId);
-      setCurrentProjectId(parseInt(currentId));
+      setCurrentProjectId(currentId);
+
+      // ✨ 获取真实项目名称
+      const localToken = localStorage.getItem('autonome_access_token');
+      fetch(`http://113.44.66.210:8000/api/projects/${currentId}`, {
+        headers: { 'Authorization': `Bearer ${localToken}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'success' && data.data) {
+            setProjectName(data.data.name);
+          } else {
+            const shortId = currentId.split('_')[1]?.substring(0, 6) || currentId;
+            setProjectName(`Project ${shortId}`);
+          }
+        })
+        .catch(() => {
+          const shortId = currentId.split('_')[1]?.substring(0, 6) || currentId;
+          setProjectName(`Project ${shortId}`);
+        });
     }
   }, []);
 
-  const handleSelectSession = (id: number | null, title?: string | null) => {
+  const handleSelectSession = (id: string | null, title?: string | null) => {
     setCurrentSessionId(id, title);
   };
+
+  // ✨ 当项目切换时更新顶部名称
+  useEffect(() => {
+    if (!currentProjectId) {
+      setProjectName("请在项目中心选择工作区");
+      return;
+    }
+
+    const fetchProjectName = async () => {
+      const localToken = localStorage.getItem('autonome_access_token');
+      try {
+        const res = await fetch(`http://113.44.66.210:8000/api/projects/${currentProjectId}`, {
+          headers: { 'Authorization': `Bearer ${localToken}` }
+        });
+        const data = await res.json();
+        if (data.status === 'success' && data.data) {
+          setProjectName(data.data.name);
+        } else {
+          const shortId = currentProjectId.split('_')[1]?.substring(0, 6) || currentProjectId;
+          setProjectName(`Project ${shortId}`);
+        }
+      } catch {
+        const shortId = currentProjectId.split('_')[1]?.substring(0, 6) || currentProjectId;
+        setProjectName(`Project ${shortId}`);
+      }
+    };
+
+    fetchProjectName();
+  }, [currentProjectId]);
 
   if (!projectId) {
     return <div className="h-screen bg-[#131314]" />;
@@ -76,8 +125,8 @@ export default function AutonomeStudio() {
           <Panel defaultSize={isRightSidebarOpen ? 80 : 100} minSize={40} className="flex flex-col bg-[#131314]">
             
             {/* 顶栏 */}
-            <TopHeader 
-              projectName={`Workspace Project #${projectId}`} 
+            <TopHeader
+              projectName={projectName}
               isLeftOpen={isLeftSidebarOpen}
               isRightOpen={isRightSidebarOpen}
               onToggleLeft={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}

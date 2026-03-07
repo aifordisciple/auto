@@ -11,6 +11,12 @@ export function ProjectCenter() {
   const { currentProjectId, setCurrentProjectId } = useWorkspaceStore();
   const { closeAllOverlays } = useUIStore();
 
+  // ✨ 新增：弹窗控制状态
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newProjName, setNewProjName] = useState("");
+  const [newProjDesc, setNewProjDesc] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+
   useEffect(() => {
     setIsLoading(true);
     fetchAPI('/api/projects')
@@ -18,15 +24,18 @@ export function ProjectCenter() {
       .finally(() => setIsLoading(false));
   }, []);
 
-  // ✨ 新增：处理新建项目点击事件
-  const handleCreateProject = async () => {
-    const name = prompt("请输入新项目/工作区的名称：", "My New Analysis Project");
-    if (!name) return;
+  // ✨ 修改：处理表单提交
+  const handleCreateSubmit = async () => {
+    if (!newProjName.trim()) return;
 
+    setIsCreating(true);
     try {
       const res = await fetchAPI('/api/projects', {
         method: 'POST',
-        body: JSON.stringify({ name, description: "Created via Workspace" })
+        body: JSON.stringify({
+          name: newProjName.trim(),
+          description: newProjDesc.trim() || "未提供项目介绍"
+        })
       });
 
       if (res.status === 'success' && res.data) {
@@ -37,10 +46,17 @@ export function ProjectCenter() {
           .finally(() => setIsLoading(false));
         // 自动切换到新创建的项目并关闭弹窗
         setCurrentProjectId(res.data.id);
+
+        // 成功后清空表单并关闭
+        setIsModalOpen(false);
+        setNewProjName("");
+        setNewProjDesc("");
         closeAllOverlays();
       }
     } catch (e) {
       alert("创建失败，请检查网络或登录状态。");
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -54,9 +70,9 @@ export function ProjectCenter() {
             <p className="text-neutral-500 text-sm">管理您的生信分析沙箱环境，数据与上下文完全隔离。</p>
           </div>
         </div>
-        {/* ✨ 绑定 onClick 事件 */}
+        {/* ✨ 修改：点击打开弹窗 */}
         <button
-          onClick={handleCreateProject}
+          onClick={() => setIsModalOpen(true)}
           className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md text-sm font-medium hover:bg-neutral-200 transition-colors"
         >
           <Plus size={16} /> 新建项目
@@ -89,6 +105,55 @@ export function ProjectCenter() {
           ))
         )}
       </div>
+
+      {/* ✨ 新增：优雅的暗黑风格新建项目弹窗 */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#1a1a1c] border border-neutral-800 rounded-2xl w-full max-w-md p-6 shadow-2xl transform transition-all">
+            <h3 className="text-lg font-semibold text-white mb-5">🚀 新建生信项目沙箱</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">项目名称 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={newProjName}
+                  onChange={(e) => setNewProjName(e.target.value)}
+                  placeholder="例如: 肺癌单细胞时空图谱分析"
+                  className="w-full bg-[#121212] border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-blue-500/50 transition-colors"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">项目介绍</label>
+                <textarea
+                  value={newProjDesc}
+                  onChange={(e) => setNewProjDesc(e.target.value)}
+                  placeholder="简要描述该项目的数据来源、物种或研究目的..."
+                  className="w-full bg-[#121212] border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-blue-500/50 transition-colors resize-none h-24"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-8">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateSubmit}
+                disabled={!newProjName.trim() || isCreating}
+                className="px-4 py-2 bg-white hover:bg-neutral-200 disabled:bg-neutral-800 disabled:text-neutral-500 text-black text-sm font-medium rounded-lg transition-colors"
+              >
+                {isCreating ? "创建中..." : "确认创建"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
