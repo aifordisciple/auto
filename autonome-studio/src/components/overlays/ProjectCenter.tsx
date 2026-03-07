@@ -18,6 +18,32 @@ export function ProjectCenter() {
       .finally(() => setIsLoading(false));
   }, []);
 
+  // ✨ 新增：处理新建项目点击事件
+  const handleCreateProject = async () => {
+    const name = prompt("请输入新项目/工作区的名称：", "My New Analysis Project");
+    if (!name) return;
+
+    try {
+      const res = await fetchAPI('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name, description: "Created via Workspace" })
+      });
+
+      if (res.status === 'success' && res.data) {
+        // 创建成功后重新拉取列表
+        setIsLoading(true);
+        fetchAPI('/api/projects')
+          .then(data => { if (data.status === 'success') setProjects(data.data); })
+          .finally(() => setIsLoading(false));
+        // 自动切换到新创建的项目并关闭弹窗
+        setCurrentProjectId(res.data.id);
+        closeAllOverlays();
+      }
+    } catch (e) {
+      alert("创建失败，请检查网络或登录状态。");
+    }
+  };
+
   return (
     <div className="p-8 h-full flex flex-col">
       <div className="flex items-center justify-between mb-8">
@@ -28,7 +54,11 @@ export function ProjectCenter() {
             <p className="text-neutral-500 text-sm">管理您的生信分析沙箱环境，数据与上下文完全隔离。</p>
           </div>
         </div>
-        <button className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md text-sm font-medium hover:bg-neutral-200 transition-colors">
+        {/* ✨ 绑定 onClick 事件 */}
+        <button
+          onClick={handleCreateProject}
+          className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-md text-sm font-medium hover:bg-neutral-200 transition-colors"
+        >
           <Plus size={16} /> 新建项目
         </button>
       </div>
