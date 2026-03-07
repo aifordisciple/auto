@@ -3,6 +3,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column
+import uuid
 
 # ✨ 引入 pgvector 的 Vector 类型
 try:
@@ -12,6 +13,19 @@ except ImportError:
     class Vector:
         def __init__(self, dimension=None):
             self.dimension = dimension
+
+
+# ==========================================
+# ✨ UUID 生成函数 (商业级 ID)
+# ==========================================
+def generate_project_id():
+    return f"proj_{uuid.uuid4().hex[:12]}"
+
+def generate_session_id():
+    return f"chat_{uuid.uuid4().hex[:12]}"
+
+def generate_msg_id():
+    return f"msg_{uuid.uuid4().hex[:16]}"
 
 
 # ==========================================
@@ -72,11 +86,12 @@ class BillingAccount(SQLModel, table=True):
 # 1. 项目表 (Project/Workspace)
 # ==========================================
 class Project(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    # ✨ 修改为主键字符串，使用默认工厂函数自动生成
+    id: str = Field(default_factory=generate_project_id, primary_key=True, index=True)
     name: str = Field(index=True, max_length=100)
     description: Optional[str] = None
     created_at: datetime = Field(default_factory=get_utc_now)
-    
+
     # ✨ 多租户：增加项目所有者
     owner_id: int = Field(foreign_key="user.id", index=True)
     
@@ -101,9 +116,10 @@ class Project(SQLModel, table=True):
 # 2. 会话表 (Chat Session)
 # ==========================================
 class ChatSession(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    # ✨ 修改为主键字符串
+    id: str = Field(default_factory=generate_session_id, primary_key=True, index=True)
     title: str = Field(default="默认分析会话", max_length=200)
-    project_id: int = Field(foreign_key="project.id", index=True)
+    project_id: str = Field(foreign_key="project.id", index=True)  # ✨ 外键改为 str
     created_at: datetime = Field(default_factory=get_utc_now)
     
     project: Optional[Project] = Relationship(back_populates="sessions")
@@ -117,9 +133,10 @@ class ChatSession(SQLModel, table=True):
 # 3. 聊天记录表 (ChatMessage)
 # ==========================================
 class ChatMessage(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="chatsession.id", index=True)
-    role: RoleEnum  
+    # ✨ 修改为主键字符串
+    id: str = Field(default_factory=generate_msg_id, primary_key=True, index=True)
+    session_id: str = Field(foreign_key="chatsession.id", index=True)  # ✨ 外键改为 str
+    role: RoleEnum
     content: str
     created_at: datetime = Field(default_factory=get_utc_now)
     
@@ -130,12 +147,12 @@ class ChatMessage(SQLModel, table=True):
 # 4. 文件表 (Data File Meta)
 # ==========================================
 class DataFile(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)  # 文件ID保持int
     filename: str
     file_path: str
     file_size: int
     file_type: Optional[str] = None
-    project_id: int = Field(foreign_key="project.id", index=True)
+    project_id: str = Field(foreign_key="project.id", index=True)  # ✨ 外键改为 str
     uploaded_at: datetime = Field(default_factory=get_utc_now)
     
     project: Optional[Project] = Relationship(back_populates="files")
@@ -151,7 +168,7 @@ class TaskRecord(SQLModel, table=True):
     parameters: str
     status: str = Field(index=True)
     result: Optional[str] = None
-    project_id: int = Field(foreign_key="project.id", index=True)
+    project_id: str = Field(foreign_key="project.id", index=True)  # ✨ 外键改为 str
     created_at: datetime = Field(default_factory=get_utc_now)
     completed_at: Optional[datetime] = None
 

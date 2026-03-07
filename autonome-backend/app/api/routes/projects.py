@@ -52,7 +52,7 @@ async def create_project(project: ProjectCreate, session: Session = Depends(get_
     return {"status": "success", "data": new_proj}
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def delete_project(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权删除该项目")
@@ -61,7 +61,7 @@ async def delete_project(project_id: int, session: Session = Depends(get_session
     return {"status": "success", "message": "Project deleted"}
 
 @router.get("/{project_id}/sessions")
-async def get_project_sessions(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def get_project_sessions(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权访问")
@@ -71,7 +71,7 @@ async def get_project_sessions(project_id: int, session: Session = Depends(get_s
     return {"status": "success", "data": sessions}
 
 @router.post("/{project_id}/sessions")
-async def create_session(project_id: int, title: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def create_session(project_id: str, title: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作")
@@ -83,7 +83,7 @@ async def create_session(project_id: int, title: str, session: Session = Depends
 
 
 @router.get("/{project_id}/current-session")
-async def get_current_session(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def get_current_session(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """获取或创建当前项目的最新会话"""
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
@@ -103,7 +103,7 @@ async def get_current_session(project_id: int, session: Session = Depends(get_se
 
 
 @router.get("/{project_id}/chat-history")
-async def get_chat_history(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def get_chat_history(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     # ✨ 安全校验：越权检查
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
@@ -122,7 +122,7 @@ async def get_chat_history(project_id: int, session: Session = Depends(get_sessi
     return {"status": "success", "data": messages}
 
 @router.post("/{project_id}/files")
-async def upload_file(project_id: int, file: UploadFile = File(...), session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def upload_file(project_id: str, file: UploadFile = File(...), session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作该项目")
@@ -161,7 +161,7 @@ async def upload_file(project_id: int, file: UploadFile = File(...), session: Se
     return {"status": "success", "data": new_file}
 
 @router.get("/{project_id}/files")
-async def get_project_files(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def get_project_files(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """获取项目下的所有文件（递归扫描 raw_data 和 results 目录）"""
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
@@ -198,7 +198,7 @@ async def get_project_files(project_id: int, session: Session = Depends(get_sess
 
 @router.delete("/{project_id}/files/{file_path:path}")
 async def delete_project_file(
-    project_id: int,
+    project_id: str,
     file_path: str,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
@@ -229,7 +229,7 @@ async def delete_project_file(
 
 @router.post("/{project_id}/share")
 async def toggle_project_share(
-    project_id: int, 
+    project_id: str, 
     session: Session = Depends(get_session), 
     current_user: User = Depends(get_current_user)
 ):
@@ -261,7 +261,7 @@ async def toggle_project_share(
 
 @router.get("/{project_id}/files/{file_path:path}/view")
 async def view_project_file(
-    project_id: int,
+    project_id: str,
     file_path: str,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)

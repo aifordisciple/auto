@@ -47,13 +47,13 @@ router = APIRouter()
 class TaskSubmitRequest(BaseModel):
     tool_id: str
     parameters: dict
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
 
 
 class TaskRunRequest(BaseModel):
     code: str
-    session_id: int
-    project_id: int
+    session_id: str
+    project_id: str
 
 
 @router.post("/submit")

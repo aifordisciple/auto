@@ -344,8 +344,8 @@ print(f"SUCCESS: Analysis pipeline completed. Target output -> {out_filename}")
 def run_custom_python_task(self, params: dict):
     task_id = self.request.id
     code = params.get("code")
-    session_id = params.get("session_id", 1)
-    project_id = params.get("project_id", 1)
+    session_id = params.get("session_id")  # ✨ 不再默认为 1
+    project_id = params.get("project_id")  # ✨ 不再默认为 1
     user_message = params.get("message", "用户执行了生信数据分析任务")
 
     log_msg = create_task_logger(task_id)
@@ -437,8 +437,8 @@ def run_custom_python_task(self, params: dict):
 def run_custom_r_task(self, params: dict):
     task_id = self.request.id
     code = params.get("code")
-    session_id = params.get("session_id", 1)
-    project_id = params.get("project_id", 1)
+    session_id = params.get("session_id")  # ✨ 不再默认为 1
+    project_id = params.get("project_id")  # ✨ 不再默认为 1
     user_message = params.get("message", "用户执行了生信 R 语言任务")
 
     log_msg = create_task_logger(task_id)

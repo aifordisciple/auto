@@ -18,10 +18,10 @@ router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    project_id: int
+    project_id: str
     message: str
     context_files: list[str] = []
-    session_id: Optional[int] = None
+    session_id: Optional[str] = None
 
 
 @router.post("/stream")
@@ -230,7 +230,7 @@ class SessionUpdate(BaseModel):
 
 @router.get("/projects/{project_id}/sessions")
 def get_project_sessions(
-    project_id: int, 
+    project_id: str, 
     session: Session = Depends(get_session), 
     current_user: User = Depends(get_current_user)
 ):
@@ -249,7 +249,7 @@ def get_project_sessions(
 
 @router.get("/sessions/{session_id}/messages")
 def get_session_messages(
-    session_id: int, 
+    session_id: str, 
     session: Session = Depends(get_session), 
     current_user: User = Depends(get_current_user)
 ):
@@ -272,7 +272,7 @@ def get_session_messages(
 
 @router.put("/sessions/{session_id}")
 def rename_session(
-    session_id: int, 
+    session_id: str, 
     req: SessionUpdate, 
     session: Session = Depends(get_session), 
     current_user: User = Depends(get_current_user)
@@ -294,7 +294,7 @@ def rename_session(
 
 @router.delete("/sessions/{session_id}")
 def delete_session(
-    session_id: int, 
+    session_id: str, 
     session: Session = Depends(get_session), 
     current_user: User = Depends(get_current_user)
 ):
@@ -314,7 +314,7 @@ def delete_session(
 
 @router.post("/sessions/{session_id}/auto-name")
 def auto_name_session(
-    session_id: int, 
+    session_id: str, 
     session: Session = Depends(get_session), 
     current_user: User = Depends(get_current_user)
 ):

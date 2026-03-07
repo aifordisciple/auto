@@ -61,8 +61,8 @@ export default function DashboardPage() {
     }
   };
 
-  const handleEnterProject = (projectId: number) => {
-    localStorage.setItem('autonome_current_project_id', projectId.toString());
+  const handleEnterProject = (projectId: string) => {
+    localStorage.setItem('autonome_current_project_id', projectId);
     window.location.href = '/';
   };
 

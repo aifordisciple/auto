@@ -5,20 +5,20 @@ import { SquarePen, Trash2, Edit2, MessageSquare } from "lucide-react";
 import { BASE_URL } from "@/lib/api";
 
 interface Session {
-  id: number;
+  id: string;
   title: string;
   created_at: string;
 }
 
 interface SessionSidebarProps {
-  projectId: number;
-  currentSessionId: number | null;
-  onSelectSession: (id: number | null, title?: string | null) => void;
+  projectId: string;
+  currentSessionId: string | null;
+  onSelectSession: (id: string | null, title?: string | null) => void;
 }
 
 export function SessionSidebar({ projectId, currentSessionId, onSelectSession }: SessionSidebarProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
   const fetchSessions = async () => {

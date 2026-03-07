@@ -30,25 +30,25 @@ export interface RealFile {
   file_path: string;
   file_size: number;
   file_type: string;
-  project_id: number;
+  project_id: string;
   uploaded_at: string;
 }
 
 interface WorkspaceState {
   // Project context
-  currentProjectId: number;
-  setCurrentProjectId: (id: number) => void;
-  
+  currentProjectId: string;
+  setCurrentProjectId: (id: string) => void;
+
   // Current chat session
-  currentSessionId: number | null;
+  currentSessionId: string | null;
   currentSessionTitle: string | null;
-  setCurrentSessionId: (id: number | null, title?: string | null) => void;
-  
+  setCurrentSessionId: (id: string | null, title?: string | null) => void;
+
   // Data Center: mounted files for AI context
   projectFiles: RealFile[];
   setProjectFiles: (files: RealFile[]) => void;
   addProjectFile: (file: RealFile) => void;
-  fetchProjectFiles: (projectId?: number) => Promise<void>;
+  fetchProjectFiles: (projectId?: string) => Promise<void>;
   
   mountedFiles: string[];
   toggleMountFile: (file: string) => void;
@@ -63,28 +63,28 @@ interface WorkspaceState {
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
-      // Default to project ID 1 (demo project)
-      currentProjectId: 1,
+      // ✨ Default to empty string (no project selected)
+      currentProjectId: '',
       setCurrentProjectId: (id) => set({ currentProjectId: id }),
 
       // Current session ID and title
       currentSessionId: null,
       currentSessionTitle: null,
-      setCurrentSessionId: (id, title = null) => set({ 
+      setCurrentSessionId: (id, title = null) => set({
         currentSessionId: id,
-        currentSessionTitle: title 
+        currentSessionTitle: title
       }),
 
       projectFiles: [],
       setProjectFiles: (files) => set({ projectFiles: files }),
-      addProjectFile: (file) => set((state) => ({ 
-        projectFiles: [...state.projectFiles, file] 
+      addProjectFile: (file) => set((state) => ({
+        projectFiles: [...state.projectFiles, file]
       })),
-      fetchProjectFiles: async (projectId?: number) => {
+      fetchProjectFiles: async (projectId?: string) => {
         let pid = projectId;
         if (!pid) {
           const stored = localStorage.getItem('autonome_current_project_id');
-          pid = stored ? parseInt(stored) : undefined;
+          pid = stored || undefined;
         }
         if (!pid) return;
         const token = localStorage.getItem('autonome_access_token');
