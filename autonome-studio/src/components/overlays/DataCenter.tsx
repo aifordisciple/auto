@@ -21,9 +21,10 @@ const getFileIcon = (filename: string) => {
 };
 
 // ==========================================
-// 辅助函数：智能转换文件大小
+// 辅助函数：智能格式化文件大小
 // ==========================================
-const formatBytes = (bytes: number) => {
+const formatBytes = (bytes?: number) => {
+  if (bytes === undefined || bytes === null) return '';
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -103,9 +104,10 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
           )}
         </div>
 
-        {!isFolder && node.fileData?.file_size !== undefined && (
+        {/* ✨ 修复：兼容后端的 size 字段，并使用智能单位格式化 */}
+        {!isFolder && (node.fileData?.size !== undefined || node.fileData?.file_size !== undefined) && (
           <span className="text-[10px] text-neutral-600 font-mono bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800 group-hover:hidden shrink-0 ml-auto">
-            {formatBytes(node.fileData.file_size)}
+            {formatBytes(node.fileData?.size ?? node.fileData?.file_size)}
           </span>
         )}
       </div>
