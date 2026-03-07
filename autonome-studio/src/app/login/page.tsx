@@ -57,9 +57,9 @@ export default function LoginPage() {
           setUser(userData);
         }
         
-        // 3. 跳转 Dashboard
-        console.log("Redirecting to /dashboard...");
-        window.location.href = "/dashboard";
+        // 3. 跳转主页
+        console.log("Redirecting to /...");
+        window.location.href = "/";
         console.log("Redirect done");
       } else {
         // 注册流程
