@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import engine, create_db_and_tables
 from app.core.logger import log
 from app.models.domain import SystemConfig
 
@@ -26,7 +26,11 @@ app.add_middleware(
 def on_startup():
     # ✨ 使用 Loguru 记录启动日志
     log.info(f"🚀 正在启动 {settings.PROJECT_NAME} v{settings.VERSION}")
-    
+
+    # ✨ 首先创建所有数据库表
+    create_db_and_tables()
+    log.info("✅ 数据库表结构已创建")
+
     # SaaS 模式下不自动创建项目，由用户注册后自行创建
     with Session(engine) as session:
         if not session.get(SystemConfig, 1):
