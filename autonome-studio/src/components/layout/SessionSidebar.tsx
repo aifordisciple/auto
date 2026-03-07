@@ -80,7 +80,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   const handleNewChat = () => onSelectSession(null);
 
-  const handleDelete = async (e: React.MouseEvent, id: number) => {
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this chat?")) return;
     
@@ -97,7 +97,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     }
   };
 
-  const handleRename = async (id: number) => {
+  const handleRename = async (id: string) => {
     if (!editTitle.trim()) {
       setEditingId(null);
       return;

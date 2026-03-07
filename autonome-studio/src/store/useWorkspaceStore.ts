@@ -25,7 +25,7 @@ export interface ToolSchema {
 
 // Real file interface from database
 export interface RealFile {
-  id: number;
+  id: string;
   filename: string;
   file_path: string;
   file_size: number;
