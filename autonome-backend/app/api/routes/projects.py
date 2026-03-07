@@ -260,12 +260,13 @@ async def get_project_files(project_id: str, session: Session = Depends(get_sess
             if filename.startswith('.'):
                 continue
 
+            # 兼容 Windows 系统的路径分隔符
+            normalized_path = str(rel_path).replace('\\', '/')
             files.append({
                 "name": filename,
-                # 兼容 Windows 系统的路径分隔符
-                "path": str(rel_path).replace('\\', '/'),
+                "path": normalized_path,
                 "size": full_path.stat().st_size,
-                "url": f"/api/projects/{project_id}/files/{str(rel_path).replace('\\', '/')}/view"
+                "url": f"/api/projects/{project_id}/files/{normalized_path}/view"
             })
 
     return {"status": "success", "data": files}
