@@ -3,7 +3,7 @@
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 import { useTaskStore } from "../store/useTaskStore";
 import { useState, useRef, useEffect } from "react";
-import { Check, Play, Settings2, Database, UploadCloud, Loader2, Trash2, Eye, X, Download } from "lucide-react";
+import { Check, Play, Settings2, Database, UploadCloud, Loader2, Eye, X, Download } from "lucide-react";
 import { fetchAPI, BASE_URL } from "../lib/api";
 
 export function RightPanel() {
@@ -71,27 +71,6 @@ export function RightPanel() {
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  // Handle file deletion
-  const handleDeleteFile = async (filePath: string) => {
-    if (!confirm("确定要彻底删除这个文件吗？")) return;
-
-    try {
-      const token = localStorage.getItem('autonome_access_token');
-      // ✨ 修复：使用物理路径拼接请求
-      const response = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        // 删除成功后刷新列表
-        fetchProjectFiles();
-      }
-    } catch (error) {
-      console.error("Delete failed:", error);
     }
   };
 
@@ -292,16 +271,6 @@ export function RightPanel() {
                         >
                           <Eye size={14} />
                         </button>
-                        {/* 屏蔽 references 目录的删除按钮 */}
-                        {folder !== 'references' && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteFile(filePath); }}
-                            className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                            title="删除文件"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
                       </div>
                     </div>
                   </li>
