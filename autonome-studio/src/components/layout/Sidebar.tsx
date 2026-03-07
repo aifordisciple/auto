@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LayoutDashboard, Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive } from "lucide-react";
+import { Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
@@ -46,14 +46,6 @@ export function Sidebar() {
 
       {/* Navigation */}
       <div className="p-3 space-y-1 text-sm text-neutral-400 mt-2">
-        {/* Dashboard */}
-        <div 
-          onClick={() => window.location.href = '/dashboard'} 
-          className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-neutral-800/50 hover:text-white"
-        >
-          <LayoutDashboard size={18} /> <span>Projects Dashboard</span>
-        </div>
-
         {/* Control Panel */}
         <div 
           onClick={() => toggleControlPanel()}
