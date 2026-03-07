@@ -82,10 +82,10 @@ export default function AdminDashboard() {
       {/* Header */}
       <div className="h-16 bg-neutral-900 border-b border-neutral-800 flex items-center px-6">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => window.location.href = '/dashboard'} 
+          <button
+            onClick={() => window.location.href = '/'}
             className="p-2 mr-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-all"
-            title="返回仪表盘"
+            title="返回主页"
           >
             <ArrowLeft size={20} />
           </button>

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Menu, ChevronRight, Share2, Settings, Zap, PanelRightClose, PanelLeftClose } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useUIStore } from "../../store/useUIStore";
 
 interface TopHeaderProps {
   projectName?: string;
@@ -22,6 +23,7 @@ export function TopHeader({
   onShare 
 }: TopHeaderProps) {
   const { user, fetchProfile } = useAuthStore();
+  const { toggleProjectCenter } = useUIStore();
 
   // 定时轮询刷新用户信息（包括算力余额）
   useEffect(() => {
@@ -48,9 +50,9 @@ export function TopHeader({
         </button>
         
         <div className="hidden md:flex items-center text-neutral-400">
-          <span 
+          <span
             className="hover:text-white cursor-pointer transition-colors"
-            onClick={() => window.location.href = '/dashboard'}
+            onClick={toggleProjectCenter}
           >
             Projects
           </span>

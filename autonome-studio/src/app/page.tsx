@@ -28,7 +28,7 @@ export default function AutonomeStudio() {
   useKeyboardShortcut({ key: "b", meta: true }, () => setIsLeftSidebarOpen(p => !p));
   useKeyboardShortcut({ key: "j", ctrl: true }, () => setIsRightSidebarOpen(p => !p));
   useKeyboardShortcut({ key: "j", meta: true }, () => setIsRightSidebarOpen(p => !p));
-  useKeyboardShortcut({ key: "Escape", shift: true }, () => window.location.href = '/dashboard');
+  useKeyboardShortcut({ key: "Escape", shift: true }, () => window.location.href = '/');
 
   useEffect(() => {
     setMounted(true);
@@ -43,7 +43,7 @@ export default function AutonomeStudio() {
     
     const currentId = localStorage.getItem('autonome_current_project_id');
     if (!currentId) {
-      window.location.href = '/dashboard';
+      // 没有选中的项目，停留在当前页面，会显示项目中心让用户选择
     } else {
       setProjectId(currentId);
       setCurrentProjectId(currentId);
