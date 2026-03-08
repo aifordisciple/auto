@@ -111,12 +111,12 @@ export default function AutonomeStudio() {
   // }
 
   return (
-    <main className="h-screen w-full bg-neutral-950 flex overflow-hidden font-sans">
+    <main className="h-screen w-full bg-white dark:bg-[#131314] flex overflow-hidden font-sans transition-colors">
       <GlobalOverlay />
-      
+
       {/* 左侧边栏 - 根据 isLeftSidebarOpen 条件渲染 */}
       {isLeftSidebarOpen && (
-        <div className="w-56 shrink-0 border-r border-neutral-800 bg-neutral-950 flex flex-col z-20 hidden md:flex">
+        <div className="w-56 shrink-0 border-r border-gray-200 dark:border-[#2d2d30] bg-gray-50 dark:bg-[#1e1e20] flex flex-col z-20 hidden md:flex">
           <Sidebar />
         </div>
       )}
@@ -124,10 +124,10 @@ export default function AutonomeStudio() {
       {/* 主工作区 */}
       <div className="flex-1 flex overflow-hidden">
         <Group orientation="horizontal">
-          
+
           {/* 中栏：聊天主舞台 */}
-          <Panel defaultSize={isRightSidebarOpen ? 80 : 100} minSize={40} className="flex flex-col bg-[#131314]">
-            
+          <Panel defaultSize={isRightSidebarOpen ? 80 : 100} minSize={40} className="flex flex-col bg-white dark:bg-[#131314]">
+
             {/* 顶栏 */}
             <TopHeader
               projectName={projectName}
@@ -135,27 +135,27 @@ export default function AutonomeStudio() {
               isRightOpen={isRightSidebarOpen}
               onToggleLeft={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
               onToggleRight={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-              onShare={() => {}} 
+              onShare={() => {}}
             />
-            
+
             {/* 聊天主容器 */}
             <div className="flex-1 overflow-hidden w-full relative">
               <ChatStage />
             </div>
-            
+
           </Panel>
-          
+
           {/* 右侧边栏与分隔条 - 根据 isRightSidebarOpen 条件渲染 */}
           {isRightSidebarOpen && (
             <>
-              <Separator className="w-1 bg-neutral-800/50 hover:bg-blue-500/50 transition-colors cursor-col-resize" />
-              
-              <Panel defaultSize={20} minSize={15} className="bg-neutral-950 border-l border-neutral-800 flex flex-col">
+              <Separator className="w-1 bg-gray-200 dark:bg-[#2d2d30] hover:bg-blue-500/50 transition-colors cursor-col-resize" />
+
+              <Panel defaultSize={20} minSize={15} className="bg-gray-50 dark:bg-[#1e1e20] border-l border-gray-200 dark:border-[#2d2d30] flex flex-col">
                 <RightPanel />
               </Panel>
             </>
           )}
-          
+
         </Group>
       </div>
     </main>

@@ -238,7 +238,7 @@ export function ChatStage() {
   const isChatEmpty = messages.length === 0;
 
   const renderInputBox = () => (
-    <div className="w-full bg-[#1e1e1f] border border-neutral-800/60 rounded-3xl p-2 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-xl flex flex-col">
+    <div className="w-full bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl p-2 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-sm dark:shadow-xl flex flex-col">
       <textarea
         id="chat-input-box"
         value={inputValue}
@@ -250,14 +250,14 @@ export function ChatStage() {
           }
         }}
         placeholder="Ask anything or generate an analysis script..."
-        className="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm"
+        className="w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm"
       />
       <div className="flex justify-between items-center px-2 pb-1">
         <div className="flex gap-2"></div>
-        <button 
+        <button
           onClick={() => handleSend()}
           disabled={isTyping || !inputValue.trim()}
-          className="p-2 bg-white text-black hover:bg-neutral-200 disabled:bg-neutral-800 disabled:text-neutral-500 rounded-full transition-colors"
+          className="p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
         </button>
@@ -266,33 +266,33 @@ export function ChatStage() {
   );
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#131314]">
-      
+    <div className="flex flex-col h-full w-full bg-white dark:bg-[#131314]">
+
       {isChatEmpty ? (
         <div className="flex-1 flex flex-col items-center justify-center px-4 pb-20 animate-in fade-in duration-500">
-          <h1 className="text-3xl md:text-4xl font-semibold text-neutral-200 mb-8 tracking-tight">
+          <h1 className="text-3xl md:text-4xl font-semibold text-gray-900 dark:text-neutral-200 mb-8 tracking-tight">
             What do you want to analyze?
           </h1>
-          
+
           <div className="w-full max-w-3xl">
             {renderInputBox()}
-            
+
             <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
-              <button 
-                onClick={() => setInputValue('读取单细胞数据并绘制 UMAP')} 
-                className="text-xs px-4 py-2 rounded-full border border-neutral-800/80 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+              <button
+                onClick={() => setInputValue('读取单细胞数据并绘制 UMAP')}
+                className="text-xs px-4 py-2 rounded-full border border-gray-200 dark:border-neutral-800/80 text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors"
               >
                 单细胞 UMAP 降维
               </button>
-              <button 
-                onClick={() => setInputValue('读取表达矩阵并绘制火山图')} 
-                className="text-xs px-4 py-2 rounded-full border border-neutral-800/80 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+              <button
+                onClick={() => setInputValue('读取表达矩阵并绘制火山图')}
+                className="text-xs px-4 py-2 rounded-full border border-gray-200 dark:border-neutral-800/80 text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors"
               >
                 差异基因火山图
               </button>
-              <button 
-                onClick={() => setInputValue('对数据进行 QC 质控分析')} 
-                className="text-xs px-4 py-2 rounded-full border border-neutral-800/80 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+              <button
+                onClick={() => setInputValue('对数据进行 QC 质控分析')}
+                className="text-xs px-4 py-2 rounded-full border border-gray-200 dark:border-neutral-800/80 text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors"
               >
                 数据 QC 质控
               </button>
@@ -321,16 +321,16 @@ export function ChatStage() {
                   >
                     <div className={`flex items-start gap-3 w-full ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                        msg.role === 'user' 
-                          ? 'bg-neutral-800 text-neutral-300' 
-                          : 'bg-blue-900/40 text-blue-400'
+                        msg.role === 'user'
+                          ? 'bg-gray-200 dark:bg-neutral-800 text-gray-700 dark:text-neutral-300'
+                          : 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400'
                       }`}>
                         {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
                       </div>
                       <div className={`flex-1 rounded-xl p-4 ${
-                        msg.role === 'user' 
-                          ? 'bg-neutral-800/50 text-neutral-200' 
-                          : 'bg-neutral-900/60 text-neutral-300'
+                        msg.role === 'user'
+                          ? 'bg-blue-50 dark:bg-neutral-800/50 text-gray-800 dark:text-neutral-200'
+                          : 'bg-gray-100 dark:bg-neutral-900/60 text-gray-700 dark:text-neutral-300'
                       }`}>
                         {msg.role === 'user' ? (
                           <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
@@ -403,7 +403,7 @@ export function ChatStage() {
                     <Sparkles size={16} className="text-blue-400" />
                   </div>
                   
-                  <div className="flex items-center gap-3 bg-[#1e1e1f] border border-neutral-800/60 rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-lg relative overflow-hidden">
+                  <div className="flex items-center gap-3 bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-sm dark:shadow-lg relative overflow-hidden">
                     <span className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 animate-pulse">
                       Autonome is processing
                     </span>
@@ -420,10 +420,10 @@ export function ChatStage() {
             </div>
           </div>
 
-          <div className="shrink-0 px-4 pt-2 pb-3 bg-[#131314]">
+          <div className="shrink-0 px-4 pt-2 pb-3 bg-white dark:bg-[#131314]">
             <div className="max-w-4xl mx-auto">
               {renderInputBox()}
-              <div className="text-center mt-2 text-[10px] text-neutral-500">
+              <div className="text-center mt-2 text-[10px] text-gray-400 dark:text-neutral-500">
                 Autonome Copilot can make mistakes. Check important info.
               </div>
             </div>
