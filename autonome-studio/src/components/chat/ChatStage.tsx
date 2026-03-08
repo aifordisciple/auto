@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Bot, User, Sparkles, Copy, Check } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
@@ -44,7 +44,7 @@ function MessageActionButtons({ content }: { content: string }) {
 
   return (
     <div className="flex items-center gap-1">
-      <button 
+      <button
         onClick={handleCopy}
         className="flex items-center gap-1.5 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-neutral-800 text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300 transition-all border border-transparent hover:border-gray-200 dark:hover:border-neutral-700"
         title="复制全文"
@@ -59,6 +59,100 @@ function MessageActionButtons({ content }: { content: string }) {
   );
 }
 
+// ==========================================
+// ✨ 树状资产卡片组件集合
+// ==========================================
+
+const getFileIcon = (filename: string) => {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.tsv') || lower.endsWith('.csv') || lower.endsWith('.txt') || lower.endsWith('.log')) {
+    return <Table2 size={15} className="text-blue-500 dark:text-blue-400 shrink-0" />;
+  }
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.pdf') || lower.endsWith('.svg')) {
+    return <ImageIcon size={15} className="text-pink-500 dark:text-pink-400 shrink-0" />;
+  }
+  return <FileText size={15} className="text-gray-500 dark:text-neutral-400 shrink-0" />;
+};
+
+const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, level: number, onPreview: any, onDownload: any }) => {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const isFolder = node.type === 'folder';
+
+  return (
+    <div className="flex flex-col">
+      <div
+        className={`flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-[#2d2d30]/80 rounded-md cursor-pointer group transition-colors ${level > 0 ? 'ml-3 border-l border-gray-200 dark:border-gray-700 pl-3' : ''}`}
+        onClick={() => isFolder ? setIsExpanded(!isExpanded) : onPreview(node.url, node.name)}
+      >
+        {isFolder ? (
+          <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 shrink-0">
+            {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+            {isExpanded ? <FolderOpen size={15} className="text-blue-500 dark:text-blue-400"/> : <Folder size={15} className="text-blue-500 dark:text-blue-400"/>}
+          </div>
+        ) : (
+          <div className="ml-5 shrink-0">{getFileIcon(node.name)}</div>
+        )}
+
+        <span className={`text-[13px] truncate flex-1 tracking-wide ${isFolder ? 'font-medium text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
+          {node.name}
+        </span>
+
+        {!isFolder && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+             <button onClick={(e) => { e.stopPropagation(); onPreview(node.url, node.name); }} className="p-1 text-gray-400 hover:text-emerald-500 bg-white dark:bg-[#1e1e20] shadow-sm rounded border border-gray-200 dark:border-gray-700" title="安全预览"><Eye size={13} /></button>
+             <button onClick={(e) => { e.stopPropagation(); onDownload(node.url, node.name); }} className="p-1 text-gray-400 hover:text-blue-500 bg-white dark:bg-[#1e1e20] shadow-sm rounded border border-gray-200 dark:border-gray-700" title="下载"><Download size={13} /></button>
+          </div>
+        )}
+      </div>
+
+      {isFolder && isExpanded && (
+        <div className="flex flex-col mt-0.5">
+          {Object.values(node.children).map((child: any) => (
+            <AssetTreeNode key={child.name} node={child} level={level + 1} onPreview={onPreview} onDownload={onDownload} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, title: string}[], onPreview: any, onDownload: any }) => {
+  const tree = useMemo(() => {
+    const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
+    links.forEach(link => {
+      const parts = link.title.split('/');
+      let current = root;
+      parts.forEach((part, idx) => {
+        if (!current.children[part]) {
+          current.children[part] = {
+            name: part,
+            type: idx === parts.length - 1 ? 'file' : 'folder',
+            children: {},
+            url: idx === parts.length - 1 ? link.url : null
+          };
+        }
+        current = current.children[part];
+      });
+    });
+    return root;
+  }, [links]);
+
+  return (
+    <div className="w-full max-w-xl mt-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm dark:shadow-none overflow-hidden">
+      <div className="px-4 py-2.5 bg-gray-50 dark:bg-[#252528] border-b border-gray-200 dark:border-[#2d2d30] flex items-center gap-2">
+        <FolderOpen size={16} className="text-purple-500" />
+        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">生成的分析资产 (Output Assets)</span>
+        <span className="text-xs bg-gray-200 dark:bg-black/30 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full ml-auto">{links.length} files</span>
+      </div>
+      <div className="p-2 max-h-64 overflow-y-auto custom-scrollbar">
+        {Object.values(tree.children).map((node: any) => (
+          <AssetTreeNode key={node.name} node={node} level={0} onPreview={onPreview} onDownload={onDownload} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export function ChatStage() {
   const { currentProjectId, mountedFiles, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
   const { messages, addMessage, setMessages, appendLastMessage, isTyping, setIsTyping } = useChatStore();
@@ -67,6 +161,69 @@ export function ChatStage() {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isStreamingRef = useRef(false);
+
+  // ✨ 聊天区文件预览状态引擎
+  const [previewData, setPreviewData] = useState<{url: string, filename: string} | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'text' | 'pdf' | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
+  const handleDownloadAsset = async (url: string, filename: string) => {
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+      const fetchUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+      const res = await fetch(fetchUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) throw new Error("获取文件失败");
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(objUrl);
+    } catch (e) {
+      alert("❌ 下载失败，可能是网络问题或无权限。");
+    }
+  };
+
+  const handlePreviewAsset = async (url: string, filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const isImage = ['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext);
+    const isText = ['txt', 'csv', 'tsv', 'md', 'py', 'r', 'json', 'sh', 'log', 'yaml'].includes(ext);
+    const isPdf = ext === 'pdf';
+
+    if (!isImage && !isText && !isPdf) {
+      alert("💡 当前格式暂不支持内存预览，请点击右侧【下载】按钮获取。");
+      return;
+    }
+
+    setPreviewData({ url, filename });
+    setIsPreviewLoading(true); setPreviewContent(null);
+
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+      const fetchUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+      const res = await fetch(fetchUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) throw new Error("获取失败");
+
+      if (isImage || isPdf) {
+        setPreviewContent(URL.createObjectURL(await res.blob()));
+        setPreviewType(isImage ? 'image' : 'pdf');
+      } else {
+        const text = await res.text();
+        setPreviewContent(text.length > 100000 ? text.substring(0, 100000) + '\n\n... [⚠️ 数据表过大，内存预览已截断]' : text);
+        setPreviewType('text');
+      }
+    } catch (e) {
+      alert("❌ 预览加载失败。"); setPreviewData(null);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if ((previewType === 'image' || previewType === 'pdf') && previewContent) URL.revokeObjectURL(previewContent);
+    setPreviewData(null); setPreviewContent(null);
+  };
 
   // Fetch messages when session changes
   useEffect(() => {
@@ -337,12 +494,13 @@ export function ChatStage() {
                         ) : (
                           <div className="flex flex-col gap-4 w-full">
 
-                            {/* ✨ 调整顺序 1：先渲染文本、代码、以及执行完成后的结果 */}
+                            {/* ✨ 智能分离渲染：文本归文本，文件归树状卡片 */}
                             {msg.content && (() => {
                               let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
-
-                              // 🌟 魔法拦截器：自动将后台物理路径升级为前端可见的图片和链接
                               const apiBase = BASE_URL.replace(/\/$/, '');
+
+                              // 收集所有提取出来的文件
+                              const extractedFiles: { title: string, url: string }[] = [];
 
                               // 使用正则将内容按代码块进行分割，保护代码块内部的路径不被替换
                               const parts = cleanText.split(/(```[\s\S]*?```)/g);
@@ -353,27 +511,48 @@ export function ChatStage() {
 
                                 let text = part;
 
-                                // 1. 匹配图片格式 (png, jpg, svg等)，自动转成 Markdown 图片显示
+                                // 1. 匹配图片格式 (png, jpg, svg等)，提取为文件
                                 text = text.replace(
                                   /\/app\/uploads\/project_(\d+)\/([^\s'"]+\.(png|jpg|jpeg|gif|svg))/gi,
                                   (match, pId, filePath) => {
-                                    return `\n\n![分析图表](${apiBase}/api/projects/${pId}/files/${filePath}/view)\n\n`;
+                                    const fileName = filePath.split('/').pop();
+                                    const url = `${apiBase}/api/projects/${pId}/files/${filePath}/view`;
+                                    // 查重
+                                    if (!extractedFiles.find(f => f.url === url)) {
+                                      extractedFiles.push({ title: filePath, url });
+                                    }
+                                    return `\`${fileName}\``;
                                   }
                                 );
 
-                                // 2. 匹配数据文档格式 (tsv, csv, txt等)，自动转成可点击的下载/预览链接
+                                // 2. 匹配数据文档格式 (tsv, csv, txt等)，提取为文件
                                 text = text.replace(
                                   /\/app\/uploads\/project_(\d+)\/([^\s'"]+\.(csv|tsv|txt|h5ad|pdf|xlsx))/gi,
                                   (match, pId, filePath) => {
                                     const fileName = filePath.split('/').pop();
-                                    return `[📥 下载/查看 ${fileName}](${apiBase}/api/projects/${pId}/files/${filePath}/view)`;
+                                    const url = `${apiBase}/api/projects/${pId}/files/${filePath}/view`;
+                                    // 查重
+                                    if (!extractedFiles.find(f => f.url === url)) {
+                                      extractedFiles.push({ title: filePath, url });
+                                    }
+                                    return `\`${fileName}\``;
                                   }
                                 );
 
                                 return text;
                               }).join('');
 
-                              return cleanText ? <MarkdownBlock content={cleanText} /> : null;
+                              return (
+                                <div className="flex flex-col w-full">
+                                  {/* 渲染干净的 Markdown 文字 */}
+                                  {cleanText && <MarkdownBlock content={cleanText} />}
+
+                                  {/* 渲染树状结果卡片 */}
+                                  {extractedFiles.length > 0 && (
+                                    <AssetTreeCard links={extractedFiles} onPreview={handlePreviewAsset} onDownload={handleDownloadAsset} />
+                                  )}
+                                </div>
+                              );
                             })()}
 
                             {/* ✨ 调整顺序 2：把策略卡片放到最后面，作为用户的下一步行动入口 */}
@@ -429,6 +608,48 @@ export function ChatStage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ✨ 绝美沉浸式文件预览弹窗 */}
+      {previewData && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 md:p-12 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#1a1a1c] border border-gray-200 dark:border-[#2d2d30] rounded-2xl w-full max-w-5xl h-full flex flex-col shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200">
+
+            <div className="h-14 shrink-0 border-b border-gray-200 dark:border-[#2d2d30] px-6 flex items-center justify-between bg-gray-50 dark:bg-[#1e1e20]">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <Eye size={18} className="text-emerald-500 dark:text-emerald-400 shrink-0"/>
+                <h3 className="text-gray-900 dark:text-white font-medium text-sm tracking-wide truncate max-w-lg">{previewData.filename}</h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => handleDownloadAsset(previewData.url, previewData.filename)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 dark:text-blue-400 text-xs font-medium rounded-lg transition-colors border border-blue-200 dark:border-blue-500/20">
+                  <Download size={14} /> 保存到本地
+                </button>
+                <div className="w-px h-4 bg-gray-300 dark:bg-neutral-800 mx-1"></div>
+                <button onClick={closePreview} className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-200 dark:text-neutral-400 dark:hover:text-white dark:hover:bg-neutral-800 rounded-lg transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6 flex items-start justify-center bg-gray-100 dark:bg-[#121212] relative">
+              {isPreviewLoading ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-gray-500 dark:text-neutral-500">
+                  <Loader2 size={32} className="animate-spin text-emerald-500" />
+                  <span className="text-sm tracking-widest">安全加载中...</span>
+                </div>
+              ) : previewType === 'image' && previewContent ? (
+                <img src={previewContent} alt="Preview" className="max-w-full max-h-full object-contain rounded shadow-md dark:drop-shadow-2xl" />
+              ) : previewType === 'pdf' && previewContent ? (
+                <iframe src={previewContent} className="w-full h-full rounded-xl border border-gray-200 dark:border-neutral-800 bg-white" title="PDF Preview" />
+              ) : previewType === 'text' && previewContent ? (
+                <div className="w-full h-full bg-white dark:bg-[#1e1e1e] rounded-xl border border-gray-200 dark:border-neutral-800 p-4 overflow-auto custom-scrollbar">
+                  <pre className="text-[13px] leading-relaxed text-gray-800 dark:text-neutral-300 font-mono whitespace-pre-wrap">{previewContent}</pre>
+                </div>
+              ) : null}
+            </div>
+
+          </div>
+        </div>
       )}
 
     </div>
