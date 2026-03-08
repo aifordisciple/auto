@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive } from "lucide-react";
+import { Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive, Sun, Moon } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { SessionSidebar } from "./SessionSidebar";
 
 export function Sidebar() {
-  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, isProjectCenterOpen, isDataCenterOpen } = useUIStore();
+  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, isProjectCenterOpen, isDataCenterOpen, theme, toggleTheme } = useUIStore();
   const { user, logout } = useAuthStore();
   const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
@@ -111,11 +111,25 @@ export function Sidebar() {
             
             {/* 菜单操作区 */}
             <div className="p-1">
-              <button 
+              {/* ✨ 切换主题按钮 */}
+              <button
+                onClick={() => { toggleTheme(); setIsUserMenuOpen(false); }}
+                className="w-full flex items-center justify-between px-2 py-1.5 text-[13px] text-neutral-300 hover:text-white hover:bg-neutral-800/60 rounded-lg transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  {theme === 'dark' ? <Moon size={14} className="text-purple-400" /> : <Sun size={14} className="text-amber-400" />}
+                  <span>主题模式</span>
+                </div>
+                <span className="text-[10px] font-mono text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded">
+                  {theme === 'dark' ? 'Dark' : 'Light'}
+                </span>
+              </button>
+
+              <button
                 onClick={() => { toggleSettings(); setIsUserMenuOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-neutral-300 hover:text-white hover:bg-neutral-800/60 rounded-lg transition-colors"
               >
-                <Settings size={14} className="text-neutral-400" /> 
+                <Settings size={14} className="text-neutral-400" />
                 设置中心
               </button>
 

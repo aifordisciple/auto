@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { useUIStore } from "../store/useUIStore";
 import { useKeyboardShortcut } from "../hooks/useKeyboardShortcut";
+import { useEffect } from "react";
 
 import { ControlPanel } from "./overlays/ControlPanel";
 import { ProjectCenter } from "./overlays/ProjectCenter";
@@ -14,7 +15,27 @@ import { DataCenter } from "./overlays/DataCenter";
 import { ShortcutManager } from "./ShortcutManager";
 
 export function GlobalOverlay() {
-  const { isTaskCenterOpen, isSettingsOpen, isProjectCenterOpen, isControlPanelOpen, isDataCenterOpen, closeAllOverlays } = useUIStore();
+  const { isTaskCenterOpen, isSettingsOpen, isProjectCenterOpen, isControlPanelOpen, isDataCenterOpen, closeAllOverlays, theme } = useUIStore();
+
+  // ✨ 主题切换引擎：监听 theme 变化并同步到 HTML 根节点
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [theme]);
+
+  // ✨ 初始化主题（在组件挂载时执行一次）
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, []);
 
   useKeyboardShortcut("Escape", () => {
     closeAllOverlays();
