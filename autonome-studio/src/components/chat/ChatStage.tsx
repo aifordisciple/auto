@@ -312,13 +312,8 @@ export function ChatStage() {
     const handleAppendResultMessage = (event: any) => {
       const newMsg = event.detail;
       if (newMsg && newMsg.content) {
-        // 将结果消息追加到当前对话流中
-        setMessages(prev => [...prev, {
-          id: `sys-${Date.now()}`,
-          role: newMsg.role,
-          content: newMsg.content,
-          timestamp: Date.now()
-        }]);
+        // 使用 addMessage 来追加消息
+        addMessage(newMsg.role, newMsg.content);
 
         // 自动滚动到底部看卡片
         setTimeout(() => {
@@ -329,7 +324,7 @@ export function ChatStage() {
 
     window.addEventListener('append-result-message', handleAppendResultMessage);
     return () => window.removeEventListener('append-result-message', handleAppendResultMessage);
-  }, [setMessages]);
+  }, [addMessage]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
