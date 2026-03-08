@@ -307,6 +307,30 @@ export function ChatStage() {
     return () => window.removeEventListener('refresh-chat', handleRefreshChat);
   }, [setMessages, currentSessionId]);
 
+  // ✨ 监听任务结果追加事件
+  useEffect(() => {
+    const handleAppendResultMessage = (event: any) => {
+      const newMsg = event.detail;
+      if (newMsg && newMsg.content) {
+        // 将结果消息追加到当前对话流中
+        setMessages(prev => [...prev, {
+          id: `sys-${Date.now()}`,
+          role: newMsg.role,
+          content: newMsg.content,
+          timestamp: Date.now()
+        }]);
+
+        // 自动滚动到底部看卡片
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 100);
+      }
+    };
+
+    window.addEventListener('append-result-message', handleAppendResultMessage);
+    return () => window.removeEventListener('append-result-message', handleAppendResultMessage);
+  }, [setMessages]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -515,11 +539,19 @@ export function ChatStage() {
 
                             {/* ✨ 智能分离渲染：文本归文本，文件归树状卡片 */}
                             {msg.content && (() => {
+                              // ✨ 检测是否是策略消息，如果是则不提取文件（策略阶段的路径是假的）
+                              const isStrategyMsg = msg.content.includes('```json_strategy');
+
                               let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
                               const apiBase = BASE_URL.replace(/\/$/, '');
 
                               // 收集所有提取出来的文件
                               const extractedFiles: { title: string, url: string }[] = [];
+
+                              // 如果是策略消息，不提取文件路径，只渲染文本
+                              if (isStrategyMsg) {
+                                return <MarkdownBlock content={cleanText} />;
+                              }
 
                               // 使用正则将内容按代码块进行分割，保护代码块内部的路径不被替换
                               const parts = cleanText.split(/(```[\s\S]*?```)/g);

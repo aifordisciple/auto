@@ -81,7 +81,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
         if (message.type === 'status') {
           setTaskStatus(message.status);
           setProgress(message.progress);
-          
+
           if (message.status === 'SUCCESS' || message.status === 'FAILURE') {
             setIsExecuting(false);
             if (message.status === 'SUCCESS') {
@@ -90,6 +90,24 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
                 taskId: id,
                 taskStatus: message.status
               }));
+
+              // ✨ 任务成功后，追加系统结果消息，触发前端渲染树状卡片
+              // 从 URL 获取当前项目 ID
+              const pathParts = window.location.pathname.split('/');
+              const projectId = pathParts[pathParts.length - 1] || '';
+
+              // 构建结果消息（使用后端实际存储路径）
+              const resultMessage = `\n\n✅ **任务执行成功！** 以下是为您生成的分析结果文件：\n\n[/app/uploads/project_${projectId}/results/${id}/output.txt](/api/projects/${projectId}/files/results/${id}/output.txt)\n`;
+
+              // 发送自定义事件，携带结果消息
+              window.dispatchEvent(new CustomEvent('append-result-message', {
+                detail: {
+                  role: 'assistant',
+                  content: resultMessage
+                }
+              }));
+
+              // 刷新聊天列表
               window.dispatchEvent(new CustomEvent('refresh-chat'));
             }
             ws.close();
