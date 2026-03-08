@@ -639,7 +639,7 @@ export function ChatStage() {
                         ) : (
                           <div className="flex flex-col gap-4 w-full">
 
-                            {/* ✨ 使用 ExecutionResultCard 渲染内容 */}
+                            {/* ✨ 使用 AssetTreeCard 渲染资产文件 */}
                             {msg.content && (() => {
                               // ✨ 检测是否是策略消息，如果是则不提取文件（策略阶段的路径是假的）
                               const isStrategyMsg = msg.content.includes('```json_strategy');
@@ -650,13 +650,39 @@ export function ChatStage() {
                                 return <MarkdownBlock content={cleanText} />;
                               }
 
-                              // 使用 ExecutionResultCard 渲染
-                              return (
-                                <ExecutionResultCard
-                                  content={msg.content}
-                                  onInterpret={handleInterpret}
-                                />
-                              );
+                              // ✨ 提取文件路径
+                              const fileRegex = /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/([^\s'"]+\.([a-zA-Z0-9]+))/gi;
+                              const files: { projectId: string, path: string, name: string, ext: string }[] = [];
+                              const matches = Array.from(msg.content.matchAll(fileRegex));
+                              for (const match of matches) {
+                                if (!files.find(f => f.path === match[1])) {
+                                  files.push({
+                                    projectId: match[0].match(/project_[a-zA-Z0-9_-]+/)?.[0]?.replace('project_', '') || '',
+                                    path: match[1],
+                                    name: match[1].split('/').pop() || match[1],
+                                    ext: match[2].toLowerCase()
+                                  });
+                                }
+                              }
+
+                              // ✨ 使用 AssetTreeCard 树状卡片渲染
+                              if (files.length > 0) {
+                                const links = files.map(file => ({
+                                  url: `${BASE_URL}/api/projects/${file.projectId}/files/${file.path}/view`,
+                                  title: file.path
+                                }));
+                                return (
+                                  <AssetTreeCard
+                                    links={links}
+                                    onPreview={handlePreviewAsset}
+                                    onDownload={handleDownloadAsset}
+                                    onInterpret={handleInterpret}
+                                  />
+                                );
+                              } else {
+                                // 无文件时降级为普通渲染
+                                return <MarkdownBlock content={msg.content} />;
+                              }
                             })()}
 
                             {/* ✨ 调整顺序 2：把策略卡片放到最后面，作为用户的下一步行动入口 */}
