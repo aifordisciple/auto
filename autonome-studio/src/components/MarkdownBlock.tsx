@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2 } from 'lucide-react';
+import { Copy, Check, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, Folder, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
 import { BASE_URL } from '@/lib/api';
 import { useUIStore } from '@/store/useUIStore';
 
@@ -22,6 +22,103 @@ const getFileIcon = (filename: string) => {
     return <ImageIcon size={16} className="text-pink-500 dark:text-pink-400 shrink-0" />;
   }
   return <FileText size={16} className="text-gray-500 dark:text-neutral-400 shrink-0" />;
+};
+
+// 🎨 辅助：树节点递归渲染组件
+const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, level: number, onPreview: any, onDownload: any }) => {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const isFolder = node.type === 'folder';
+
+  return (
+    <div className="flex flex-col">
+      <div
+        className={`flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 dark:hover:bg-[#2d2d30]/50 rounded cursor-pointer group transition-colors ${level > 0 ? 'ml-4 border-l border-gray-200 dark:border-gray-700 pl-3' : ''}`}
+        onClick={() => isFolder ? setIsExpanded(!isExpanded) : onPreview(node.url, node.name)}
+      >
+        {/* 图标区域 */}
+        {isFolder ? (
+          <div className="flex items-center gap-1 text-gray-400 dark:text-gray-500">
+            {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+            {isExpanded ? <FolderOpen size={16} className="text-blue-400"/> : <Folder size={16} className="text-blue-400"/>}
+          </div>
+        ) : (
+          <div className="ml-5">{getFileIcon(node.name)}</div>
+        )}
+
+        {/* 文件名 */}
+        <span className={`text-sm truncate flex-1 ${isFolder ? 'font-medium text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
+          {node.name}
+        </span>
+
+        {/* 文件操作悬浮按钮 */}
+        {!isFolder && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+             <button onClick={(e) => { e.stopPropagation(); onPreview(node.url, node.name); }} className="p-1 text-gray-400 hover:text-emerald-500" title="安全预览"><Eye size={14} /></button>
+             <button onClick={(e) => { e.stopPropagation(); onDownload(node.url, node.name); }} className="p-1 text-gray-400 hover:text-blue-500" title="下载"><Download size={14} /></button>
+          </div>
+        )}
+      </div>
+
+      {/* 递归子节点 */}
+      {isFolder && isExpanded && (
+        <div className="flex flex-col">
+          {Object.values(node.children).map((child: any) => (
+            <AssetTreeNode key={child.name} node={child} level={level + 1} onPreview={onPreview} onDownload={onDownload} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 🎨 主树状卡片组件
+const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, title: string}[], onPreview: any, onDownload: any }) => {
+  // 将平铺的 links 转换为树状结构
+  const tree = useMemo(() => {
+    const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
+
+    links.forEach(link => {
+      // 尝试从 URL 中提取合理的相对路径
+      let pathStr = link.title;
+      if (link.url.includes('/files/')) {
+        // 从 URL 中截取真实路径
+        pathStr = link.url.split('/files/')[1] || link.title;
+      }
+
+      const parts = pathStr.split('/').filter(p => p);
+      let current = root;
+
+      parts.forEach((part, idx) => {
+        if (!current.children[part]) {
+          current.children[part] = {
+            name: part,
+            type: idx === parts.length - 1 ? 'file' : 'folder',
+            children: {},
+            url: idx === parts.length - 1 ? link.url : null
+          };
+        }
+        current = current.children[part];
+      });
+    });
+    return root;
+  }, [links]);
+
+  return (
+    <div className="w-full max-w-xl my-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm overflow-hidden">
+      {/* 卡片头部 */}
+      <div className="px-4 py-2.5 bg-gray-50 dark:bg-[#252528] border-b border-gray-200 dark:border-[#2d2d30] flex items-center gap-2">
+        <FolderOpen size={16} className="text-purple-500" />
+        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">生成的文件资产 (Generated Assets)</span>
+        <span className="text-xs bg-gray-200 dark:bg-black/30 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full ml-auto">{links.length} files</span>
+      </div>
+      {/* 树状内容区 */}
+      <div className="p-2 max-h-64 overflow-y-auto custom-scrollbar">
+        {Object.values(tree.children).map((node: any) => (
+          <AssetTreeNode key={node.name} node={node} level={0} onPreview={onPreview} onDownload={onDownload} />
+        ))}
+      </div>
+    </div>
+  );
 };
 
 // ✨ 商业级安全图片组件：精准报错与内存回收
@@ -153,6 +250,41 @@ export function MarkdownBlock({ content }: { content: string }) {
   const [previewType, setPreviewType] = useState<'image' | 'text' | 'pdf' | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
+  // ✨ 树形卡片链接提取
+  const [treeLinks, setTreeLinks] = useState<{url: string, title: string}[]>([]);
+
+  // ✨ 拦截并聚合连续的生信结果链接
+  const preprocessMarkdown = (text: string): string => {
+    // 匹配标准的 Markdown 链接 [title](/api/projects/.../files/...)
+    const linkRegex = /\[([^\]]+)\]\(([^)]+\/api\/projects\/[^)]+\/files\/[^)]+)\)/g;
+
+    const links: {title: string, url: string}[] = [];
+    let modifiedText = text.replace(linkRegex, (match, title, url) => {
+      links.push({ title, url });
+      return ''; // 把原来的链接从文本中抽离
+    });
+
+    // 如果找到了内部文件链接
+    if (links.length > 0) {
+      // 去除可能遗留的空列表符号
+      modifiedText = modifiedText.replace(/(^|\n)[\s*\-]*\n/g, '\n');
+
+      // 保存链接用于渲染树形卡片
+      setTreeLinks(links);
+
+      // 在文本末尾添加一个"魔法标记"
+      const linksJson = encodeURIComponent(JSON.stringify(links));
+      modifiedText += `\n\n<asset-tree-marker data="${linksJson}"></asset-tree-marker>\n\n`;
+    } else {
+      setTreeLinks([]);
+    }
+
+    return modifiedText;
+  };
+
+  // 预处理原始内容
+  const processedContent = useMemo(() => preprocessMarkdown(content), [content]);
 
   // ✨ 基于流的安全下载
   const handleDownloadAsset = async (url: string, filename: string) => {
@@ -317,11 +449,16 @@ export function MarkdownBlock({ content }: { content: string }) {
             return <FileAssetCard url={src} filename={filename} />;
           },
 
-          // ✨ 拦截：只要是包含系统内部 API 的文件链接，强制转为卡片
+          // ✨ 拦截：如果是内部文件链接，在有树形卡片时返回null（链接已被提取到树中）
+          // 如果没有树形链接，则渲染为单个文件卡片
           a: ({ href, children, ...props }) => {
             if (!href) return <a {...props} className="text-blue-500 hover:underline">{children}</a>;
 
             if (href.includes('/api/projects/') && href.includes('/files/')) {
+              // 如果已经有树形链接，就不单独渲染卡片了（链接已被预处理提取）
+              if (treeLinks.length > 0) {
+                return null;
+              }
               const filename = typeof children === 'string' ? children : href.split('/').pop() || 'output_file';
               return <FileAssetCard url={href} filename={filename} />;
             }
@@ -329,10 +466,24 @@ export function MarkdownBlock({ content }: { content: string }) {
             return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">{children}</a>;
           },
           // ✨ 防止 p 标签包裹 div/span 导致 hydration 错误
-          p: ({ children }) => <>{children}</>,
+          p: ({ children }: any) => {
+            // 判断这段 p 标签里是否包含我们的魔法标记
+            if (children && typeof children[0] === 'string' && children[0].includes('<asset-tree-marker')) {
+              const match = children[0].match(/data="([^"]+)"/);
+              if (match) {
+                try {
+                  const links = JSON.parse(decodeURIComponent(match[1]));
+                  return <AssetTreeCard links={links} onPreview={handlePreviewAsset} onDownload={handleDownloadAsset} />;
+                } catch(e) {
+                  console.error('Failed to parse asset tree marker:', e);
+                }
+              }
+            }
+            return <>{children}</>;
+          },
         }}
       >
-        {content}
+        {processedContent}
       </ReactMarkdown>
 
       {/* ✨ 绝美沉浸式文件预览弹窗 */}
