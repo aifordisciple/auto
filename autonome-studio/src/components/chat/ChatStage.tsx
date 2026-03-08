@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2 } from "lucide-react";
+import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
@@ -115,6 +115,113 @@ const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, leve
     </div>
   );
 };
+
+// ✨ ExecutionResultCard - 生成资产树状卡片组件
+function ExecutionResultCard({ content, onInterpret }: { content: string, onInterpret: () => void }) {
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  // 解析并提取所有后台物理路径
+  const fileRegex = /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/([^\s'"]+\.([a-zA-Z0-9]+))/gi;
+  const files: { projectId: string, path: string, name: string, ext: string }[] = [];
+
+  const matches = Array.from(content.matchAll(fileRegex));
+  for (const match of matches) {
+    // 去重
+    if (!files.find(f => f.path === match[1])) {
+      files.push({
+        projectId: match[0].match(/project_[a-zA-Z0-9_-]+/)?.[0]?.replace('project_', '') || '',
+        path: match[1],
+        name: match[1].split('/').pop() || match[1],
+        ext: match[2].toLowerCase()
+      });
+    }
+  }
+
+  // 吃干抹净：将路径及多余的 Markdown 标记从原文本中彻底剔除
+  let cleanContent = content.replace(fileRegex, '');
+  cleanContent = cleanContent.replace(/\[.*?\]\(\)/g, ''); // 清理空的 markdown 链接
+  cleanContent = cleanContent.replace(/^[-*+]\s*$/gm, ''); // 清理只剩下无序列表符号的空行
+  cleanContent = cleanContent.replace(/^[\s\n]+$/g, ''); // 清理多余空行
+  cleanContent = cleanContent.trim();
+
+  // 如果没有检测到文件，降级为普通渲染
+  if (files.length === 0) return <MarkdownBlock content={content} />;
+
+  const apiBase = BASE_URL.replace(/\/$/, '');
+
+  return (
+    <div className="flex flex-col gap-3 w-full mt-2">
+      {cleanContent && <MarkdownBlock content={cleanContent} />}
+
+      <div className="bg-[#1a1a1b] dark:bg-[#1a1a1b] border border-neutral-700/60 dark:border-neutral-800 rounded-xl overflow-hidden shadow-md w-full">
+        {/* 卡片头部：折叠控制 */}
+        <div
+          className="flex items-center justify-between px-4 py-3 bg-neutral-800/50 dark:bg-neutral-800/50 cursor-pointer hover:bg-neutral-800/80 dark:hover:bg-neutral-700/50 transition-colors"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-neutral-200 dark:text-neutral-200">生成产物资产 (Assets)</span>
+            <span className="px-2 py-0.5 rounded-full bg-blue-900/30 dark:bg-blue-900/30 text-[10px] text-blue-400 font-mono">
+              {files.length} 个文件
+            </span>
+          </div>
+          {isExpanded ? <ChevronDown size={16} className="text-neutral-400" /> : <ChevronRight size={16} className="text-neutral-400" />}
+        </div>
+
+        {/* 卡片内容：文件列表 */}
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="flex flex-col gap-1 p-2 border-t border-neutral-800/50 dark:border-neutral-800"
+            >
+              {files.map((file, idx) => {
+                const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(file.ext);
+                const isData = ['csv', 'tsv', 'txt', 'h5ad', 'xlsx'].includes(file.ext);
+                const fileUrl = `${apiBase}/api/projects/${file.projectId}/files/${file.path}/view`;
+
+                return (
+                  <div key={idx} className="group flex items-center justify-between p-2.5 rounded-lg hover:bg-neutral-800/60 dark:hover:bg-neutral-700/50 transition-colors">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className={`p-1.5 rounded-md ${isImage ? 'bg-blue-900/20 text-blue-400' : isData ? 'bg-emerald-900/20 text-emerald-400' : 'bg-neutral-800 text-neutral-400'}`}>
+                        {isImage ? <FileImage size={14} /> : isData ? <FileSpreadsheet size={14} /> : <FileText size={14} />}
+                      </div>
+                      <span className="text-sm text-neutral-300 dark:text-neutral-300 font-mono truncate">{file.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded-md bg-neutral-700/50 hover:bg-blue-500/20 text-neutral-400 hover:text-blue-400 transition-colors"
+                        title={isImage ? "预览图片" : "下载数据"}
+                      >
+                        {isImage ? <Eye size={14} /> : <Download size={14} />}
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 卡片底部：闪烁的专家召唤按钮 */}
+        <div className="p-3 border-t border-neutral-800/50 dark:border-neutral-800 bg-[#1e1e1f] dark:bg-[#1e1e1f]/80">
+          <button
+            onClick={onInterpret}
+            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-900/20 to-indigo-900/20 hover:from-blue-600/20 hover:to-indigo-600/20 border border-blue-500/20 hover:border-blue-400/50 text-blue-300 hover:text-blue-200 text-sm font-medium flex items-center justify-center gap-2 transition-all group shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.2)]"
+          >
+            <Sparkles size={16} className="text-blue-400 group-hover:animate-pulse" />
+            <span>✨ 深度解读分析结果</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ✨ 升级版树状卡片，带有解读按钮
 const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {url: string, title: string}[], onPreview: any, onDownload: any, onInterpret?: () => void }) => {
@@ -532,70 +639,23 @@ export function ChatStage() {
                         ) : (
                           <div className="flex flex-col gap-4 w-full">
 
-                            {/* ✨ 智能分离渲染：文本归文本，文件归树状卡片 */}
+                            {/* ✨ 使用 ExecutionResultCard 渲染内容 */}
                             {msg.content && (() => {
                               // ✨ 检测是否是策略消息，如果是则不提取文件（策略阶段的路径是假的）
                               const isStrategyMsg = msg.content.includes('```json_strategy');
 
-                              let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
-                              const apiBase = BASE_URL.replace(/\/$/, '');
-
-                              // 收集所有提取出来的文件
-                              const extractedFiles: { title: string, url: string }[] = [];
-
                               // 如果是策略消息，不提取文件路径，只渲染文本
                               if (isStrategyMsg) {
+                                let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
                                 return <MarkdownBlock content={cleanText} />;
                               }
 
-                              // 使用正则将内容按代码块进行分割，保护代码块内部的路径不被替换
-                              const parts = cleanText.split(/(```[\s\S]*?```)/g);
-
-                              cleanText = parts.map(part => {
-                                // 如果是包裹在 ``` 里的代码块，直接跳过，防止破坏 AI 写的代码
-                                if (part.startsWith('```')) return part;
-
-                                let text = part;
-
-                                // 🎯 修复关键点 1: 正则改为 [a-zA-Z0-9_-]+ 以匹配 proj_xyz，同时捕获结果目录
-                                text = text.replace(
-                                  /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/([^\s'"`)]+\.[a-zA-Z0-9]+)/gi,
-                                  (match, relativePath) => {
-                                    const fileName = relativePath.split('/').pop();
-                                    const url = `${apiBase}/api/projects/${currentProjectId}/files/${relativePath}/view`;
-
-                                    if (!extractedFiles.find(f => f.url === url)) {
-                                      extractedFiles.push({ title: relativePath, url });
-                                    }
-                                    return ''; // ✨ 完美吞噬链接，不留痕迹
-                                  }
-                                );
-
-                                // 🎯 修复关键点 2: 捕获 AI 可能直接生成的 Markdown 链接
-                                text = text.replace(
-                                  /\[([^\]]+)\]\(([^)]+\/api\/projects\/[^)]+\/files\/([^)]+))\)/g,
-                                  (match, title, fullUrl, relativePath) => {
-                                     const finalUrl = fullUrl.startsWith('http') ? fullUrl : `${apiBase}${fullUrl}`;
-                                     if (!extractedFiles.find(f => f.url === finalUrl)) {
-                                       extractedFiles.push({ title: relativePath, url: finalUrl });
-                                     }
-                                     return ''; // ✨ 完美吞噬链接，不留痕迹
-                                  }
-                                );
-
-                                return text;
-                              }).join('');
-
+                              // 使用 ExecutionResultCard 渲染
                               return (
-                                <div className="flex flex-col w-full gap-2">
-                                  {/* 渲染干净的 Markdown 文字 */}
-                                  {cleanText && <MarkdownBlock content={cleanText} />}
-
-                                  {/* 渲染树状结果卡片（带解读按钮） */}
-                                  {extractedFiles.length > 0 && (
-                                    <AssetTreeCard links={extractedFiles} onPreview={handlePreviewAsset} onDownload={handleDownloadAsset} onInterpret={handleInterpret} />
-                                  )}
-                                </div>
+                                <ExecutionResultCard
+                                  content={msg.content}
+                                  onInterpret={handleInterpret}
+                                />
                               );
                             })()}
 
