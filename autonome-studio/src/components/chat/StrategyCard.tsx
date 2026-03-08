@@ -187,10 +187,10 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 
   const getRiskColor = (risk?: string) => {
     switch (risk) {
-      case 'low': return 'bg-green-500/20 text-green-400 border-green-500/30';
-      case 'medium': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
-      case 'high': return 'bg-red-500/20 text-red-400 border-red-500/30';
-      default: return 'bg-neutral-700/50 text-neutral-400 border-neutral-600';
+      case 'low': return 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30';
+      case 'medium': return 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/30';
+      case 'high': return 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30';
+      default: return 'bg-gray-200 dark:bg-neutral-700/50 text-gray-600 dark:text-neutral-400 border-gray-300 dark:border-neutral-600';
     }
   };
 
@@ -198,15 +198,15 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-gradient-to-br from-neutral-900 to-neutral-800 border border-neutral-700 rounded-xl p-5 shadow-xl my-4 max-w-2xl"
+      className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-neutral-900 dark:to-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl p-5 shadow-sm dark:shadow-xl my-4 max-w-2xl"
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-white mb-1">{data.title}</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{data.title}</h3>
           <div className="flex items-center gap-2">
             {data.estimated_time && (
-              <span className="flex items-center gap-1 text-xs text-neutral-400">
+              <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-neutral-400">
                 <Clock className="w-3 h-3" />
                 {data.estimated_time}
               </span>
@@ -218,21 +218,21 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             )}
           </div>
         </div>
-        <div className="px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-lg">
-          <span className="text-xs font-mono text-blue-400">{data.tool_id}</span>
+        <div className="px-3 py-1.5 bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 rounded-lg">
+          <span className="text-xs font-mono text-blue-700 dark:text-blue-400">{data.tool_id}</span>
         </div>
       </div>
 
       {/* Description */}
-      <p className="text-sm text-neutral-300 mb-4">{data.description}</p>
+      <p className="text-sm text-gray-700 dark:text-neutral-300 mb-4">{data.description}</p>
 
       {/* Steps Preview */}
       {data.steps && data.steps.length > 0 && (
-        <div className="bg-neutral-950/50 rounded-lg p-3 mb-4">
-          <p className="text-xs text-neutral-500 mb-2">执行步骤</p>
+        <div className="bg-gray-100 dark:bg-neutral-950/50 rounded-lg p-3 mb-4">
+          <p className="text-xs text-gray-500 dark:text-neutral-500 mb-2">执行步骤</p>
           <ul className="space-y-1">
             {data.steps.map((step, i) => (
-              <li key={i} className="text-xs text-neutral-400 flex items-start gap-2">
+              <li key={i} className="text-xs text-gray-600 dark:text-neutral-400 flex items-start gap-2">
                 <span className="text-indigo-500 mt-0.5">•</span>
                 {step}
               </li>
@@ -243,12 +243,12 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 
       {/* Parameters Preview */}
       {data.parameters && Object.keys(data.parameters).length > 0 && (
-        <div className="bg-neutral-950/50 rounded-lg p-3 mb-4">
-          <p className="text-xs text-neutral-500 mb-2">Parameters</p>
+        <div className="bg-gray-100 dark:bg-neutral-950/50 rounded-lg p-3 mb-4">
+          <p className="text-xs text-gray-500 dark:text-neutral-500 mb-2">Parameters</p>
           <div className="flex flex-wrap gap-2">
             {Object.entries(data.parameters).map(([key, value]) => (
-              <span key={key} className="text-xs bg-neutral-800 px-2 py-1 rounded text-neutral-300">
-                <span className="text-neutral-500">{key}:</span> {String(value)}
+              <span key={key} className="text-xs bg-gray-200 dark:bg-neutral-800 px-2 py-1 rounded text-gray-700 dark:text-neutral-300">
+                <span className="text-gray-500 dark:text-neutral-500">{key}:</span> {String(value)}
               </span>
             ))}
           </div>
@@ -259,7 +259,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
       {(isExecuting || taskStatus) && (
         <div className="flex items-center gap-2 text-sm mb-4">
           {getStatusIcon()}
-          <span className="text-neutral-300">
+          <span className="text-gray-700 dark:text-neutral-300">
             {isExecuting 
               ? progress !== null 
                 ? `Executing... ${progress}%` 
@@ -268,7 +268,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             }
           </span>
           {progress !== null && (
-            <div className="flex-1 h-1.5 bg-neutral-700 rounded-full overflow-hidden ml-2">
+            <div className="flex-1 h-1.5 bg-gray-200 dark:bg-neutral-700 rounded-full overflow-hidden ml-2">
               <div 
                 className="h-full bg-blue-500 transition-all duration-300"
                 style={{ width: `${progress}%` }}
@@ -304,15 +304,15 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             {onCancel && (
               <button
                 onClick={onCancel}
-                className="px-4 py-2 bg-neutral-700 hover:bg-neutral-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="px-4 py-2 bg-gray-200 dark:bg-neutral-700 hover:bg-gray-300 dark:hover:bg-neutral-600 text-gray-700 dark:text-white text-sm font-medium rounded-lg transition-colors"
               >
                 Cancel
               </button>
             )}
           </>
         ) : (
-          <div className="text-sm text-neutral-400">
-            Task ID: <code className="bg-neutral-800 px-2 py-0.5 rounded text-blue-400">{taskId.slice(0, 8)}...</code>
+          <div className="text-sm text-gray-500 dark:text-neutral-400">
+            Task ID: <code className="bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400">{taskId.slice(0, 8)}...</code>
           </div>
         )}
       </div>

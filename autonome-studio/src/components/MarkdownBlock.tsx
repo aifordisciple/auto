@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check } from 'lucide-react';
 import { BASE_URL } from '@/lib/api';
+import { useUIStore } from '@/store/useUIStore';
 
 interface MarkdownBlockProps {
   content: string;
@@ -82,10 +83,10 @@ const SecureImage = ({ src, alt, ...props }: any) => {
   // 如果出错，优雅地展示具体的错误原因
   if (errorMsg) {
     return (
-      <div className="flex flex-col items-center justify-center h-32 w-full bg-neutral-900 border border-neutral-700/50 rounded-lg text-neutral-400 text-sm my-4 gap-2">
-        <span className="font-medium text-neutral-300">🖼️ 图片加载中断</span>
-        <span className="text-xs text-red-400">{errorMsg}</span>
-        <code className="text-[10px] text-neutral-600 px-4 text-center break-all">{src}</code>
+      <div className="flex flex-col items-center justify-center h-32 w-full bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700/50 rounded-lg text-gray-500 dark:text-neutral-400 text-sm my-4 gap-2">
+        <span className="font-medium text-gray-700 dark:text-neutral-300">🖼️ 图片加载中断</span>
+        <span className="text-xs text-red-500 dark:text-red-400">{errorMsg}</span>
+        <code className="text-[10px] text-gray-400 dark:text-neutral-600 px-4 text-center break-all">{src}</code>
       </div>
     );
   }
@@ -93,7 +94,7 @@ const SecureImage = ({ src, alt, ...props }: any) => {
   // 加载中骨架屏
   if (!imgSrc) {
     return (
-      <div className="flex items-center justify-center h-48 w-full bg-neutral-800/50 rounded-lg animate-pulse text-neutral-500 text-xs border border-neutral-700/50 my-4">
+      <div className="flex items-center justify-center h-48 w-full bg-gray-100 dark:bg-neutral-800/50 rounded-lg animate-pulse text-gray-400 dark:text-neutral-500 text-xs border border-gray-200 dark:border-neutral-700/50 my-4">
         正在安全解密并加载图表...
       </div>
     );
@@ -105,7 +106,7 @@ const SecureImage = ({ src, alt, ...props }: any) => {
     <img
       src={imgSrc}
       alt={alt || '数据可视化'}
-      className="max-w-full h-auto rounded-lg shadow-lg border border-neutral-700 my-4 bg-white"
+      className="max-w-full h-auto rounded-lg shadow-lg border border-gray-200 dark:border-neutral-700 my-4 bg-white"
     />
   );
 };
@@ -132,8 +133,11 @@ const copyToClipboard = async (text: string) => {
 };
 
 export function MarkdownBlock({ content }: { content: string }) {
+  const theme = useUIStore((state) => state.theme);
+  const isDark = theme !== 'light';
+
   return (
-    <div className="prose prose-invert prose-sm max-w-none prose-pre:p-0 prose-pre:bg-transparent">
+    <div className={`prose prose-sm max-w-none prose-pre:p-0 prose-pre:bg-transparent ${isDark ? 'prose-invert' : ''}`}>
       <ReactMarkdown
         components={{
           code({ className, children, ...props }) {
@@ -149,7 +153,7 @@ export function MarkdownBlock({ content }: { content: string }) {
 
             if (!match) {
               return (
-                <code className="bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono">
+                <code className="bg-gray-200 dark:bg-neutral-800 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono">
                   {children}
                 </code>
               );
@@ -159,13 +163,13 @@ export function MarkdownBlock({ content }: { content: string }) {
               <div className="relative group my-4">
                 <button
                   onClick={handleCopy}
-                  className="absolute right-3 top-3 p-2 rounded-lg bg-neutral-800/80 border border-neutral-700 text-neutral-400 opacity-0 group-hover:opacity-100 transition-all z-20 hover:text-white hover:bg-neutral-700 shadow-lg"
+                  className="absolute right-3 top-3 p-2 rounded-lg bg-gray-100 dark:bg-neutral-800/80 border border-gray-200 dark:border-neutral-700 text-gray-600 dark:text-neutral-400 opacity-0 group-hover:opacity-100 transition-all z-20 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-neutral-700 shadow-lg"
                   title="复制代码"
                 >
                   {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                 </button>
                 <SyntaxHighlighter
-                  style={vscDarkPlus}
+                  style={isDark ? vscDarkPlus : vs}
                   language={match[1]}
                   PreTag="div"
                   customStyle={{
@@ -173,7 +177,7 @@ export function MarkdownBlock({ content }: { content: string }) {
                     padding: '1.25rem',
                     borderRadius: '0.75rem',
                     fontSize: '0.875rem',
-                    backgroundColor: '#1e1e1e',
+                    backgroundColor: isDark ? '#1e1e1e' : '#f6f8fa',
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-all',
                     overflowWrap: 'anywhere'

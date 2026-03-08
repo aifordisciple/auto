@@ -46,7 +46,7 @@ function MessageActionButtons({ content }: { content: string }) {
     <div className="flex items-center gap-1">
       <button 
         onClick={handleCopy}
-        className="flex items-center gap-1.5 p-1.5 rounded-md hover:bg-neutral-800 text-neutral-500 hover:text-neutral-300 transition-all border border-transparent hover:border-neutral-700"
+        className="flex items-center gap-1.5 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-neutral-800 text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300 transition-all border border-transparent hover:border-gray-200 dark:hover:border-neutral-700"
         title="复制全文"
       >
         {copied ? (
@@ -301,7 +301,7 @@ export function ChatStage() {
         </div>
       ) : (
         <>
-          <div className="flex-1 overflow-y-auto px-4 pt-6 pb-4 scroll-smooth">
+          <div className="flex-1 overflow-y-auto px-4 pt-6 pb-4 scroll-smooth bg-white dark:bg-[#131314]">
             <div className="max-w-4xl mx-auto space-y-6"> 
               <AnimatePresence>
                 {messages.map((msg) => {
@@ -398,13 +398,13 @@ export function ChatStage() {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex items-start gap-4"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-blue-900/20 border border-blue-500/30 flex items-center justify-center shrink-0 mt-1 relative overflow-hidden">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center shrink-0 mt-1 relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 to-purple-500/10 animate-pulse"></div>
-                    <Sparkles size={16} className="text-blue-400" />
+                    <Sparkles size={16} className="text-blue-600 dark:text-blue-400" />
                   </div>
                   
                   <div className="flex items-center gap-3 bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-sm dark:shadow-lg relative overflow-hidden">
-                    <span className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 animate-pulse">
+                    <span className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-blue-600 dark:from-blue-400 via-purple-600 dark:via-purple-400 to-blue-600 dark:to-blue-400 animate-pulse">
                       Autonome is processing
                     </span>
                     
