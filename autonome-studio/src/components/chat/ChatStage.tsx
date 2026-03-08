@@ -650,25 +650,52 @@ export function ChatStage() {
                                 return <MarkdownBlock content={cleanText} />;
                               }
 
-                              // ✨ 提取文件路径
-                              const fileRegex = /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/([^\s'"]+\.([a-zA-Z0-9]+))/gi;
+                              // ✨ 提取文件路径 - 支持多种格式
+                              const filePatterns = [
+                                // 格式1: /app/uploads/project_xxx/xxx.png
+                                /\/app\/uploads\/project_([a-zA-Z0-9_-]+)\/([^\s'"]+\.([a-zA-Z0-9]+))/gi,
+                                // 格式2: /app/uploads/xxx.png (无 project 目录)
+                                /\/app\/uploads\/([^\s'"]+\.([a-zA-Z0-9]+))/gi,
+                                // 格式3: 项目相关路径
+                                /project[s]?\/([a-zA-Z0-9_-]+)\/results\/([^\s'"]+\.([a-zA-Z0-9]+))/gi,
+                              ];
+
                               const files: { projectId: string, path: string, name: string, ext: string }[] = [];
-                              const matches = Array.from(msg.content.matchAll(fileRegex));
-                              for (const match of matches) {
-                                if (!files.find(f => f.path === match[1])) {
-                                  files.push({
-                                    projectId: match[0].match(/project_[a-zA-Z0-9_-]+/)?.[0]?.replace('project_', '') || '',
-                                    path: match[1],
-                                    name: match[1].split('/').pop() || match[1],
-                                    ext: match[2].toLowerCase()
-                                  });
+
+                              for (const pattern of filePatterns) {
+                                const matches = Array.from(msg.content.matchAll(pattern));
+                                for (const match of matches) {
+                                  let projectId = '';
+                                  let path = '';
+                                  let ext = '';
+
+                                  if (match.length === 4) {
+                                    // 格式1: 有 project ID
+                                    projectId = match[1];
+                                    path = match[2];
+                                    ext = match[3].toLowerCase();
+                                  } else if (match.length === 3) {
+                                    // 格式2/3: 无 project ID 或 results 路径
+                                    path = match[1];
+                                    ext = match[2].toLowerCase();
+                                  }
+
+                                  if (path && !files.find(f => f.path === path)) {
+                                    files.push({
+                                      projectId,
+                                      path,
+                                      name: path.split('/').pop() || path,
+                                      ext
+                                    });
+                                  }
                                 }
                               }
 
                               // ✨ 使用 AssetTreeCard 树状卡片渲染
                               if (files.length > 0) {
                                 const links = files.map(file => ({
-                                  url: `${BASE_URL}/api/projects/${file.projectId}/files/${file.path}/view`,
+                                  // 如果没有解析到 projectId，使用当前会话的 projectId
+                                  url: `${BASE_URL}/api/projects/${file.projectId || currentProjectId}/files/${file.path}/view`,
                                   title: file.path
                                 }));
                                 return (

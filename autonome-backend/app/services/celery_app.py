@@ -390,18 +390,35 @@ def run_custom_python_task(self, params: dict):
 
         log_msg("🎉 代码执行成功！准备生成专家解读...")
 
-        # 2. ✨ 核心防御 2：宽泛正则提取图片名
-        # 只要代码中包含诸如 heatmap.png, plot_1.pdf 这样的文件名，直接抓取！
-        img_match = re.search(r"([a-zA-Z0-9_.-]+\.(?:png|pdf|jpg|jpeg|svg))", code, re.IGNORECASE)
-        if img_match:
-            extracted_filename = img_match.group(1)
-            # 强制指向 results/task_xxx/ 目录
-            actual_filename = f"results/{task_dir_name}/{extracted_filename}"
+        # 2. ✨ 扫描实际生成的文件目录，获取所有生成的文件
+        generated_files = []
+        if os.path.exists(task_out_dir):
+            for f in os.listdir(task_out_dir):
+                full_path = os.path.join(task_out_dir, f)
+                if os.path.isfile(full_path):
+                    generated_files.append(f)
+
+        log_msg(f"📂 检测到生成的文件: {generated_files}")
+
+        # 3. ✨ 构建文件列表 markdown（用于前端树状卡片提取）
+        files_markdown = ""
+        for filename in generated_files:
+            # 容器内路径（前端正则会匹配这个格式）
+            container_path = f"/app/uploads/project_{project_id}/results/{task_dir_name}/{filename}"
+            files_markdown += f"{container_path}\n"
+
+        # 4. ✨ 生成图片 markdown（如果有图片则显示第一张）
+        img_extensions = ('.png', '.pdf', '.jpg', '.jpeg', '.svg')
+        images = [f for f in generated_files if f.lower().endswith(img_extensions)]
+        if images:
+            # 显示第一张图片
+            first_img = images[0]
+            actual_filename = f"results/{task_dir_name}/{first_img}"
             markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
         else:
             markdown_img = ""
 
-        # 3. ✨ 从专属子目录中读取数据指纹
+        # 5. ✨ 从专属子目录中读取数据指纹
         summary_path = f"{task_out_dir}/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
@@ -418,6 +435,9 @@ def run_custom_python_task(self, params: dict):
                 f"### 📊 执行日志与图表\n\n"
                 f"```text\n{result_output}\n```\n"
                 f"{markdown_img}\n"
+                f"---\n"
+                f"### 📁 生成的文件资产\n\n"
+                f"{files_markdown}\n"
                 f"---\n"
                 f"{expert_report}"
             )
@@ -479,17 +499,35 @@ def run_custom_r_task(self, params: dict):
 
         log_msg("🎉 R 代码执行成功！准备生成专家解读...")
 
-        # 3. ✨ 核心防御 2：极简正则，只抓文件名本身
-        img_match = re.search(r"([a-zA-Z0-9_.-]+\.(?:png|pdf|jpg|jpeg|svg))", code, re.IGNORECASE)
-        if img_match:
-            extracted_filename = img_match.group(1)
-            # 强制指向 results/task_xxx/ 目录
-            actual_filename = f"results/{task_dir_name}/{extracted_filename}"
+        # 3. ✨ 扫描实际生成的文件目录，获取所有生成的文件
+        generated_files = []
+        if os.path.exists(task_out_dir):
+            for f in os.listdir(task_out_dir):
+                full_path = os.path.join(task_out_dir, f)
+                if os.path.isfile(full_path):
+                    generated_files.append(f)
+
+        log_msg(f"📂 检测到生成的文件: {generated_files}")
+
+        # 4. ✨ 构建文件列表 markdown（用于前端树状卡片提取）
+        files_markdown = ""
+        for filename in generated_files:
+            # 容器内路径（前端正则会匹配这个格式）
+            container_path = f"/app/uploads/project_{project_id}/results/{task_dir_name}/{filename}"
+            files_markdown += f"{container_path}\n"
+
+        # 5. ✨ 生成图片 markdown（如果有图片则显示第一张）
+        img_extensions = ('.png', '.pdf', '.jpg', '.jpeg', '.svg')
+        images = [f for f in generated_files if f.lower().endswith(img_extensions)]
+        if images:
+            # 显示第一张图片
+            first_img = images[0]
+            actual_filename = f"results/{task_dir_name}/{first_img}"
             markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
         else:
             markdown_img = "\n*(本次分析似乎没有生成可视化图表)*\n"
 
-        # 4. ✨ 从专属子目录中读取数据指纹
+        # 6. ✨ 从专属子目录中读取数据指纹
         summary_path = f"{task_out_dir}/data_summary.txt"
         data_summary = "暂无详细数据特征"
         if os.path.exists(summary_path):
@@ -505,6 +543,9 @@ def run_custom_r_task(self, params: dict):
                 f"### 📊 执行日志与图表\n\n"
                 f"```text\n{result_output}\n```\n"
                 f"{markdown_img}\n"
+                f"---\n"
+                f"### 📁 生成的文件资产\n\n"
+                f"{files_markdown}\n"
                 f"---\n"
                 f"{expert_report}"
             )
