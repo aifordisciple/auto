@@ -91,24 +91,11 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
                 taskStatus: message.status
               }));
 
-              // ✨ 任务成功后，追加系统结果消息，触发前端渲染树状卡片
-              // 从 URL 获取当前项目 ID
-              const pathParts = window.location.pathname.split('/');
-              const projectId = pathParts[pathParts.length - 1] || '';
-
-              // 构建结果消息（使用后端实际存储路径）
-              const resultMessage = `\n\n✅ **任务执行成功！** 以下是为您生成的分析结果文件：\n\n[/app/uploads/project_${projectId}/results/${id}/output.txt](/api/projects/${projectId}/files/results/${id}/output.txt)\n`;
-
-              // 发送自定义事件，携带结果消息
-              window.dispatchEvent(new CustomEvent('append-result-message', {
-                detail: {
-                  role: 'assistant',
-                  content: resultMessage
-                }
-              }));
-
-              // 刷新聊天列表
-              window.dispatchEvent(new CustomEvent('refresh-chat'));
+              // 后端已将正确的消息存入数据库（包含实际生成的文件列表）
+              // 只需触发刷新即可获取正确消息，添加短暂延迟确保后端写入完成
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('refresh-chat'));
+              }, 500);
             }
             ws.close();
           }

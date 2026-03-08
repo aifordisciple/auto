@@ -117,7 +117,7 @@ const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, leve
 };
 
 // ✨ ExecutionResultCard - 生成资产树状卡片组件
-function ExecutionResultCard({ content, onInterpret }: { content: string, onInterpret: () => void }) {
+function ExecutionResultCard({ content, onInterpret }: { content: string, onInterpret: (files: string[]) => void }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   // 解析并提取所有后台物理路径
@@ -211,7 +211,11 @@ function ExecutionResultCard({ content, onInterpret }: { content: string, onInte
         {/* 卡片底部：闪烁的专家召唤按钮 */}
         <div className="p-3 border-t border-neutral-800/50 dark:border-neutral-800 bg-[#1e1e1f] dark:bg-[#1e1e1f]/80">
           <button
-            onClick={onInterpret}
+            onClick={() => {
+              // 提取文件相对路径传递给 AI
+              const relativePaths = files.map(f => f.path);
+              onInterpret(relativePaths);
+            }}
             className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-900/20 to-indigo-900/20 hover:from-blue-600/20 hover:to-indigo-600/20 border border-blue-500/20 hover:border-blue-400/50 text-blue-300 hover:text-blue-200 text-sm font-medium flex items-center justify-center gap-2 transition-all group shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.2)]"
           >
             <Sparkles size={16} className="text-blue-400 group-hover:animate-pulse" />
@@ -345,10 +349,11 @@ export function ChatStage() {
     setPreviewData(null); setPreviewContent(null);
   };
 
-  // ✨ 深度解读函数
-  const handleInterpret = () => {
+  // ✨ 深度解读函数 - 接收文件列表参数
+  const handleInterpret = async (files: string[] = []) => {
     const interpretPrompt = "\n\n请对以上分析结果进行深度解读，包括：1) 主要发现和结论；2) 图表数据的生物学意义；3) 可能的临床或研究应用价值。";
-    handleSend(interpretPrompt);
+    // 将文件作为上下文传递给 AI
+    await handleSend(interpretPrompt, files);
   };
 
   // Fetch messages when session changes
@@ -451,28 +456,28 @@ export function ChatStage() {
     return () => window.removeEventListener('shortcut-focus-input', handleFocusInput);
   }, []);
 
-  const handleSend = async (messageText?: string) => {
+  const handleSend = async (messageText?: string, contextFiles?: string[]) => {
     const currentInput = messageText || inputValue;
     if (!currentInput?.trim()) return;
-    
+
     if (!messageText) {
       setInputValue("");
     }
-    
+
     addMessage('user', currentInput);
-    addMessage('assistant', ''); 
+    addMessage('assistant', '');
     setIsTyping(true);
-    
+
     // ✨ 开启流式护盾
     isStreamingRef.current = true;
 
     try {
       const token = localStorage.getItem('autonome_access_token');
       console.log('[Chat] Sending message:', { project_id: currentProjectId, session_id: currentSessionId });
-      
+
       await fetchEventSource(`${BASE_URL}/api/chat/stream`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -480,7 +485,7 @@ export function ChatStage() {
         body: JSON.stringify({
           project_id: currentProjectId,
           message: currentInput,
-          context_files: mountedFiles,
+          context_files: contextFiles || mountedFiles,  // 使用传入的文件或默认挂载文件
           session_id: currentSessionId
         }),
         openWhenHidden: true,
@@ -698,12 +703,14 @@ export function ChatStage() {
                                   url: `${BASE_URL}/api/projects/${file.projectId || currentProjectId}/files/${file.path}/view`,
                                   title: file.path
                                 }));
+                                // 提取文件相对路径用于深度解读
+                                const filePaths = files.map(f => f.path);
                                 return (
                                   <AssetTreeCard
                                     links={links}
                                     onPreview={handlePreviewAsset}
                                     onDownload={handleDownloadAsset}
-                                    onInterpret={handleInterpret}
+                                    onInterpret={() => handleInterpret(filePaths)}
                                   />
                                 );
                               } else {
