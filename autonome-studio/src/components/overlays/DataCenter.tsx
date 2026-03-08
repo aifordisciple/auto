@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye } from "lucide-react";
+import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks } from "lucide-react";
 import { fetchAPI, BASE_URL } from "@/lib/api";
 
 // ==========================================
@@ -33,23 +33,42 @@ const formatBytes = (bytes?: number) => {
 };
 
 // ==========================================
-// 组件 1：递归渲染单个节点
+// 组件 1：递归渲染单个节点 (新增批量模式支持)
 // ==========================================
-const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, onPreview }: any) => {
+const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, onPreview, isBatchMode, selectedPaths, toggleSelection }: any) => {
   const isFolder = node.type === 'folder';
   const isExpanded = expandedFolders.has(node.path);
   const isProtectedRoot = isFolder && (node.path === 'raw_data' || node.path === 'results' || node.path === 'references');
   const isReadOnly = node.path.startsWith('references');
 
+  // ✨ 是否允许被批量选中
+  const isSelectable = !isProtectedRoot && !isReadOnly;
+
   return (
     <div className="flex flex-col">
       <div
-        className={`flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/80 rounded-lg cursor-pointer group transition-all ${!isFolder ? 'ml-6' : ''}`}
+        className={`flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/80 rounded-lg cursor-pointer group transition-all ${!isFolder ? 'ml-6' : ''} ${selectedPaths?.has(node.path) ? 'bg-red-500/10 border border-red-500/20' : 'border border-transparent'}`}
         onClick={() => {
-          if (isFolder) toggleExpand(node.path);
-          else onPreview(node.path);
+          if (isBatchMode && isSelectable) {
+            toggleSelection(node.path);
+          } else {
+            if (isFolder) toggleExpand(node.path);
+            else onPreview(node.path);
+          }
         }}
       >
+        {/* ✨ 批量模式：复选框 */}
+        {isBatchMode && isSelectable && (
+          <div className="shrink-0 mr-1 flex items-center" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={selectedPaths.has(node.path)}
+              onChange={() => toggleSelection(node.path)}
+              className="w-3.5 h-3.5 rounded border-gray-600 bg-neutral-900 text-red-500 focus:ring-red-500/20 cursor-pointer"
+            />
+          </div>
+        )}
+
         {isFolder && (
           <span className="text-neutral-500 group-hover:text-neutral-300 transition-colors shrink-0">
             {isExpanded ? <ChevronDown size={15} strokeWidth={2.5} /> : <ChevronRight size={15} strokeWidth={2.5} />}
@@ -62,7 +81,7 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
           getFileIcon(node.name)
         )}
 
-        <span className={`text-sm tracking-wide truncate ${isFolder ? 'text-neutral-200 font-semibold' : 'text-neutral-400 group-hover:text-neutral-200'}`}>
+        <span className={`text-sm tracking-wide truncate ${isFolder ? 'text-neutral-200 font-semibold' : 'text-neutral-400 group-hover:text-neutral-200'} ${isBatchMode && !isSelectable ? 'opacity-50' : ''}`}>
           {node.name}
         </span>
 
@@ -72,39 +91,28 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
           </span>
         )}
 
-        {/* 操作栏 */}
-        <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-1 z-10 shrink-0">
-          {!isFolder && (
-            <>
-              {/* 新增：预览按钮 */}
-              <button
-                onClick={(e) => { e.stopPropagation(); onPreview(node.path); }}
-                className="p-1.5 text-neutral-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-md transition-all"
-                title="安全预览"
-              >
-                <Eye size={14} />
+        {/* 正常模式下的悬浮操作栏 */}
+        {!isBatchMode && (
+          <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-1 z-10 shrink-0">
+            {!isFolder && (
+              <>
+                <button onClick={(e) => { e.stopPropagation(); onPreview(node.path); }} className="p-1.5 text-neutral-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-md transition-all" title="安全预览">
+                  <Eye size={14} />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onDownload(node.path); }} className="p-1.5 text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all" title="直接下载">
+                  <Download size={14} />
+                </button>
+              </>
+            )}
+            {!isProtectedRoot && !isFolder && !isReadOnly && (
+              <button onClick={(e) => { e.stopPropagation(); onDelete(node.path); }} className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all" title="彻底删除">
+                <Trash2 size={14} />
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDownload(node.path); }}
-                className="p-1.5 text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
-                title="直接下载"
-              >
-                <Download size={14} />
-              </button>
-            </>
-          )}
-          {!isProtectedRoot && !isFolder && !isReadOnly && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(node.path); }}
-              className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all"
-              title="彻底删除"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
-        {/* ✨ 修复：兼容后端的 size 字段，并使用智能单位格式化 */}
+        {/* 文件大小 */}
         {!isFolder && (node.fileData?.size !== undefined || node.fileData?.file_size !== undefined) && (
           <span className="text-[10px] text-neutral-600 font-mono bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800 group-hover:hidden shrink-0 ml-auto">
             {formatBytes(node.fileData?.size ?? node.fileData?.file_size)}
@@ -123,6 +131,9 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
               onDelete={onDelete}
               onDownload={onDownload}
               onPreview={onPreview}
+              isBatchMode={isBatchMode}           // ✨ 向下传递批量模式状态
+              selectedPaths={selectedPaths}       // ✨ 向下传递选中项
+              toggleSelection={toggleSelection}  // ✨ 向下传递切换函数
             />
           ))}
         </div>
@@ -142,6 +153,49 @@ export function DataCenter() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  // ✨ 批量模式状态
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+
+  // ✨ 切换文件选中状态
+  const toggleSelection = (path: string) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  // ✨ 核心逻辑：执行批量删除
+  const handleBatchDelete = async () => {
+    if (selectedPaths.size === 0) return;
+    if (!window.confirm(`⚠️ 高危操作确认\n\n您确定要彻底删除选中的 ${selectedPaths.size} 个项目吗？\n如果包含文件夹，将递归清空其内部所有内容！此操作不可逆。`)) return;
+
+    setIsSyncing(true); // 借用同步状态显示 Loading
+    try {
+      // 并发发送多条删除请求
+      const token = localStorage.getItem('autonome_access_token');
+      const promises = Array.from(selectedPaths).map(path =>
+        fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${path}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      );
+
+      await Promise.all(promises);
+
+      // 清理状态并刷新
+      setSelectedPaths(new Set());
+      setIsBatchMode(false);
+      await fetchProjectFiles(currentProjectId);
+    } catch (e) {
+      alert("❌ 批量删除执行中断，部分文件可能删除失败。");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // 预览弹窗状态
   const [previewPath, setPreviewPath] = useState<string | null>(null);
@@ -340,12 +394,21 @@ export function DataCenter() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* ✨ 新增：批量管理开关 */}
+            <button
+              onClick={() => { setIsBatchMode(!isBatchMode); setSelectedPaths(new Set()); }}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border transition-all ${isBatchMode ? 'bg-red-500/10 text-red-400 border-red-500/30' : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'}`}
+            >
+              <ListChecks size={16} />
+              <span>{isBatchMode ? '退出批量' : '批量管理'}</span>
+            </button>
+
             <input type="file" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading || isSyncing} className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all">
+            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading || isSyncing || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50">
               {isUploading ? <Loader2 size={16} className="animate-spin text-purple-400" /> : <UploadCloud size={16} className="text-purple-400" />}
               <span>上传</span>
             </button>
-            <button onClick={handleSync} disabled={isSyncing || isUploading} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg shadow-lg shadow-purple-500/20 transition-all group">
+            <button onClick={handleSync} disabled={isSyncing || isUploading || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg shadow-lg shadow-purple-500/20 transition-all disabled:opacity-50 group">
               <RefreshCw size={16} className={isSyncing ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"} />
               <span>物理同步</span>
             </button>
@@ -365,11 +428,27 @@ export function DataCenter() {
                   key={node.path} node={node} expandedFolders={expandedFolders}
                   toggleExpand={toggleExpand} onDelete={handleDeleteNode} onDownload={handleDownloadNode}
                   onPreview={handlePreviewNode}
+                  isBatchMode={isBatchMode} selectedPaths={selectedPaths} toggleSelection={toggleSelection}
                 />
               ))}
             </div>
           )}
         </div>
+
+        {/* ✨ 批量操作执行栏 (仅在 Batch Mode 且有选中项时弹出) */}
+        {isBatchMode && (
+          <div className="shrink-0 p-4 border-t border-neutral-800 bg-neutral-900 flex items-center justify-between animate-in slide-in-from-bottom-2">
+            <span className="text-sm text-neutral-400">已选择 <strong className="text-red-400">{selectedPaths.size}</strong> 项</span>
+            <button
+              onClick={handleBatchDelete}
+              disabled={selectedPaths.size === 0 || isSyncing}
+              className="flex items-center gap-2 px-5 py-2 bg-red-600 hover:bg-red-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-red-900/20"
+            >
+              {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              彻底删除
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 绝美沉浸式文件预览弹窗 */}

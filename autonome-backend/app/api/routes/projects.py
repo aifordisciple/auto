@@ -278,7 +278,7 @@ async def delete_project_file(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    """删除项目下的文件（通过相对路径）"""
+    """删除项目下的文件或文件夹（通过相对路径）"""
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作")
@@ -287,24 +287,25 @@ async def delete_project_file(
     if ".." in file_path:
         raise HTTPException(status_code=400, detail="非法的文件路径")
 
-    # 2. 核心防御：绝对禁止修改或删除全局参考库里的任何文件！
+    # 2. 核心防御：绝对禁止修改或删除全局参考库
     if file_path.startswith("references/") or file_path == "references":
-        raise HTTPException(status_code=403, detail="全局参考库 (references) 是系统级共享资源，对所有用户严格只读，禁止删除。")
+        raise HTTPException(status_code=403, detail="全局参考库对所有用户严格只读，禁止删除。")
 
     project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
     full_path = project_dir / file_path
 
+    # ✨ 核心修复：增加对目录 (Directory) 的递归删除支持
     if full_path.exists():
-        full_path.unlink()
-        return {"status": "success", "message": "File deleted"}
-    
-    raise HTTPException(status_code=404, detail="File not found")
-    
-    # 2. 删除数据库记录
-    session.delete(db_file)
-    session.commit()
-    
-    return {"status": "success", "message": "文件已彻底删除"}
+        try:
+            if full_path.is_dir():
+                shutil.rmtree(full_path)  # 递归删除整个文件夹
+            else:
+                full_path.unlink()  # 删除单个文件
+            return {"status": "success", "message": "目标已彻底抹除"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"删除失败，文件可能被占用: {str(e)}")
+
+    raise HTTPException(status_code=404, detail="文件或文件夹不存在")
 
 @router.post("/{project_id}/share")
 async def toggle_project_share(
