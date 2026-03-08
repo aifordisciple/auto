@@ -181,90 +181,90 @@ export function RightPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col w-full bg-neutral-900">
+    <div className="h-full flex flex-col w-full bg-gray-50 dark:bg-neutral-900">
       {/* ================= 上半部：DATA CENTER ================= */}
-      <div className="flex-1 border-b border-neutral-800 flex flex-col min-h-0">
-        <div className="h-10 shrink-0 flex items-center justify-between px-4 bg-neutral-900 border-b border-neutral-800 text-xs font-semibold text-neutral-500 tracking-wider">
+      <div className="flex-1 border-b border-gray-200 dark:border-neutral-800 flex flex-col min-h-0">
+        <div className="h-10 shrink-0 flex items-center justify-between px-4 bg-gray-50 dark:bg-neutral-900 border-b border-gray-200 dark:border-neutral-800 text-xs font-semibold text-gray-500 dark:text-neutral-500 tracking-wider">
           <div className="flex items-center gap-2">
-            <Database size={14} /> 
+            <Database size={14} />
             DATA CENTER
             {isLoadingFiles && <Loader2 size={12} className="animate-spin ml-1" />}
           </div>
-          
+
           {/* Upload button */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            className="hidden" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
           />
-          <button 
+          <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-50"
           >
             {isUploading ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
             <span>{isUploading ? '上传中...' : '上传数据'}</span>
           </button>
         </div>
-        
+
         <div className="p-4 flex-1 overflow-y-auto">
-          <p className="mb-3 text-xs text-neutral-500 font-medium">可用物料 (点击 [+] 挂载给 AI)</p>
-          
+          <p className="mb-3 text-xs text-gray-500 dark:text-neutral-500 font-medium">可用物料 (点击 [+] 挂载给 AI)</p>
+
           {projectFiles.length === 0 && !isLoadingFiles ? (
-            <div className="text-center text-neutral-600 text-xs py-10 border border-dashed border-neutral-700 rounded-lg">
+            <div className="text-center text-gray-400 dark:text-neutral-600 text-xs py-10 border border-dashed border-gray-300 dark:border-neutral-700 rounded-lg">
               当前沙箱空空如也<br/>点击右上角上传 FASTQ/CSV
             </div>
           ) : (
             <ul className="space-y-2">
               {projectFiles.map(fileObj => {
                 // ✨ 兼容新后端的 relative_path 字段，如果没有则回退到 filename
-                const filePath = (fileObj as any).path || fileObj.filename; 
+                const filePath = (fileObj as any).path || fileObj.filename;
                 // 获取不带文件夹的纯文件名
                 const baseName = filePath.split('/').pop();
                 // 获取所在的文件夹名称
                 const folder = filePath.includes('/') ? filePath.split('/')[0] : '';
-                
+
                 const isMounted = mountedFiles.includes(filePath);
 
                 return (
-                  <li 
+                  <li
                     key={fileObj.id || filePath}
                     className={`group relative flex items-center justify-between p-2.5 rounded-lg border text-sm transition-all duration-300 cursor-pointer overflow-hidden ${
-                      isMounted 
-                        ? "bg-blue-900/10 border-blue-500/40 text-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.15)] transform scale-[1.02]" 
-                        : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:bg-neutral-800/80 hover:border-neutral-600 hover:text-neutral-200"
+                      isMounted
+                        ? "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-500/40 text-blue-700 dark:text-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.15)] transform scale-[1.02]"
+                        : "bg-white dark:bg-neutral-900 border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400 hover:bg-gray-100 dark:hover:bg-neutral-800/80 hover:border-gray-300 dark:hover:border-neutral-600 hover:text-gray-700 dark:hover:text-neutral-200"
                     }`}
                     onClick={() => toggleMountFile(filePath)}
                   >
                     {/* 左侧的霓虹指示条 */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1 transition-all duration-300 ${
-                      isMounted ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]" : "bg-neutral-600 opacity-0 group-hover:opacity-100"
+                      isMounted ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]" : "bg-gray-400 dark:bg-neutral-600 opacity-0 group-hover:opacity-100"
                     }`}></div>
 
                     <div className="flex items-center gap-3 pl-2 overflow-hidden z-10 relative">
                       <button className={`w-4 h-4 rounded-sm flex items-center justify-center shrink-0 border transition-all duration-300 ${
-                        isMounted ? "bg-blue-500 border-blue-400 text-white shadow-lg" : "border-neutral-600 bg-neutral-950 group-hover:border-neutral-400"
+                        isMounted ? "bg-blue-500 border-blue-400 text-white shadow-lg" : "border-gray-300 dark:border-neutral-600 bg-gray-50 dark:bg-neutral-950 group-hover:border-gray-400 dark:group-hover:border-neutral-400"
                       }`}>
                         {isMounted && <Check size={12} strokeWidth={4} />}
                       </button>
                       <span
                         onClick={(e) => { e.stopPropagation(); handlePreviewFile(filePath); }}
-                        className="truncate font-medium tracking-wide flex items-center gap-1.5 cursor-pointer hover:text-emerald-400 transition-colors"
+                        className="truncate font-medium tracking-wide flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors"
                         title="点击预览"
                       >
-                        {folder === 'raw_data' && <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">RAW</span>}
-                        {folder === 'results' && <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">OUT</span>}
-                        {folder === 'references' && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">REF</span>}
+                        {folder === 'raw_data' && <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 rounded">RAW</span>}
+                        {folder === 'results' && <span className="text-[10px] px-1.5 py-0.5 bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400 rounded">OUT</span>}
+                        {folder === 'references' && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded">REF</span>}
                         {baseName}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {/* 只有在 hover 时才显示预览小眼睛 */}
-                      <div className="hidden group-hover:flex items-center gap-1 bg-neutral-900/90 rounded relative z-10">
+                      <div className="hidden group-hover:flex items-center gap-1 bg-gray-50 dark:bg-neutral-900/90 rounded relative z-10">
                         <button
                           onClick={(e) => { e.stopPropagation(); handlePreviewFile(filePath); }}
-                          className="p-1.5 text-neutral-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-all"
+                          className="p-1.5 text-gray-500 dark:text-neutral-400 hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/10 rounded transition-all"
                           title="预览文件"
                         >
                           <Eye size={14} />
@@ -281,53 +281,53 @@ export function RightPanel() {
 
       {/* ================= 下半部：DYNAMIC TOOLBOX ================= */}
       <div className="h-[55%] flex flex-col bg-transparent">
-        <div className="h-10 shrink-0 flex items-center px-4 border-t border-neutral-800/60 text-xs font-semibold text-neutral-500 tracking-wider gap-2">
+        <div className="h-10 shrink-0 flex items-center px-4 border-t border-gray-200 dark:border-neutral-800/60 text-xs font-semibold text-gray-500 dark:text-neutral-500 tracking-wider gap-2">
           <Settings2 size={14} /> DYNAMIC TOOLBOX
         </div>
-        
+
         <div className="p-5 flex-1 overflow-y-auto">
           {!activeTool ? (
-            <div className="h-full flex flex-col items-center justify-center text-neutral-600 text-sm text-center">
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-neutral-600 text-sm text-center">
               <Settings2 size={32} className="mb-3 opacity-20" />
               等待 AI 决策或用户手动<br/>调起分析工具...
             </div>
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="mb-4">
-                <h3 className="text-white font-medium flex items-center gap-2">
+                <h3 className="text-gray-900 dark:text-white font-medium flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                   {activeTool.name}
                 </h3>
-                <p className="text-xs text-neutral-500 mt-1">{activeTool.description}</p>
+                <p className="text-xs text-gray-500 dark:text-neutral-500 mt-1">{activeTool.description}</p>
               </div>
 
               {/* Dynamic form rendering based on Schema */}
               <div className="space-y-5">
                 {Object.entries(activeTool.parameters).map(([key, param]) => (
                   <div key={key} className="space-y-2">
-                    <label className="text-xs text-neutral-400 font-medium flex justify-between">
+                    <label className="text-xs text-gray-600 dark:text-neutral-400 font-medium flex justify-between">
                       <span>{param.label}</span>
-                      {param.type === 'number' && <span className="text-blue-400">{toolParams[key]}</span>}
+                      {param.type === 'number' && <span className="text-blue-600 dark:text-blue-400">{toolParams[key]}</span>}
                     </label>
-                    
+
                     {/* Number slider */}
                     {param.type === 'number' && (
-                      <input 
-                        type="range" 
-                        min={param.min} 
+                      <input
+                        type="range"
+                        min={param.min}
                         max={param.max}
                         step={param.step || 1}
                         value={toolParams[key]}
                         onChange={(e) => updateToolParam(key, Number(e.target.value))}
-                        className="w-full accent-blue-500 h-1 bg-neutral-800 rounded-lg appearance-none cursor-pointer"
+                        className="w-full accent-blue-500 h-1 bg-gray-200 dark:bg-neutral-800 rounded-lg appearance-none cursor-pointer"
                       />
                     )}
 
                     {/* Boolean toggle */}
                     {param.type === 'boolean' && (
-                      <button 
+                      <button
                         onClick={() => updateToolParam(key, !toolParams[key])}
-                        className={`w-11 h-6 rounded-full relative transition-colors ${toolParams[key] ? 'bg-blue-600' : 'bg-neutral-700'}`}
+                        className={`w-11 h-6 rounded-full relative transition-colors ${toolParams[key] ? 'bg-blue-600' : 'bg-gray-300 dark:bg-neutral-700'}`}
                       >
                         <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${toolParams[key] ? 'left-6' : 'left-1'}`} />
                       </button>
@@ -335,10 +335,10 @@ export function RightPanel() {
 
                     {/* Select dropdown */}
                     {param.type === 'select' && param.options && (
-                      <select 
+                      <select
                         value={toolParams[key]}
                         onChange={(e) => updateToolParam(key, e.target.value)}
-                        className="w-full bg-neutral-900 border border-neutral-700 text-white text-sm rounded focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+                        className="w-full bg-white dark:bg-neutral-900 border border-gray-300 dark:border-neutral-700 text-gray-900 dark:text-white text-sm rounded focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
                       >
                         {param.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
@@ -351,15 +351,15 @@ export function RightPanel() {
               <div className="mt-6 relative group">
                 {/* 底层光晕 */}
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg blur opacity-30 group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-pulse"></div>
-                
-                <button 
+
+                <button
                   onClick={handleExecuteTask}
                   disabled={isExecuting}
-                  className="relative w-full flex items-center justify-center gap-2 bg-neutral-950 hover:bg-black disabled:bg-neutral-900 disabled:text-neutral-500 text-blue-400 font-bold p-3 rounded-lg text-sm transition-all border border-blue-500/30 hover:border-blue-400 overflow-hidden"
+                  className="relative w-full flex items-center justify-center gap-2 bg-gray-900 dark:bg-neutral-950 hover:bg-gray-800 dark:hover:bg-black disabled:bg-gray-300 dark:disabled:bg-neutral-900 disabled:text-gray-500 dark:disabled:text-neutral-500 text-white dark:text-blue-400 font-bold p-3 rounded-lg text-sm transition-all border border-blue-500/30 hover:border-blue-400 overflow-hidden"
                 >
                   {/* 扫光动画 */}
                   <div className="absolute inset-0 -translate-x-full group-hover:animate-shimmer bg-gradient-to-r from-transparent via-blue-500/10 to-transparent"></div>
-                  
+
                   {isExecuting ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="currentColor" />}
                   <span className="tracking-widest">{isExecuting ? '执行中...' : 'EXECUTE TASK'}</span>
                 </button>
@@ -372,37 +372,37 @@ export function RightPanel() {
       {/* 预览弹窗 */}
       {previewPath && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 md:p-12 animate-in fade-in duration-200">
-          <div className="bg-[#1a1a1c] border border-neutral-800 rounded-2xl w-full max-w-5xl h-full flex flex-col shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-[#1a1a1c] border border-gray-200 dark:border-neutral-800 rounded-2xl w-full max-w-5xl h-full flex flex-col shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200">
 
-            <div className="h-14 shrink-0 border-b border-neutral-800 px-6 flex items-center justify-between bg-neutral-900">
+            <div className="h-14 shrink-0 border-b border-gray-200 dark:border-neutral-800 px-6 flex items-center justify-between bg-gray-50 dark:bg-neutral-900">
               <div className="flex items-center gap-3">
-                <Eye size={18} className="text-emerald-400"/>
-                <h3 className="text-white font-medium text-sm tracking-wide truncate max-w-lg">{previewPath}</h3>
+                <Eye size={18} className="text-emerald-500 dark:text-emerald-400"/>
+                <h3 className="text-gray-900 dark:text-white font-medium text-sm tracking-wide truncate max-w-lg">{previewPath}</h3>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => handleDownloadFile(previewPath)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium rounded-lg transition-colors border border-blue-500/20">
+                <button onClick={() => handleDownloadFile(previewPath)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-medium rounded-lg transition-colors border border-blue-200 dark:border-blue-500/20">
                   <Download size={14} /> 保存到本地
                 </button>
-                <div className="w-px h-4 bg-neutral-800 mx-1"></div>
-                <button onClick={closePreview} className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                <div className="w-px h-4 bg-gray-200 dark:bg-neutral-800 mx-1"></div>
+                <button onClick={closePreview} className="p-1.5 text-gray-500 dark:text-neutral-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-lg transition-colors">
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-6 flex items-start justify-center bg-[#121212] relative">
+            <div className="flex-1 overflow-auto p-6 flex items-start justify-center bg-gray-100 dark:bg-[#121212] relative">
               {isPreviewLoading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-neutral-500">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-gray-400 dark:text-neutral-500">
                   <Loader2 size={32} className="animate-spin text-emerald-500" />
                   <span className="text-sm tracking-widest">安全加载中...</span>
                 </div>
               ) : previewType === 'image' && previewContent ? (
                 <img src={previewContent} alt="Preview" className="max-w-full max-h-full object-contain rounded drop-shadow-2xl" />
               ) : previewType === 'pdf' && previewContent ? (
-                <iframe src={previewContent} className="w-full h-full rounded-xl border border-neutral-800 bg-white" title="PDF Preview" />
+                <iframe src={previewContent} className="w-full h-full rounded-xl border border-gray-200 dark:border-neutral-800 bg-white" title="PDF Preview" />
               ) : previewType === 'text' && previewContent ? (
-                <div className="w-full h-full bg-[#1e1e1e] rounded-xl border border-neutral-800 p-4 overflow-auto custom-scrollbar">
-                  <pre className="text-[13px] leading-relaxed text-neutral-300 font-mono whitespace-pre-wrap">
+                <div className="w-full h-full bg-white dark:bg-[#1e1e1e] rounded-xl border border-gray-200 dark:border-neutral-800 p-4 overflow-auto custom-scrollbar">
+                  <pre className="text-[13px] leading-relaxed text-gray-700 dark:text-neutral-300 font-mono whitespace-pre-wrap">
                     {previewContent}
                   </pre>
                 </div>

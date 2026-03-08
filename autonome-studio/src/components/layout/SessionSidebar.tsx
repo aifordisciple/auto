@@ -120,22 +120,22 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     const isActive = currentSessionId === session.id;
 
     return (
-      <div 
+      <div
         key={session.id}
         onClick={() => onSelectSession(session.id, session.title)}
         className={`group relative flex items-center justify-between px-2 py-1.5 mx-2 rounded-md cursor-pointer transition-all duration-200 ${
-          isActive 
-            ? 'bg-neutral-800/40 text-neutral-200' 
-            : 'text-neutral-400 hover:bg-neutral-800/20 hover:text-neutral-300'
+          isActive
+            ? 'bg-gray-200 dark:bg-neutral-800/40 text-gray-800 dark:text-neutral-200'
+            : 'text-gray-500 dark:text-neutral-400 hover:bg-gray-100 dark:hover:bg-neutral-800/20 hover:text-gray-700 dark:hover:text-neutral-300'
         }`}
       >
         {isActive && (
-          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-neutral-400 rounded-r-full" />
+          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-blue-500 dark:bg-neutral-400 rounded-r-full" />
         )}
 
         {editingId === session.id ? (
           <div className="flex items-center gap-2 w-full pl-1" onClick={e => e.stopPropagation()}>
-            <input 
+            <input
               autoFocus
               value={editTitle}
               onChange={e => setEditTitle(e.target.value)}
@@ -144,7 +144,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
                 if (e.key === 'Escape') setEditingId(null);
               }}
               onBlur={() => setEditingId(null)}
-              className="flex-1 bg-transparent border-b border-neutral-600 text-[13px] px-0.5 py-0.5 text-neutral-200 outline-none focus:border-neutral-400 transition-colors"
+              className="flex-1 bg-transparent border-b border-gray-300 dark:border-neutral-600 text-[13px] px-0.5 py-0.5 text-gray-800 dark:text-neutral-200 outline-none focus:border-blue-500 dark:focus:border-neutral-400 transition-colors"
             />
           </div>
         ) : (
@@ -152,21 +152,21 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
             <div className="flex-1 truncate pl-1 text-[13px] leading-relaxed">
               {session.title}
             </div>
-            
-            <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'bg-neutral-800/40' : 'bg-[#121212] group-hover:bg-neutral-800/20'} pl-2`}>
-              <button 
+
+            <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'bg-gray-200 dark:bg-neutral-800/40' : 'bg-gray-50 dark:bg-[#121212] group-hover:bg-gray-100 dark:group-hover:bg-neutral-800/20'} pl-2`}>
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setEditTitle(session.title);
                   setEditingId(session.id);
                 }}
-                className="p-1 text-neutral-500 hover:text-neutral-300 transition-colors"
+                className="p-1 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-300 transition-colors"
               >
                 <Edit2 size={13} strokeWidth={1.5} />
               </button>
-              <button 
+              <button
                 onClick={(e) => handleDelete(e, session.id)}
-                className="p-1 text-neutral-500 hover:text-rose-400/80 transition-colors"
+                className="p-1 text-gray-400 dark:text-neutral-500 hover:text-rose-500 dark:hover:text-rose-400/80 transition-colors"
               >
                 <Trash2 size={13} strokeWidth={1.5} />
               </button>
@@ -179,14 +179,14 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   return (
     <div className="flex flex-col h-full w-full bg-transparent">
-      
+
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 group">
-        <span className="text-sm font-medium text-neutral-300">Chats</span>
-        <button 
+        <span className="text-sm font-medium text-gray-700 dark:text-neutral-300">Chats</span>
+        <button
           onClick={handleNewChat}
           title="New Chat (⌘N)"
-          className="p-1.5 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
+          className="p-1.5 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
         >
           <SquarePen size={15} strokeWidth={1.5} />
         </button>
@@ -196,13 +196,13 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
       <div className="flex-1 overflow-y-auto pb-4 scroll-smooth">
         {Object.entries(groupedSessions).map(([groupName, groupSessions]) => {
           if (groupSessions.length === 0) return null;
-          
+
           return (
             <div key={groupName} className="mb-4">
-              <div className="px-4 py-1.5 text-[11px] font-semibold text-neutral-500 uppercase tracking-wider sticky top-0 bg-[#121212]/95 backdrop-blur-sm z-10">
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-gray-400 dark:text-neutral-500 uppercase tracking-wider sticky top-0 bg-white dark:bg-[#121212]/95 backdrop-blur-sm z-10">
                 {groupName}
               </div>
-              
+
               <div className="space-y-0.5 mt-1">
                 {groupSessions.map(renderSessionItem)}
               </div>
@@ -212,13 +212,13 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
         {sessions.length === 0 && (
           <div className="px-4 py-10 flex flex-col items-center justify-center text-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-neutral-800/50 flex items-center justify-center text-neutral-500 mb-1">
+            <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-neutral-800/50 flex items-center justify-center text-gray-400 dark:text-neutral-500 mb-1">
               <MessageSquare size={18} strokeWidth={1.5} />
             </div>
-            <p className="text-[13px] text-neutral-500">暂无历史对话</p>
-            <button 
+            <p className="text-[13px] text-gray-400 dark:text-neutral-500">暂无历史对话</p>
+            <button
               onClick={handleNewChat}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-[12px] rounded-md transition-all shadow-sm border border-neutral-700/50 hover:border-neutral-600"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 dark:bg-neutral-800 hover:bg-gray-300 dark:hover:bg-neutral-700 text-gray-700 dark:text-neutral-300 hover:text-gray-900 dark:hover:text-white text-[12px] rounded-md transition-all shadow-sm border border-gray-300 dark:border-neutral-700/50 hover:border-gray-400 dark:hover:border-neutral-600"
             >
               <SquarePen size={13} strokeWidth={1.5} />
               开启新对话
