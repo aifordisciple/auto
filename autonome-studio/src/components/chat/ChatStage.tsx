@@ -511,31 +511,29 @@ export function ChatStage() {
 
                                 let text = part;
 
-                                // 1. 匹配图片格式 (png, jpg, svg等)，提取为文件
+                                // 🎯 修复关键点 1: 正则改为 [a-zA-Z0-9_-]+ 以匹配 proj_xyz，同时捕获结果目录
                                 text = text.replace(
-                                  /\/app\/uploads\/project_(\d+)\/([^\s'"]+\.(png|jpg|jpeg|gif|svg))/gi,
-                                  (match, pId, filePath) => {
-                                    const fileName = filePath.split('/').pop();
-                                    const url = `${apiBase}/api/projects/${pId}/files/${filePath}/view`;
-                                    // 查重
+                                  /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/([^\s'"`)]+\.[a-zA-Z0-9]+)/gi,
+                                  (match, relativePath) => {
+                                    const fileName = relativePath.split('/').pop();
+                                    const url = `${apiBase}/api/projects/${currentProjectId}/files/${relativePath}/view`;
+
                                     if (!extractedFiles.find(f => f.url === url)) {
-                                      extractedFiles.push({ title: filePath, url });
+                                      extractedFiles.push({ title: relativePath, url });
                                     }
-                                    return `\`${fileName}\``;
+                                    return `\`${fileName}\``; // 净化文本，只留文件名
                                   }
                                 );
 
-                                // 2. 匹配数据文档格式 (tsv, csv, txt等)，提取为文件
+                                // 🎯 修复关键点 2: 捕获 AI 可能直接生成的 Markdown 链接
                                 text = text.replace(
-                                  /\/app\/uploads\/project_(\d+)\/([^\s'"]+\.(csv|tsv|txt|h5ad|pdf|xlsx))/gi,
-                                  (match, pId, filePath) => {
-                                    const fileName = filePath.split('/').pop();
-                                    const url = `${apiBase}/api/projects/${pId}/files/${filePath}/view`;
-                                    // 查重
-                                    if (!extractedFiles.find(f => f.url === url)) {
-                                      extractedFiles.push({ title: filePath, url });
-                                    }
-                                    return `\`${fileName}\``;
+                                  /\[([^\]]+)\]\(([^)]+\/api\/projects\/[^)]+\/files\/([^)]+))\)/g,
+                                  (match, title, fullUrl, relativePath) => {
+                                     const finalUrl = fullUrl.startsWith('http') ? fullUrl : `${apiBase}${fullUrl}`;
+                                     if (!extractedFiles.find(f => f.url === finalUrl)) {
+                                       extractedFiles.push({ title: relativePath, url: finalUrl });
+                                     }
+                                     return `\`${title}\``;
                                   }
                                 );
 
@@ -543,7 +541,7 @@ export function ChatStage() {
                               }).join('');
 
                               return (
-                                <div className="flex flex-col w-full">
+                                <div className="flex flex-col w-full gap-2">
                                   {/* 渲染干净的 Markdown 文字 */}
                                   {cleanText && <MarkdownBlock content={cleanText} />}
 
