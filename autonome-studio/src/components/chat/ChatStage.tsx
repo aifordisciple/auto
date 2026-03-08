@@ -116,7 +116,8 @@ const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, leve
   );
 };
 
-const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, title: string}[], onPreview: any, onDownload: any }) => {
+// ✨ 升级版树状卡片，带有解读按钮
+const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {url: string, title: string}[], onPreview: any, onDownload: any, onInterpret?: () => void }) => {
   const tree = useMemo(() => {
     const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
     links.forEach(link => {
@@ -138,8 +139,8 @@ const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, 
   }, [links]);
 
   return (
-    <div className="w-full max-w-xl mt-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm dark:shadow-none overflow-hidden">
-      <div className="px-4 py-2.5 bg-gray-50 dark:bg-[#252528] border-b border-gray-200 dark:border-[#2d2d30] flex items-center gap-2">
+    <div className="w-full max-w-xl mt-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm dark:shadow-none overflow-hidden flex flex-col">
+      <div className="px-4 py-2.5 bg-gray-50 dark:bg-[#252528] border-b border-gray-200 dark:border-[#2d2d30] flex items-center gap-2 shrink-0">
         <FolderOpen size={16} className="text-purple-500" />
         <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">生成的分析资产 (Output Assets)</span>
         <span className="text-xs bg-gray-200 dark:bg-black/30 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full ml-auto">{links.length} files</span>
@@ -149,6 +150,18 @@ const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, 
           <AssetTreeNode key={node.name} node={node} level={0} onPreview={onPreview} onDownload={onDownload} />
         ))}
       </div>
+      {/* ✨ 新增：深度解读动作栏 */}
+      {onInterpret && (
+        <div className="p-3 bg-gray-50 dark:bg-[#252528]/50 border-t border-gray-200 dark:border-[#2d2d30] flex justify-end">
+          <button
+            onClick={onInterpret}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg shadow-md transition-all group"
+          >
+            <Sparkles size={16} className="text-blue-200 group-hover:text-white group-hover:animate-pulse" />
+            深度解读分析结果
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -223,6 +236,12 @@ export function ChatStage() {
   const closePreview = () => {
     if ((previewType === 'image' || previewType === 'pdf') && previewContent) URL.revokeObjectURL(previewContent);
     setPreviewData(null); setPreviewContent(null);
+  };
+
+  // ✨ 深度解读函数
+  const handleInterpret = () => {
+    const interpretPrompt = "\n\n请对以上分析结果进行深度解读，包括：1) 主要发现和结论；2) 图表数据的生物学意义；3) 可能的临床或研究应用价值。";
+    handleSend(interpretPrompt);
   };
 
   // Fetch messages when session changes
@@ -521,7 +540,7 @@ export function ChatStage() {
                                     if (!extractedFiles.find(f => f.url === url)) {
                                       extractedFiles.push({ title: relativePath, url });
                                     }
-                                    return `\`${fileName}\``; // 净化文本，只留文件名
+                                    return ''; // ✨ 完美吞噬链接，不留痕迹
                                   }
                                 );
 
@@ -533,7 +552,7 @@ export function ChatStage() {
                                      if (!extractedFiles.find(f => f.url === finalUrl)) {
                                        extractedFiles.push({ title: relativePath, url: finalUrl });
                                      }
-                                     return `\`${title}\``;
+                                     return ''; // ✨ 完美吞噬链接，不留痕迹
                                   }
                                 );
 
@@ -545,9 +564,9 @@ export function ChatStage() {
                                   {/* 渲染干净的 Markdown 文字 */}
                                   {cleanText && <MarkdownBlock content={cleanText} />}
 
-                                  {/* 渲染树状结果卡片 */}
+                                  {/* 渲染树状结果卡片（带解读按钮） */}
                                   {extractedFiles.length > 0 && (
-                                    <AssetTreeCard links={extractedFiles} onPreview={handlePreviewAsset} onDownload={handleDownloadAsset} />
+                                    <AssetTreeCard links={extractedFiles} onPreview={handlePreviewAsset} onDownload={handleDownloadAsset} onInterpret={handleInterpret} />
                                   )}
                                 </div>
                               );
