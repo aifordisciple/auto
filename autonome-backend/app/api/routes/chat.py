@@ -442,9 +442,9 @@ async def interpret_results(
     # 4. 构造深度解读提示词
     files_info = '\n'.join(file_contents) if file_contents else "（无文件信息）"
 
-    interpret_prompt = f"""## 任务：深度解读分析结果
+    interpret_prompt = f"""## 任务：生成专业深度解读报告
 
-请对以下生物信息学分析结果进行深度解读。**注意：这是一个纯解读任务，不要生成任何代码或策略卡片，直接输出解读文本即可。**
+请根据以下生物信息学分析结果，生成一份专业的深度解读报告。
 
 ---
 
@@ -465,16 +465,59 @@ async def interpret_results(
 
 ---
 
-### 解读要求
-请从以下几个维度进行专业解读：
+## 报告输出要求
 
-1. **主要发现**：总结分析的核心结果和发现
-2. **生物学意义**：解释结果在生物学层面的含义
-3. **图表解读**：如有图表，描述其展示的信息
-4. **临床/研究价值**：结果可能的应用场景
-5. **局限性**：分析的潜在限制和注意事项
+请严格按照以下结构输出专业的深度解读报告，使用美观的 Markdown 格式：
 
-请用清晰、专业的语言进行解读，避免过多技术术语堆砌。"""
+### 📋 报告结构
+
+**1. 主要发现（中文）**
+- 用清晰的段落总结核心发现
+- 列出关键数据指标
+
+**2. Figure Legend / 图注**
+```
+【中文图注】
+专业的图表描述（适合论文投稿格式）
+
+【English Figure Legend】
+Professional figure description in publication-ready format
+```
+
+**3. Materials and Methods / 材料与方法**
+```
+【中文材料方法】
+简述分析流程和方法，适合论文方法部分引用
+
+【English Materials and Methods】
+Brief description of analysis pipeline for manuscript Methods section
+```
+
+**4. 生物学意义**
+- 解释结果的生物学含义
+- 与已知文献或知识的关联
+
+**5. 临床/研究价值**
+- 潜在应用场景
+- 对后续研究的启示
+
+**6. 局限性与注意事项**
+- 分析方法的局限性
+- 结果解读需注意的问题
+
+**7. 下一步分析建议**
+- 推荐 2-3 个后续分析方向
+- 简要说明每个方向的价值
+
+---
+
+## 格式要求
+- 使用适当的标题层级（##, ###）
+- 关键术语加粗
+- 数据用 `代码格式` 标注
+- 列表使用 - 或 1. 2. 3.
+- 整体风格专业、清晰、易读
+- 中英文部分分开标注"""
 
     # 5. 获取 LLM 配置
     config = session.get(SystemConfig, 1)
@@ -498,7 +541,7 @@ async def interpret_results(
     # 6. 流式生成解读结果
     async def event_generator():
         ai_full_response = ""
-        cost_credits = 0.5  # 解读任务收费较低
+        cost_credits = 1.0  # 解读任务收费
 
         try:
             from openai import AsyncOpenAI
@@ -506,19 +549,32 @@ async def interpret_results(
 
             log.info(f"🔍 [Interpret] 开始深度解读 - model={model_name}")
 
-            # 使用简单的系统提示，确保不生成策略卡片
+            # 专业系统提示，确保输出高质量报告
             stream = await client.chat.completions.create(
                 model=model_name,
                 messages=[
                     {
                         "role": "system",
-                        "content": "你是一位专业的生物信息学解读专家。你的任务是对分析结果进行深度解读。**重要：不要输出任何代码、不要生成策略卡片，只输出纯文本解读内容。**"
+                        "content": """你是一位资深的生物信息学分析报告撰写专家，具有丰富的学术论文写作经验。
+
+你的专长：
+- 撰写高质量的中英文图注（Figure Legend）
+- 撰写标准的中英文材料方法（Materials and Methods）
+- 进行深入的生物学意义解读
+- 提供专业的后续分析建议
+
+**重要规则**：
+1. 不要输出任何代码
+2. 不要生成策略卡片
+3. 只输出纯文本的专业报告
+4. 必须包含中英文图注和材料方法
+5. 格式美观，适合直接用于学术报告或论文草稿"""
                     },
                     {"role": "user", "content": interpret_prompt}
                 ],
                 stream=True,
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=4000
             )
 
             async for chunk in stream:
