@@ -26,6 +26,8 @@ const defaultShortcuts: Record<string, Shortcut> = {
   'toggle_task_center': { id: 'toggle_task_center', name: '切换任务中心', description: '查看后台超算节点的任务队列', key: 't', meta: true },
   'toggle_settings': { id: 'toggle_settings', name: '打开设置', description: '打开全局设置中心', key: ',', meta: true },
   'focus_input': { id: 'focus_input', name: '聚焦输入框', description: '快速将光标定位到聊天输入框', key: '/', ctrl: false },
+  'toggle_left_sidebar': { id: 'toggle_left_sidebar', name: '切换左侧栏', description: '展开或收起左侧导航面板', key: 'b', ctrl: true },
+  'toggle_right_sidebar': { id: 'toggle_right_sidebar', name: '切换右侧栏', description: '展开或收起右侧数据面板', key: 'j', ctrl: true },
 };
 
 export const useShortcutStore = create<ShortcutState>()(

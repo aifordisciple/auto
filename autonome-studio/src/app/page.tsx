@@ -11,7 +11,6 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 import { useUIStore } from "../store/useUIStore";
 import { Panel, Group, Separator } from "react-resizable-panels";
-import { useKeyboardShortcut } from "../hooks/useKeyboardShortcut";
 
 export default function AutonomeStudio() {
   const { token, user } = useAuthStore();
@@ -20,17 +19,24 @@ export default function AutonomeStudio() {
   const [mounted, setMounted] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string>("加载中...");
-  
+
   // 左右侧边栏开关状态
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
-  // 键盘快捷键
-  useKeyboardShortcut({ key: "b", ctrl: true }, () => setIsLeftSidebarOpen(p => !p));
-  useKeyboardShortcut({ key: "b", meta: true }, () => setIsLeftSidebarOpen(p => !p));
-  useKeyboardShortcut({ key: "j", ctrl: true }, () => setIsRightSidebarOpen(p => !p));
-  useKeyboardShortcut({ key: "j", meta: true }, () => setIsRightSidebarOpen(p => !p));
-  useKeyboardShortcut({ key: "Escape", shift: true }, () => window.location.href = '/');
+  // 监听侧栏切换事件（由 ShortcutManager 分发）
+  useEffect(() => {
+    const handleToggleLeft = () => setIsLeftSidebarOpen(p => !p);
+    const handleToggleRight = () => setIsRightSidebarOpen(p => !p);
+
+    window.addEventListener('shortcut-toggle-left-sidebar', handleToggleLeft);
+    window.addEventListener('shortcut-toggle-right-sidebar', handleToggleRight);
+
+    return () => {
+      window.removeEventListener('shortcut-toggle-left-sidebar', handleToggleLeft);
+      window.removeEventListener('shortcut-toggle-right-sidebar', handleToggleRight);
+    };
+  }, []);
 
   useEffect(() => {
     setMounted(true);

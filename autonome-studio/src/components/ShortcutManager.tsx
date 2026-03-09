@@ -27,6 +27,15 @@ export function ShortcutManager() {
     window.dispatchEvent(new CustomEvent('shortcut-focus-input'));
   });
 
+  // 3. 左右侧栏展开收缩快捷键
+  useKeyboardShortcut(shortcuts.toggle_left_sidebar, () => {
+    window.dispatchEvent(new CustomEvent('shortcut-toggle-left-sidebar'));
+  });
+
+  useKeyboardShortcut(shortcuts.toggle_right_sidebar, () => {
+    window.dispatchEvent(new CustomEvent('shortcut-toggle-right-sidebar'));
+  });
+
   // 这个组件是"隐形"的引擎，不渲染任何界面
   return null;
 }
