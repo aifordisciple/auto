@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput } from "lucide-react";
@@ -185,6 +185,13 @@ export function DataCenter() {
     isOpen: boolean;
     files: File[];
   }>({ isOpen: false, files: [] });
+
+  // ✨ 数据中心打开时自动获取文件
+  useEffect(() => {
+    if (isDataCenterOpen && currentProjectId) {
+      fetchProjectFiles(currentProjectId);
+    }
+  }, [isDataCenterOpen, currentProjectId, fetchProjectFiles]);
 
   // ✨ 批量模式状态
   const [isBatchMode, setIsBatchMode] = useState(false);
