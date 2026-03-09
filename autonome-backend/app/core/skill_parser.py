@@ -173,7 +173,9 @@ class SkillBundleParser:
 
         # 匹配表格行
         # 格式: | key | Type | Required/Yes/No | Default | Description |
-        table_row_pattern = r'\|\s*`?(\w+)`?\s*\|\s*(\w+(?:\([^)]*\))?)\s*\|\s*(是|Yes|否|No|Required|Optional)?\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|'
+        # 支持必填列格式: 是, 是, 否, 否, Required, Optional
+        # 排除标题行（包含"参数键名"）和分隔行（以|---开头）
+        table_row_pattern = r'\|\s*`?(\w+)`?\s*\|\s*(\w+(?:\([^)]*\))?)\s*\|\s*(是(?:\s*\(Yes\))?|Yes|否(?:\s*\(No\))?|No|Required|Optional)?\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|'
 
         for match in re.finditer(table_row_pattern, section_content):
             key = match.group(1)
@@ -182,11 +184,15 @@ class SkillBundleParser:
             default_str = match.group(4).strip() if match.group(4) else ""
             description = match.group(5).strip() if match.group(5) else ""
 
+            # 跳过表格标题行和分隔行
+            if key in ['参数键名', 'Key', 'key', '参数'] or type_str.startswith('-'):
+                continue
+
             # 转换类型
             json_type = self._convert_type_to_json(type_str)
 
-            # 判断是否必填
-            is_required = required_str.lower() in ['是', 'yes', 'required']
+            # 判断是否必填（支持 "是" 和 "是" 两种格式）
+            is_required = required_str.lower() in ['是', 'yes', 'required'] or required_str.startswith('是')
 
             # 构建属性
             prop = {
