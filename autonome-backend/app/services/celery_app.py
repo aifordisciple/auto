@@ -571,6 +571,97 @@ def run_custom_r_task(self, params: dict):
 # ==========================================
 # SKILL Bundle 执行任务 (双轨机制核心)
 # ==========================================
+
+def execute_nextflow_compiler(
+    payload: dict,
+    project_id: str,
+    task_id: str,
+    session_id: str,
+    log_msg: callable
+) -> dict:
+    """
+    执行 Nextflow 编译器 - 将逻辑蓝图编译为可执行的 Nextflow 流程
+
+    不使用递归调用 Celery 任务，而是直接执行编译器脚本
+    """
+    import tempfile
+
+    # 1. 获取 Nextflow Generator SKILL 的 bundle 路径
+    parser = get_skill_parser()
+    nf_skill = parser.get_skill_by_id("meta_nextflow_generator_01")
+
+    if not nf_skill:
+        raise RuntimeError("未找到 meta_nextflow_generator_01 SKILL")
+
+    bundle_path = nf_skill.get("bundle_path", "")
+    nf_compiler_script = os.path.join(bundle_path, "scripts", "nf_compiler.py")
+
+    log_msg(f"📂 Nextflow 编译器路径: {nf_compiler_script}")
+
+    if not os.path.exists(nf_compiler_script):
+        raise RuntimeError(f"Nextflow 编译器脚本不存在: {nf_compiler_script}")
+
+    # 2. 创建任务专属工作目录
+    task_short_id = str(task_id)[:8]
+    task_work_dir = f"/app/uploads/project_{project_id}/results/task_{task_short_id}"
+    os.makedirs(task_work_dir, exist_ok=True)
+    log_msg(f"📁 工作目录: {task_work_dir}")
+
+    # 3. 创建 payload JSON 文件
+    payload_file = os.path.join(task_work_dir, "pipeline_payload.json")
+    with open(payload_file, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    log_msg(f"📋 Payload 文件已创建: pipeline_payload.json")
+
+    # 4. 构建执行命令（通过命令行参数传递）
+    # nf_compiler.py 期望 --payload 和 --bundle_dir 参数
+    command = f'''
+import sys
+sys.argv = ['nf_compiler.py', '--payload', '{payload_file}', '--bundle_dir', '{bundle_path}']
+exec(open('{nf_compiler_script}').read())
+'''
+
+    log_msg("🚀 启动 Nextflow 编译器...")
+
+    # 5. 在 Docker 沙箱中执行
+    result_output, exit_code = run_container(
+        "autonome-tool-env",
+        command,
+        language="python",
+        environment={"TASK_OUT_DIR": task_work_dir, "PROJECT_ID": project_id}
+    )
+
+    # 6. 清理终端乱码并记录日志
+    if result_output:
+        result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+        result_output = re.sub(r'\[\?\d+[hl]', '', result_output)
+        result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
+        result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
+
+    for line in result_output.split('\n'):
+        if line.strip():
+            log_msg(f"  [NF] {line}")
+
+    if exit_code != 0:
+        raise RuntimeError(f"Nextflow 执行失败 (Exit: {exit_code})")
+
+    # 7. 扫描生成的文件
+    generated_files = []
+    if os.path.exists(task_work_dir):
+        for f in os.listdir(task_work_dir):
+            full_path = os.path.join(task_work_dir, f)
+            if os.path.isfile(full_path):
+                generated_files.append(f)
+
+    log_msg(f"📂 生成的文件: {generated_files}")
+
+    return {
+        "work_dir": task_work_dir,
+        "output": result_output,
+        "files": generated_files
+    }
+
+
 @celery_app.task(bind=True)
 def execute_bundle_task(self, payload: dict):
     """
@@ -598,6 +689,8 @@ def execute_bundle_task(self, payload: dict):
     log_msg = create_task_logger(task_id)
     log_msg(f"🚀 初始化 SKILL Bundle 引擎 (Task ID: {task_id})")
     log_msg(f"📦 目标 SKILL: {skill_id}")
+    log_msg(f"📁 项目 ID: {project_id}")
+    log_msg(f"📝 参数预览: {json.dumps(parameters, ensure_ascii=False)[:200]}...")
 
     try:
         # 1. 加载 SKILL Bundle
@@ -619,28 +712,68 @@ def execute_bundle_task(self, payload: dict):
         # 2. 处理 Logical_Blueprint 类型（交由 Nextflow Generator 接管）
         if executor_type == "Logical_Blueprint":
             log_msg("🔄 检测到逻辑蓝图类型，移交 Nextflow Generator...")
-            # 这里需要调用 meta_nextflow_generator SKILL
-            # 将当前参数包装为 pipeline_topology
-            pipeline_payload = {
-                "tool_id": "meta_nextflow_generator_01",
-                "project_id": project_id,
-                "parameters": {
+
+            # 构建 Nextflow 载荷
+            nf_payload = {
+                "params": {
                     "pipeline_topology": [{
                         "step_name": skill_id,
                         "tool_id": skill_id,
-                        "inputs": parameters,
+                        "inputs": parameters.get("inputs", []),
                         "outputs": {},
                         "params": parameters
                     }],
                     "compute_environment": parameters.get("compute_environment", "local"),
                     "resume_execution": parameters.get("resume_execution", True),
-                    "outdir": parameters.get("output_dir", f"/app/uploads/project_{project_id}/results/")
-                },
-                "session_id": session_id,
-                "message": user_message
+                    "outdir": parameters.get("output_dir", f"/app/uploads/project_{project_id}/results/"),
+                    "max_cpus": parameters.get("max_cpus", 16),
+                    "max_memory": parameters.get("max_memory", "64.GB")
+                }
             }
-            # 递归调用 execute_bundle_task
-            return execute_bundle_task(pipeline_payload)
+
+            log_msg(f"📋 Pipeline 载荷: {json.dumps(nf_payload, ensure_ascii=False)[:500]}")
+
+            # 直接调用编译器（不递归调用 Celery 任务）
+            try:
+                result = execute_nextflow_compiler(
+                    payload=nf_payload,
+                    project_id=project_id,
+                    task_id=task_id,
+                    session_id=session_id,
+                    log_msg=log_msg
+                )
+
+                # 写入完成消息
+                with Session(engine) as db:
+                    final_content = (
+                        f"✅ **Nextflow 流程执行完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"工作目录: `{result['work_dir']}`\n\n"
+                        f"### 📊 执行日志\n\n"
+                        f"```text\n{result['output']}\n```\n\n"
+                        f"### 📁 生成的文件\n\n"
+                        f"{chr(10).join(result['files'])}\n"
+                    )
+                    db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+                    db.commit()
+
+                log_msg("🎉 Nextflow 流程执行完成！")
+                return {"status": "success", "result": result}
+
+            except Exception as e:
+                error_msg = str(e)
+                log_msg(f"💥 执行失败: {error_msg}", level="ERROR")
+
+                # 写入错误消息
+                with Session(engine) as db:
+                    final_content = (
+                        f"❌ **Nextflow 流程执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"错误信息: {error_msg}\n\n"
+                        f"> *请检查参数配置或联系技术支持。*"
+                    )
+                    db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+                    db.commit()
+
+                return {"status": "error", "message": error_msg}
 
         # 3. 检查入口脚本是否存在
         if not entry_point or entry_point == "none":

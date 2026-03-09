@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, Box, Search, Play, Loader2, CheckCircle, XCircle, ChevronRight, ChevronDown, Folder } from "lucide-react";
+import { X, Box, Search, Play, Loader2, CheckCircle, XCircle, ChevronRight, ChevronDown, Terminal } from "lucide-react";
 import { BASE_URL } from "@/lib/api";
 import { toast } from 'sonner';
 import { FilePickerButton } from "@/components/FilePicker";
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 // ==========================================
 // 系统内置分类
@@ -104,9 +105,51 @@ export function SkillCenter() {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<string | null>(null);
 
+  // 实时日志状态
+  const [logs, setLogs] = useState<string[]>([]);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
   // 分类导航状态
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['quality_control']));
+
+  // 自动滚动日志
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  // 日志流式读取
+  useEffect(() => {
+    if (!taskId) return;
+
+    setLogs([]);
+    const controller = new AbortController();
+
+    const connectToLogStream = async () => {
+      try {
+        await fetchEventSource(`${BASE_URL}/api/tasks/${taskId}/logs/stream`, {
+          method: 'GET',
+          signal: controller.signal,
+          onmessage(event) {
+            if (event.event === 'log') {
+              const data = JSON.parse(event.data);
+              setLogs(prev => [...prev, data.text]);
+            } else if (event.event === 'done') {
+              controller.abort();
+            }
+          },
+          onerror(err) {
+            console.error('Log stream error:', err);
+          }
+        });
+      } catch (e) {
+        console.error('Failed to connect to log stream:', e);
+      }
+    };
+
+    connectToLogStream();
+    return () => controller.abort();
+  }, [taskId]);
 
   // 加载 SKILL 目录
   useEffect(() => {
@@ -566,6 +609,35 @@ export function SkillCenter() {
                         <span className="text-xs text-neutral-500 font-mono ml-auto">
                           Task: {taskId.slice(0, 8)}
                         </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 实时日志显示 */}
+                {taskId && (
+                  <div className="border-t border-neutral-800">
+                    <div className="p-3 border-b border-neutral-800 flex items-center gap-2 bg-neutral-900/30">
+                      <Terminal size={14} className="text-green-400" />
+                      <span className="text-xs font-medium text-neutral-400">执行日志</span>
+                      <span className="text-[10px] text-neutral-500 ml-auto font-mono">{logs.length} 行</span>
+                    </div>
+                    <div className="h-48 overflow-y-auto p-3 bg-neutral-950 font-mono text-xs text-green-400/90 custom-scrollbar">
+                      {logs.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-neutral-600 gap-2">
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>等待日志输出...</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {logs.map((log, i) => (
+                            <div key={i} className="hover:bg-white/5 px-1 py-0.5 rounded whitespace-pre-wrap">
+                              {log}
+                            </div>
+                          ))}
+                          <span className="animate-pulse inline-block w-2 h-3 bg-green-500 ml-1 align-middle"></span>
+                          <div ref={terminalEndRef} />
+                        </div>
                       )}
                     </div>
                   </div>
