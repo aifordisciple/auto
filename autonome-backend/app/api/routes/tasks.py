@@ -7,7 +7,7 @@ from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
-from app.services.celery_app import TASK_REGISTRY, redis_client, run_custom_python_task, celery_app
+from app.services.celery_app import TASK_REGISTRY, redis_client, run_custom_python_task, celery_app, execute_bundle_task
 from app.api.deps import get_current_user
 from app.models.domain import User
 
@@ -58,13 +58,24 @@ class TaskRunRequest(BaseModel):
 
 @router.post("/submit")
 async def submit_task(request: TaskSubmitRequest, current_user: User = Depends(get_current_user)):
-    """提交一个异步计算任务"""
-    if request.tool_id not in TASK_REGISTRY:
-        return {"status": "error", "message": f"Unknown tool: {request.tool_id}"}
-    
-    task_func = TASK_REGISTRY[request.tool_id]
-    task = task_func.delay(request.parameters)
-    
+    """提交一个异步计算任务（支持双轨机制）"""
+
+    # 【旧轨道】兼容老版本硬编码的管道工具
+    if request.tool_id in TASK_REGISTRY:
+        task_func = TASK_REGISTRY[request.tool_id]
+        task = task_func.delay(request.parameters)
+    # 【新轨道】高级 SKILL 调度引擎接管
+    else:
+        # 构建 SKILL Bundle 执行载荷
+        payload = {
+            "tool_id": request.tool_id,
+            "project_id": request.project_id,
+            "parameters": request.parameters,
+            "session_id": request.parameters.get("session_id", "1"),
+            "message": request.parameters.get("message", f"执行模块: {request.tool_id}")
+        }
+        task = execute_bundle_task.delay(payload)
+
     # 记录任务到用户任务列表 (Redis)
     task_info = {
         "task_id": task.id,

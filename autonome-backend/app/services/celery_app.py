@@ -6,6 +6,7 @@ import traceback
 import requests
 from celery import Celery
 import redis
+from jinja2 import Template
 
 from sqlmodel import Session
 from app.core.database import engine
@@ -15,6 +16,7 @@ from app.tools.bio_tools import run_container
 # ✨ 引入全局配置中心
 from app.core.config import settings
 from app.core.logger import log
+from app.core.skill_parser import get_skill_parser
 
 # 1. 初始化 Celery 实例
 celery_app = Celery(
@@ -563,6 +565,217 @@ def run_custom_r_task(self, params: dict):
         return {"status": "success"}
     except Exception as e:
         log_msg(f"💥 发生系统错误: {str(e)}", level="ERROR")
+        raise e
+
+
+# ==========================================
+# SKILL Bundle 执行任务 (双轨机制核心)
+# ==========================================
+@celery_app.task(bind=True)
+def execute_bundle_task(self, payload: dict):
+    """
+    SKILL Bundle 执行引擎 - 双轨机制的核心
+
+    根据 skill_id 加载对应的 SKILL Bundle，使用 Jinja2 模板渲染参数，
+    然后在 Docker 沙箱中执行。
+
+    payload 结构:
+    {
+        "tool_id": "skill_id",
+        "project_id": "1",
+        "parameters": {...},  # 用户提供的参数
+        "session_id": "1",
+        "message": "用户原始意图"
+    }
+    """
+    task_id = self.request.id
+    skill_id = payload.get("tool_id")
+    project_id = payload.get("project_id", "1")
+    parameters = payload.get("parameters", {})
+    session_id = payload.get("session_id", "1")
+    user_message = payload.get("message", f"执行模块: {skill_id}")
+
+    log_msg = create_task_logger(task_id)
+    log_msg(f"🚀 初始化 SKILL Bundle 引擎 (Task ID: {task_id})")
+    log_msg(f"📦 目标 SKILL: {skill_id}")
+
+    try:
+        # 1. 加载 SKILL Bundle
+        parser = get_skill_parser()
+        skill = parser.get_skill_by_id(skill_id)
+
+        if not skill:
+            log_msg(f"💥 未找到 SKILL: {skill_id}", level="ERROR")
+            return {"status": "error", "message": f"SKILL not found: {skill_id}"}
+
+        metadata = skill.get("metadata", {})
+        executor_type = metadata.get("executor_type", "Python_env")
+        entry_point = metadata.get("entry_point", "")
+        bundle_path = skill.get("bundle_path", "")
+
+        log_msg(f"📋 执行器类型: {executor_type}")
+        log_msg(f"📁 入口脚本: {entry_point}")
+
+        # 2. 处理 Logical_Blueprint 类型（交由 Nextflow Generator 接管）
+        if executor_type == "Logical_Blueprint":
+            log_msg("🔄 检测到逻辑蓝图类型，移交 Nextflow Generator...")
+            # 这里需要调用 meta_nextflow_generator SKILL
+            # 将当前参数包装为 pipeline_topology
+            pipeline_payload = {
+                "tool_id": "meta_nextflow_generator_01",
+                "project_id": project_id,
+                "parameters": {
+                    "pipeline_topology": [{
+                        "step_name": skill_id,
+                        "tool_id": skill_id,
+                        "inputs": parameters,
+                        "outputs": {},
+                        "params": parameters
+                    }],
+                    "compute_environment": parameters.get("compute_environment", "local"),
+                    "resume_execution": parameters.get("resume_execution", True),
+                    "outdir": parameters.get("output_dir", f"/app/uploads/project_{project_id}/results/")
+                },
+                "session_id": session_id,
+                "message": user_message
+            }
+            # 递归调用 execute_bundle_task
+            return execute_bundle_task(pipeline_payload)
+
+        # 3. 检查入口脚本是否存在
+        if not entry_point or entry_point == "none":
+            log_msg(f"💥 SKILL 缺少有效的 entry_point", level="ERROR")
+            return {"status": "error", "message": "No entry point defined"}
+
+        script_path = os.path.join(bundle_path, entry_point)
+        if not os.path.exists(script_path):
+            log_msg(f"💥 入口脚本不存在: {script_path}", level="ERROR")
+            return {"status": "error", "message": f"Entry script not found: {script_path}"}
+
+        # 4. 读取脚本模板
+        with open(script_path, 'r', encoding='utf-8') as f:
+            script_template = f.read()
+
+        # 5. 使用 Jinja2 渲染参数
+        # 注入系统级参数
+        render_context = {
+            **parameters,
+            "PROJECT_ID": project_id,
+            "TASK_ID": task_id,
+            "TASK_OUT_DIR": f"/app/uploads/project_{project_id}/results/task_{str(task_id)[:8]}"
+        }
+
+        try:
+            template = Template(script_template)
+            rendered_script = template.render(**render_context)
+        except Exception as e:
+            log_msg(f"💥 Jinja2 模板渲染失败: {e}", level="ERROR")
+            return {"status": "error", "message": f"Template rendering failed: {e}"}
+
+        log_msg("✅ 脚本模板渲染完成")
+
+        # 6. 创建任务专属输出目录
+        task_short_id = str(task_id)[:8]
+        task_dir_name = f"task_{task_short_id}"
+        task_out_dir = f"/app/uploads/project_{project_id}/results/{task_dir_name}"
+        os.makedirs(task_out_dir, exist_ok=True)
+        log_msg(f"📁 已分配专属输出目录: results/{task_dir_name}")
+
+        # 7. 根据执行器类型选择语言
+        language = "python"
+        if "python" in executor_type.lower():
+            language = "python"
+        elif "r" in executor_type.lower():
+            language = "r"
+        elif "bash" in executor_type.lower() or "shell" in executor_type.lower():
+            language = "bash"
+
+        # 8. 在 Docker 沙箱中执行
+        env = {"TASK_OUT_DIR": task_out_dir, "PROJECT_ID": project_id}
+        result_output, exit_code = run_container("autonome-tool-env", rendered_script, language=language, environment=env)
+
+        # 9. 终端乱码清理
+        if result_output:
+            result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
+            result_output = re.sub(r'\[\?\d+[hl]', '', result_output)
+            result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
+            result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
+
+        # 10. 处理执行结果
+        if exit_code != 0:
+            log_msg(f"💥 脚本执行失败 (Exit Code {exit_code})", level="ERROR")
+            with Session(engine) as db:
+                final_content = (
+                    f"❌ **SKILL 执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                    f"### ⚠️ 错误终端日志\n"
+                    f"```text\n{result_output}\n```\n\n"
+                    f"> *(请查阅上方报错信息，或联系技术支持。)*"
+                )
+                db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+                db.commit()
+            return {"status": "failure"}
+
+        log_msg("🎉 SKILL 执行成功！")
+
+        # 11. 扫描生成的文件
+        generated_files = []
+        if os.path.exists(task_out_dir):
+            for f in os.listdir(task_out_dir):
+                full_path = os.path.join(task_out_dir, f)
+                if os.path.isfile(full_path):
+                    generated_files.append(f)
+
+        log_msg(f"📂 检测到生成的文件: {generated_files}")
+
+        # 12. 构建文件列表 markdown
+        files_markdown = ""
+        for filename in generated_files:
+            container_path = f"/app/uploads/project_{project_id}/results/{task_dir_name}/{filename}"
+            files_markdown += f"{container_path}\n"
+
+        # 13. 生成图片 markdown
+        img_extensions = ('.png', '.pdf', '.jpg', '.jpeg', '.svg')
+        images = [f for f in generated_files if f.lower().endswith(img_extensions)]
+        if images:
+            first_img = images[0]
+            actual_filename = f"results/{task_dir_name}/{first_img}"
+            markdown_img = f"\n![Analysis_Result](/api/projects/{project_id}/files/{actual_filename}/view)\n"
+        else:
+            markdown_img = ""
+
+        # 14. 读取数据摘要
+        summary_path = f"{task_out_dir}/data_summary.txt"
+        data_summary = "暂无详细数据特征"
+        if os.path.exists(summary_path):
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                data_summary = f.read()
+
+        # 15. 生成专家解读
+        expert_report = generate_expert_report(user_message, rendered_script, data_summary)
+
+        # 16. 写入聊天消息
+        with Session(engine) as db:
+            skill_name = metadata.get("name", skill_id)
+            final_content = (
+                f"✅ **SKILL 执行完成: {skill_name} (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                f"---\n"
+                f"### 📊 执行日志\n\n"
+                f"```text\n{result_output}\n```\n"
+                f"{markdown_img}\n"
+                f"---\n"
+                f"### 📁 生成的文件资产\n\n"
+                f"{files_markdown}\n"
+                f"---\n"
+                f"{expert_report}"
+            )
+            db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+            db.commit()
+
+        return {"status": "success", "files": generated_files}
+
+    except Exception as e:
+        log_msg(f"💥 发生系统错误: {str(e)}", level="ERROR")
+        log.error(f"[execute_bundle_task] 任务执行异常: {traceback.format_exc()}")
         raise e
 
 

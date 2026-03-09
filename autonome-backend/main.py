@@ -10,7 +10,7 @@ from app.core.logger import log
 from app.models.domain import SystemConfig
 
 # ✨ 导入所有路由模块
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 
@@ -50,6 +50,7 @@ app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(public.router, prefix="/api/public", tags=["Public"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
+app.include_router(skills.router, prefix="/api/skills", tags=["Skills"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(public.router, prefix="/api/public", tags=["Public"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Play, Clock, CheckCircle, Loader2, XCircle } from "lucide-react";
+import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3 } from "lucide-react";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { BASE_URL } from "@/lib/api";
 
@@ -31,6 +31,13 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // ✨ 新增：可编辑参数状态
+  const [editableParams, setEditableParams] = useState<Record<string, unknown>>(data.parameters || {});
+  const [isEditingParams, setIsEditingParams] = useState(false);
+
+  // 判断是否为 SKILL 类型（非 execute-python/execute-r）
+  const isSkillType = data.tool_id !== 'execute-python' && data.tool_id !== 'execute-r';
 
   // Generate unique key for localStorage based on card data
   const cacheKey = `strategy_status_${currentProjectId}_${data.title}_${data.description?.slice(0, 20)}`;
@@ -129,9 +136,9 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 
     try {
       const token = localStorage.getItem('autonome_access_token');
-      
+
       let payload: Record<string, unknown>;
-      
+
       // Support both execute-python and execute-r
       if ((data.tool_id === 'execute-python' || data.tool_id === 'execute-r') && data.code) {
         payload = {
@@ -144,9 +151,10 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
           project_id: currentProjectId
         };
       } else {
+        // ✨ SKILL 类型：使用用户编辑后的参数
         payload = {
           tool_id: data.tool_id,
-          parameters: data.parameters || {},
+          parameters: editableParams,  // 使用 editableParams 替代 data.parameters
           project_id: currentProjectId
         };
       }
@@ -241,17 +249,72 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
         </div>
       )}
 
-      {/* Parameters Preview */}
+      // Parameters Preview - ✨ 支持动态编辑
       {data.parameters && Object.keys(data.parameters).length > 0 && (
         <div className="bg-gray-100 dark:bg-neutral-950/50 rounded-lg p-3 mb-4">
-          <p className="text-xs text-gray-500 dark:text-neutral-500 mb-2">Parameters</p>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(data.parameters).map(([key, value]) => (
-              <span key={key} className="text-xs bg-gray-200 dark:bg-neutral-800 px-2 py-1 rounded text-gray-700 dark:text-neutral-300">
-                <span className="text-gray-500 dark:text-neutral-500">{key}:</span> {String(value)}
-              </span>
-            ))}
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-gray-500 dark:text-neutral-500">Parameters</p>
+            {isSkillType && (
+              <button
+                onClick={() => setIsEditingParams(!isEditingParams)}
+                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400 transition-colors"
+              >
+                <Edit3 className="w-3 h-3" />
+                {isEditingParams ? 'Done' : 'Edit'}
+              </button>
+            )}
           </div>
+
+          {isEditingParams && isSkillType ? (
+            // ✨ 动态参数编辑表单
+            <div className="space-y-3">
+              {Object.entries(editableParams).map(([key, value]) => {
+                const isBool = typeof value === 'boolean' || value === 'true' || value === 'false';
+
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <label className="text-xs text-gray-600 dark:text-neutral-400 min-w-[120px]">
+                      {key}
+                    </label>
+                    {isBool ? (
+                      // 布尔值用下拉选择
+                      <select
+                        value={String(editableParams[key])}
+                        onChange={(e) => setEditableParams({
+                          ...editableParams,
+                          [key]: e.target.value === 'true'
+                        })}
+                        className="flex-1 px-2 py-1 text-xs bg-gray-200 dark:bg-neutral-800 border border-gray-300 dark:border-neutral-600 rounded text-gray-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    ) : (
+                      // 其他类型用输入框
+                      <input
+                        type="text"
+                        value={String(editableParams[key] ?? '')}
+                        onChange={(e) => setEditableParams({
+                          ...editableParams,
+                          [key]: e.target.value
+                        })}
+                        className="flex-1 px-2 py-1 text-xs bg-gray-200 dark:bg-neutral-800 border border-gray-300 dark:border-neutral-600 rounded text-gray-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            // 原有的参数展示
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(data.parameters).map(([key, value]) => (
+                <span key={key} className="text-xs bg-gray-200 dark:bg-neutral-800 px-2 py-1 rounded text-gray-700 dark:text-neutral-300">
+                  <span className="text-gray-500 dark:text-neutral-500">{key}:</span> {String(value)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
