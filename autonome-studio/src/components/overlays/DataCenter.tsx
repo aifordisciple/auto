@@ -587,7 +587,7 @@ export function DataCenter() {
             <div className="relative">
               <button
                 onClick={() => setShowUploadTargetSelector(!showUploadTargetSelector)}
-                disabled={isUploading || isSyncing || isBatchMode}
+                disabled={isSyncing || isBatchMode}
                 className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50"
               >
                 <Folder size={14} className="text-purple-400" />
