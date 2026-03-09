@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks } from "lucide-react";
+import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput } from "lucide-react";
 import { fetchAPI, BASE_URL } from "@/lib/api";
+import { CreateFolderModal } from "./CreateFolderModal";
+import { MoveFileModal } from "./MoveFileModal";
 
 // ==========================================
 // 辅助函数：根据文件名分配图标
@@ -35,7 +37,7 @@ const formatBytes = (bytes?: number) => {
 // ==========================================
 // 组件 1：递归渲染单个节点 (新增批量模式支持)
 // ==========================================
-const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, onPreview, isBatchMode, selectedPaths, toggleSelection }: any) => {
+const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, onPreview, isBatchMode, selectedPaths, toggleSelection, onContextMenu }: any) => {
   const isFolder = node.type === 'folder';
   const isExpanded = expandedFolders.has(node.path);
   const isProtectedRoot = isFolder && (node.path === 'raw_data' || node.path === 'results' || node.path === 'references');
@@ -43,6 +45,12 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
 
   // ✨ 是否允许被批量选中
   const isSelectable = !isProtectedRoot && !isReadOnly;
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, node);
+  };
 
   return (
     <div className="flex flex-col">
@@ -56,6 +64,7 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
             else onPreview(node.path);
           }
         }}
+        onContextMenu={handleContextMenu}
       >
         {/* ✨ 批量模式：复选框 */}
         {isBatchMode && isSelectable && (
@@ -104,6 +113,18 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
                 </button>
               </>
             )}
+            {/* 新增：新建文件夹按钮（仅文件夹显示） */}
+            {isFolder && !isReadOnly && (
+              <button onClick={(e) => { e.stopPropagation(); onContextMenu({ preventDefault: () => {}, stopPropagation: () => {} }, { ...node, _action: 'create_folder' }); }} className="p-1.5 text-neutral-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-md transition-all" title="新建文件夹">
+                <FolderPlus size={14} />
+              </button>
+            )}
+            {/* 新增：移动按钮 */}
+            {!isProtectedRoot && !isReadOnly && (
+              <button onClick={(e) => { e.stopPropagation(); onContextMenu({ preventDefault: () => {}, stopPropagation: () => {} }, { ...node, _action: 'move' }); }} className="p-1.5 text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all" title="移动到...">
+                <Move size={14} />
+              </button>
+            )}
             {!isProtectedRoot && !isFolder && !isReadOnly && (
               <button onClick={(e) => { e.stopPropagation(); onDelete(node.path); }} className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all" title="彻底删除">
                 <Trash2 size={14} />
@@ -134,6 +155,7 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
               isBatchMode={isBatchMode}           // ✨ 向下传递批量模式状态
               selectedPaths={selectedPaths}       // ✨ 向下传递选中项
               toggleSelection={toggleSelection}  // ✨ 向下传递切换函数
+              onContextMenu={onContextMenu}       // ✨ 向下传递右键菜单处理
             />
           ))}
         </div>
@@ -157,6 +179,67 @@ export function DataCenter() {
   // ✨ 批量模式状态
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+
+  // ✨ 右键菜单状态
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    node: any;
+  } | null>(null);
+
+  // ✨ 模态框状态
+  const [createFolderModal, setCreateFolderModal] = useState<{
+    isOpen: boolean;
+    parentPath: string;
+  }>({ isOpen: false, parentPath: '' });
+
+  const [moveFileModal, setMoveFileModal] = useState<{
+    isOpen: boolean;
+    sourcePath: string;
+    sourceName: string;
+    isFolder: boolean;
+  }>({ isOpen: false, sourcePath: '', sourceName: '', isFolder: false });
+
+  // ✨ 处理右键菜单
+  const handleContextMenu = useCallback((e: React.MouseEvent | { preventDefault: () => void; stopPropagation: () => void }, node: any) => {
+    // 如果是通过按钮触发的假事件，直接处理
+    if ('_action' in node) {
+      const action = node._action;
+      const actualNode = { ...node };
+      delete actualNode._action;
+
+      if (action === 'create_folder') {
+        setCreateFolderModal({ isOpen: true, parentPath: actualNode.path });
+      } else if (action === 'move') {
+        setMoveFileModal({
+          isOpen: true,
+          sourcePath: actualNode.path,
+          sourceName: actualNode.name,
+          isFolder: actualNode.type === 'folder'
+        });
+      }
+      return;
+    }
+
+    // 真实的右键菜单事件
+    setContextMenu({
+      x: e.clientX || 0,
+      y: e.clientY || 0,
+      node: node
+    });
+  }, []);
+
+  // ✨ 关闭右键菜单
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // ✨ 点击外部关闭右键菜单
+  React.useEffect(() => {
+    const handleClick = () => closeContextMenu();
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, [closeContextMenu]);
 
   // ✨ 切换文件选中状态
   const toggleSelection = (path: string) => {
@@ -337,6 +420,38 @@ export function DataCenter() {
     }
   };
 
+  // ✨ 执行右键菜单操作
+  const handleContextMenuAction = useCallback((action: string) => {
+    if (!contextMenu?.node) return;
+
+    const node = contextMenu.node;
+
+    switch (action) {
+      case 'create_folder':
+        setCreateFolderModal({ isOpen: true, parentPath: node.path });
+        break;
+      case 'move':
+        setMoveFileModal({
+          isOpen: true,
+          sourcePath: node.path,
+          sourceName: node.name,
+          isFolder: node.type === 'folder'
+        });
+        break;
+      case 'delete':
+        handleDeleteNode(node.path);
+        break;
+      case 'preview':
+        handlePreviewNode(node.path);
+        break;
+      case 'download':
+        handleDownloadNode(node.path);
+        break;
+    }
+
+    closeContextMenu();
+  }, [contextMenu, closeContextMenu]);
+
   const fileTree = useMemo(() => {
     const root: any = {};
     projectFiles.forEach(file => {
@@ -429,6 +544,7 @@ export function DataCenter() {
                   toggleExpand={toggleExpand} onDelete={handleDeleteNode} onDownload={handleDownloadNode}
                   onPreview={handlePreviewNode}
                   isBatchMode={isBatchMode} selectedPaths={selectedPaths} toggleSelection={toggleSelection}
+                  onContextMenu={handleContextMenu}
                 />
               ))}
             </div>
@@ -496,6 +612,114 @@ export function DataCenter() {
           </div>
         </div>
       )}
+
+      {/* ✨ 右键菜单 */}
+      {contextMenu && (
+        <div
+          className="fixed z-[150] bg-[#1a1a1c] border border-neutral-700 rounded-lg shadow-2xl py-1 min-w-[160px] animate-in fade-in-0 zoom-in-95 duration-150"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {(() => {
+            const node = contextMenu.node;
+            const isFolder = node.type === 'folder';
+            const isProtectedRoot = isFolder && (node.path === 'raw_data' || node.path === 'results' || node.path === 'references');
+            const isReadOnly = node.path.startsWith('references');
+            const canCreateFolder = isFolder && !isReadOnly;
+            const canMove = !isProtectedRoot && !isReadOnly;
+            const canDelete = !isProtectedRoot && !isFolder && !isReadOnly;
+
+            return (
+              <>
+                {/* 文件操作 */}
+                {!isFolder && (
+                  <>
+                    <button
+                      onClick={() => handleContextMenuAction('preview')}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                    >
+                      <Eye size={14} className="text-emerald-400" />
+                      预览
+                    </button>
+                    <button
+                      onClick={() => handleContextMenuAction('download')}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                    >
+                      <Download size={14} className="text-blue-400" />
+                      下载
+                    </button>
+                    <div className="h-px bg-neutral-800 my-1" />
+                  </>
+                )}
+
+                {/* 新建文件夹 */}
+                {canCreateFolder && (
+                  <button
+                    onClick={() => handleContextMenuAction('create_folder')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <FolderPlus size={14} className="text-purple-400" />
+                    新建文件夹
+                  </button>
+                )}
+
+                {/* 移动 */}
+                {canMove && (
+                  <button
+                    onClick={() => handleContextMenuAction('move')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <FolderInput size={14} className="text-blue-400" />
+                    移动到...
+                  </button>
+                )}
+
+                {/* 删除 */}
+                {canDelete && (
+                  <>
+                    <div className="h-px bg-neutral-800 my-1" />
+                    <button
+                      onClick={() => handleContextMenuAction('delete')}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                      删除
+                    </button>
+                  </>
+                )}
+
+                {/* 只读提示 */}
+                {isReadOnly && (
+                  <div className="px-3 py-2 text-xs text-neutral-500 flex items-center gap-2">
+                    <Lock size={12} />
+                    只读目录，禁止操作
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ✨ 创建文件夹模态框 */}
+      <CreateFolderModal
+        isOpen={createFolderModal.isOpen}
+        onClose={() => setCreateFolderModal({ isOpen: false, parentPath: '' })}
+        projectId={currentProjectId || ''}
+        parentPath={createFolderModal.parentPath}
+        onSuccess={() => currentProjectId && fetchProjectFiles(currentProjectId)}
+      />
+
+      {/* ✨ 移动文件模态框 */}
+      <MoveFileModal
+        isOpen={moveFileModal.isOpen}
+        onClose={() => setMoveFileModal({ isOpen: false, sourcePath: '', sourceName: '', isFolder: false })}
+        projectId={currentProjectId || ''}
+        sourcePath={moveFileModal.sourcePath}
+        sourceName={moveFileModal.sourceName}
+        isFolder={moveFileModal.isFolder}
+        onSuccess={() => currentProjectId && fetchProjectFiles(currentProjectId)}
+      />
 
     </div>
   );

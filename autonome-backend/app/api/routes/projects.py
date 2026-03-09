@@ -365,3 +365,255 @@ async def view_project_file(
         raise HTTPException(status_code=404, detail="文件不存在")
 
     return FileResponse(full_path)
+
+
+# ==========================================
+# 文件夹管理 API
+# ==========================================
+
+class CreateFolderRequest(BaseModel):
+    parent_path: str  # 父目录路径，如 "raw_data" 或 "raw_data/subfolder"
+    folder_name: str  # 新文件夹名称
+
+
+class MoveFileRequest(BaseModel):
+    source_path: str  # 源文件/文件夹路径
+    destination_path: str  # 目标目录路径
+    overwrite: bool = False  # 是否覆盖同名文件
+
+
+def validate_folder_name(name: str) -> str:
+    """验证文件夹名称合法性"""
+    # 禁止的字符
+    forbidden_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0']
+    for char in forbidden_chars:
+        if char in name:
+            raise HTTPException(status_code=400, detail=f"文件夹名称包含非法字符: {char}")
+
+    # 禁止的保留名
+    reserved_names = ['raw_data', 'results', 'references', 'con', 'prn', 'aux', 'nul']
+    if name.lower() in reserved_names:
+        raise HTTPException(status_code=400, detail="此名称为系统保留，不可使用")
+
+    # 长度限制
+    if len(name) == 0:
+        raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+    if len(name) > 255:
+        raise HTTPException(status_code=400, detail="文件夹名称过长，最多255个字符")
+
+    # 禁止以点开头
+    if name.startswith('.'):
+        raise HTTPException(status_code=400, detail="文件夹名称不能以点开头")
+
+    return name
+
+
+@router.post("/{project_id}/folders")
+async def create_folder(
+    project_id: str,
+    request: CreateFolderRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """创建新文件夹"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    # 1. 防御路径穿越
+    if ".." in request.parent_path or ".." in request.folder_name:
+        raise HTTPException(status_code=400, detail="非法的路径")
+
+    # 2. 验证文件夹名称
+    folder_name = validate_folder_name(request.folder_name)
+
+    # 3. 检查父目录是否在允许的区域内（只允许在 raw_data 和 results 下创建）
+    parent_path = request.parent_path.strip('/')
+    if not (parent_path == 'raw_data' or parent_path == 'results' or
+            parent_path.startswith('raw_data/') or parent_path.startswith('results/')):
+        raise HTTPException(status_code=403, detail="只能在 raw_data 或 results 目录下创建文件夹")
+
+    # 4. 禁止在 references 下创建
+    if parent_path.startswith('references'):
+        raise HTTPException(status_code=403, detail="全局参考库只读，禁止创建文件夹")
+
+    # 5. 禁止创建根目录
+    if parent_path == '' or parent_path == '.':
+        raise HTTPException(status_code=400, detail="禁止在项目根目录创建文件夹")
+
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    parent_full_path = project_dir / parent_path
+
+    # 6. 检查父目录是否存在
+    if not parent_full_path.exists() or not parent_full_path.is_dir():
+        raise HTTPException(status_code=404, detail="父目录不存在")
+
+    # 7. 检查是否已存在同名文件夹
+    new_folder_path = parent_full_path / folder_name
+    if new_folder_path.exists():
+        raise HTTPException(status_code=409, detail="同名文件夹已存在")
+
+    # 8. 创建文件夹
+    try:
+        new_folder_path.mkdir(parents=False, exist_ok=False)
+        log.info(f"创建文件夹成功: {new_folder_path}")
+        return {
+            "status": "success",
+            "message": "文件夹创建成功",
+            "data": {
+                "path": f"{parent_path}/{folder_name}",
+                "name": folder_name
+            }
+        }
+    except Exception as e:
+        log.error(f"创建文件夹失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"创建文件夹失败: {str(e)}")
+
+
+@router.post("/{project_id}/files/move")
+async def move_file(
+    project_id: str,
+    request: MoveFileRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """移动文件或文件夹到目标目录"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    # 1. 防御路径穿越
+    if ".." in request.source_path or ".." in request.destination_path:
+        raise HTTPException(status_code=400, detail="非法的路径")
+
+    source_path = request.source_path.strip('/')
+    dest_path = request.destination_path.strip('/')
+
+    # 2. 不能移动根目录
+    if source_path in ['raw_data', 'results', 'references']:
+        raise HTTPException(status_code=403, detail="禁止移动根目录")
+
+    # 3. 不能从/到 references 目录
+    if source_path.startswith('references'):
+        raise HTTPException(status_code=403, detail="全局参考库只读，禁止移动其中的文件")
+    if dest_path.startswith('references'):
+        raise HTTPException(status_code=403, detail="全局参考库只读，禁止移动文件到此")
+
+    # 4. 目标目录必须在允许的区域内
+    if not (dest_path == 'raw_data' or dest_path == 'results' or
+            dest_path.startswith('raw_data/') or dest_path.startswith('results/')):
+        raise HTTPException(status_code=403, detail="只能移动到 raw_data 或 results 目录下")
+
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    source_full = project_dir / source_path
+    dest_full = project_dir / dest_path
+
+    # 5. 检查源文件/文件夹是否存在
+    if not source_full.exists():
+        raise HTTPException(status_code=404, detail="源文件或文件夹不存在")
+
+    # 6. 检查目标目录是否存在
+    if not dest_full.exists() or not dest_full.is_dir():
+        raise HTTPException(status_code=404, detail="目标目录不存在")
+
+    # 7. 不能移动到自身或子目录
+    if source_full == dest_full:
+        raise HTTPException(status_code=400, detail="不能移动到自身")
+
+    # 如果源是目录，检查目标是否在源目录内（不能移动到自己的子目录）
+    if source_full.is_dir():
+        try:
+            dest_full.relative_to(source_full)
+            raise HTTPException(status_code=400, detail="不能移动到自身的子目录中")
+        except ValueError:
+            pass  # 目标不在源目录内，正常
+
+    # 8. 处理同名冲突
+    source_name = source_full.name
+    target_path = dest_full / source_name
+
+    if target_path.exists():
+        if not request.overwrite:
+            raise HTTPException(status_code=409, detail="目标位置已存在同名文件或文件夹，请选择覆盖或重命名")
+        # 覆盖模式：先删除目标
+        try:
+            if target_path.is_dir():
+                shutil.rmtree(target_path)
+            else:
+                target_path.unlink()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"删除目标文件失败: {str(e)}")
+
+    # 9. 执行移动
+    try:
+        shutil.move(str(source_full), str(target_path))
+        log.info(f"移动成功: {source_full} -> {target_path}")
+        return {
+            "status": "success",
+            "message": "移动成功",
+            "data": {
+                "old_path": source_path,
+                "new_path": f"{dest_path}/{source_name}"
+            }
+        }
+    except Exception as e:
+        log.error(f"移动失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"移动失败: {str(e)}")
+
+
+@router.get("/{project_id}/folders")
+async def get_folder_tree(
+    project_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取项目的文件夹树结构（用于目标选择器）"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问该项目")
+
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+
+    def build_tree(path: Path, rel_path: str = "") -> dict:
+        """递归构建文件夹树"""
+        result = {
+            "name": path.name,
+            "path": rel_path,
+            "writable": not rel_path.startswith("references"),
+            "children": []
+        }
+
+        if path.is_dir():
+            try:
+                for item in sorted(path.iterdir()):
+                    if item.is_dir() and not item.name.startswith('.'):
+                        child_rel_path = f"{rel_path}/{item.name}" if rel_path else item.name
+                        result["children"].append(build_tree(item, child_rel_path))
+            except PermissionError:
+                pass  # 忽略无权限的目录
+
+        return result
+
+    # 构建三个根目录的树
+    folders = []
+
+    for root_name in ['raw_data', 'results', 'references']:
+        root_path = project_dir / root_name
+        if root_name == 'references':
+            # references 是软链接，检查目标是否存在
+            global_ref = Path(settings.UPLOAD_DIR) / "global_references"
+            if not global_ref.exists():
+                global_ref.mkdir(parents=True, exist_ok=True)
+            if not root_path.exists() and not root_path.is_symlink():
+                try:
+                    os.symlink("../global_references", str(root_path))
+                except OSError:
+                    pass
+
+        if root_path.exists():
+            folders.append(build_tree(root_path, root_name))
+
+    return {
+        "status": "success",
+        "data": folders
+    }
