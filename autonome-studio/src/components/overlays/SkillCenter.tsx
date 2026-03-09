@@ -61,6 +61,7 @@ const BUILT_IN_CATEGORIES: Category[] = [
 // ==========================================
 interface SkillParameter {
   type: string;
+  format?: string;  // 原始类型信息：directorypath, filepath
   description?: string;
   default?: unknown;
 }
@@ -266,9 +267,10 @@ export function SkillCenter() {
   const renderParamInput = (key: string, prop: SkillParameter) => {
     const value = paramValues[key];
     const paramType = prop.type?.toLowerCase() || '';
+    const paramFormat = prop.format?.toLowerCase() || '';
 
-    // DirectoryPath / FilePath 类型：使用 FilePicker
-    if (paramType === 'directorypath' || paramType === 'string' && prop.description?.includes('目录') || prop.description?.includes('文件夹')) {
+    // DirectoryPath 类型：使用 FilePicker 选择目录
+    if (paramFormat === 'directorypath') {
       return (
         <FilePickerButton
           projectId={currentProjectId || ''}
@@ -280,7 +282,8 @@ export function SkillCenter() {
       );
     }
 
-    if (paramType === 'filepath' || (prop.description?.includes('文件') && !prop.description?.includes('目录'))) {
+    // FilePath 类型：使用 FilePicker 选择文件
+    if (paramFormat === 'filepath') {
       return (
         <FilePickerButton
           projectId={currentProjectId || ''}

@@ -200,6 +200,11 @@ class SkillBundleParser:
                 "description": description
             }
 
+            # 保留原始类型信息（用于前端渲染不同的UI组件）
+            type_lower = type_str.lower()
+            if type_lower in ['directorypath', 'filepath']:
+                prop["format"] = type_lower
+
             # 处理默认值
             if default_str and default_str.lower() not in ['', '无', 'none', 'n/a']:
                 prop["default"] = self._parse_default_value(default_str, json_type)

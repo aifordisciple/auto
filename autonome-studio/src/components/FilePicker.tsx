@@ -58,7 +58,9 @@ export function FilePicker({
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       const data = await res.json();
-      if (data.files) {
+      if (data.data) {
+        setFiles(data.data);
+      } else if (data.files) {
         setFiles(data.files);
       }
     } catch (e) {
