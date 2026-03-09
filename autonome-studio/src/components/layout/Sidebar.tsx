@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive, Sun, Moon } from "lucide-react";
+import { Settings, Zap, LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, CreditCard, HardDrive, Sun, Moon, Box } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { SessionSidebar } from "./SessionSidebar";
 
 export function Sidebar() {
-  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, isProjectCenterOpen, isDataCenterOpen, theme, toggleTheme } = useUIStore();
+  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, toggleSkillCenter, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, theme, toggleTheme } = useUIStore();
   const { user, logout } = useAuthStore();
   const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
@@ -76,6 +76,14 @@ export function Sidebar() {
           className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isDataCenterOpen ? 'bg-purple-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
         >
           <HardDrive size={18} /> <span>数据中心</span>
+        </div>
+
+        {/* ✨ Skill Center - 技能兵器库 */}
+        <div
+          onClick={toggleSkillCenter}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isSkillCenterOpen ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
+        >
+          <Box size={18} /> <span>技能中心</span>
         </div>
       </div>
 
