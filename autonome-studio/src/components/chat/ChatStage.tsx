@@ -655,14 +655,11 @@ export function ChatStage() {
                                 return <MarkdownBlock content={cleanText} />;
                               }
 
-                              // ✨ 提取文件路径 - 支持多种格式
+                              // ✨ 提取文件路径 - 只匹配真实结果路径（必须包含 results/task_）
+                              // 排除策略消息中的示例路径
                               const filePatterns = [
-                                // 格式1: /app/uploads/project_xxx/xxx.png
-                                /\/app\/uploads\/project_([a-zA-Z0-9_-]+)\/([^\s'"]+\.([a-zA-Z0-9]+))/gi,
-                                // 格式2: /app/uploads/xxx.png (无 project 目录)
-                                /\/app\/uploads\/([^\s'"]+\.([a-zA-Z0-9]+))/gi,
-                                // 格式3: 项目相关路径
-                                /project[s]?\/([a-zA-Z0-9_-]+)\/results\/([^\s'"]+\.([a-zA-Z0-9]+))/gi,
+                                // 真实结果路径格式: /app/uploads/project_xxx/results/task_xxx/xxx.png
+                                /\/app\/uploads\/project_([a-zA-Z0-9_-]+)\/(results\/task_[a-zA-Z0-9_-]+\/[^\s'"]+\.([a-zA-Z0-9]+))/gi,
                               ];
 
                               const files: { projectId: string, path: string, name: string, ext: string }[] = [];
