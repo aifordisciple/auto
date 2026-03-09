@@ -620,7 +620,7 @@ export function DataCenter() {
               <UploadCloud size={16} className="text-purple-400" />
               <span>上传</span>
             </button>
-            <button onClick={handleSync} disabled={isSyncing || isUploading || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg shadow-lg shadow-purple-500/20 transition-all disabled:opacity-50 group">
+            <button onClick={handleSync} disabled={isSyncing || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg shadow-lg shadow-purple-500/20 transition-all disabled:opacity-50 group">
               <RefreshCw size={16} className={isSyncing ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"} />
               <span>物理同步</span>
             </button>
