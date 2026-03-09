@@ -431,6 +431,10 @@ def run_custom_python_task(self, params: dict):
         with Session(engine) as db:
             final_content = (
                 f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                f"<!-- DEEP_INTERPRET_META\n"
+                f"USER_MESSAGE: {user_message}\n"
+                f"CODE_START\n{code}\nCODE_END\n"
+                f"DEEP_INTERPRET_META -->\n"
                 f"---\n"
                 f"### 📊 执行日志与图表\n\n"
                 f"```text\n{result_output}\n```\n"
@@ -539,6 +543,10 @@ def run_custom_r_task(self, params: dict):
         with Session(engine) as db:
             final_content = (
                 f"✅ **分析任务已完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                f"<!-- DEEP_INTERPRET_META\n"
+                f"USER_MESSAGE: {user_message}\n"
+                f"CODE_START\n{code}\nCODE_END\n"
+                f"DEEP_INTERPRET_META -->\n"
                 f"---\n"
                 f"### 📊 执行日志与图表\n\n"
                 f"```text\n{result_output}\n```\n"

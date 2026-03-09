@@ -117,7 +117,7 @@ const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, leve
 };
 
 // ✨ ExecutionResultCard - 生成资产树状卡片组件
-function ExecutionResultCard({ content, onInterpret }: { content: string, onInterpret: (files: string[]) => void }) {
+function ExecutionResultCard({ content, onInterpret }: { content: string, onInterpret: (files: string[], code: string, userMessage: string) => void }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   // 解析并提取所有后台物理路径
@@ -137,15 +137,29 @@ function ExecutionResultCard({ content, onInterpret }: { content: string, onInte
     }
   }
 
+  // ✨ 从消息内容中提取隐藏的元数据（用户消息和代码）
+  let extractedCode = '';
+  let extractedUserMessage = '';
+  const metaMatch = content.match(/<!-- DEEP_INTERPRET_META\n([\s\S]*?)DEEP_INTERPRET_META -->/);
+  if (metaMatch) {
+    const metaData = metaMatch[1];
+    const userMsgMatch = metaData.match(/USER_MESSAGE: (.*)/);
+    const codeMatch = metaData.match(/CODE_START\n([\s\S]*?)\nCODE_END/);
+    if (userMsgMatch) extractedUserMessage = userMsgMatch[1].trim();
+    if (codeMatch) extractedCode = codeMatch[1].trim();
+  }
+
   // 吃干抹净：将路径及多余的 Markdown 标记从原文本中彻底剔除
   let cleanContent = content.replace(fileRegex, '');
   cleanContent = cleanContent.replace(/\[.*?\]\(\)/g, ''); // 清理空的 markdown 链接
   cleanContent = cleanContent.replace(/^[-*+]\s*$/gm, ''); // 清理只剩下无序列表符号的空行
   cleanContent = cleanContent.replace(/^[\s\n]+$/g, ''); // 清理多余空行
+  // 清理隐藏的元数据
+  cleanContent = cleanContent.replace(/<!-- DEEP_INTERPRET_META[\s\S]*?DEEP_INTERPRET_META -->\n?/g, '');
   cleanContent = cleanContent.trim();
 
   // 如果没有检测到文件，降级为普通渲染
-  if (files.length === 0) return <MarkdownBlock content={content} />;
+  if (files.length === 0) return <MarkdownBlock content={cleanContent} />;
 
   const apiBase = BASE_URL.replace(/\/$/, '');
 
@@ -214,7 +228,7 @@ function ExecutionResultCard({ content, onInterpret }: { content: string, onInte
             onClick={() => {
               // 提取文件相对路径传递给 AI
               const relativePaths = files.map(f => f.path);
-              onInterpret(relativePaths);
+              onInterpret(relativePaths, extractedCode, extractedUserMessage);
             }}
             className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-900/20 to-indigo-900/20 hover:from-blue-600/20 hover:to-indigo-600/20 border border-blue-500/20 hover:border-blue-400/50 text-blue-300 hover:text-blue-200 text-sm font-medium flex items-center justify-center gap-2 transition-all group shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.2)]"
           >
@@ -349,11 +363,74 @@ export function ChatStage() {
     setPreviewData(null); setPreviewContent(null);
   };
 
-  // ✨ 深度解读函数 - 接收文件列表参数
-  const handleInterpret = async (files: string[] = []) => {
-    const interpretPrompt = "\n\n请对以上分析结果进行深度解读，包括：1) 主要发现和结论；2) 图表数据的生物学意义；3) 可能的临床或研究应用价值。";
-    // 将文件作为上下文传递给 AI
-    await handleSend(interpretPrompt, files);
+  // ✨ 深度解读函数 - 调用专用解读 API
+  const handleInterpret = async (files: string[] = [], code: string = '', userMessage: string = '') => {
+    if (!files.length || !code) {
+      // 降级：如果没有代码或文件，使用普通聊天
+      const interpretPrompt = "\n\n请对以上分析结果进行深度解读，包括：1) 主要发现和结论；2) 图表数据的生物学意义；3) 可能的临床或研究应用价值。";
+      await handleSend(interpretPrompt, files);
+      return;
+    }
+
+    // 添加用户消息提示
+    addMessage('user', '🧬 深度解读分析结果');
+    addMessage('assistant', '');
+    setIsTyping(true);
+    isStreamingRef.current = true;
+
+    try {
+      const token = localStorage.getItem('autonome_access_token');
+
+      await fetchEventSource(`${BASE_URL}/api/chat/interpret`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          project_id: currentProjectId,
+          session_id: currentSessionId,
+          user_message: userMessage || '分析任务',
+          code: code,
+          files: files
+        }),
+        openWhenHidden: true,
+        onopen: async (res) => {
+          if (!res.ok || res.status !== 200) {
+            throw new Error(`Server responded with ${res.status}`);
+          }
+        },
+        onmessage(event) {
+          if (event.event === 'message') {
+            const data = JSON.parse(event.data);
+            appendLastMessage(data.content);
+          } else if (event.event === 'billing') {
+            const data = JSON.parse(event.data);
+            updateCredits(data.balance);
+          } else if (event.event === 'done') {
+            isStreamingRef.current = false;
+            setIsTyping(false);
+          }
+        },
+        onclose() {
+          isStreamingRef.current = false;
+          setIsTyping(false);
+        },
+        onerror(err) {
+          isStreamingRef.current = false;
+          setIsTyping(false);
+          console.error("Interpret Error:", err);
+          appendLastMessage("\n\n**[系统错误]** 深度解读服务异常，请稍后重试。");
+          throw err;
+        }
+      });
+    } catch (error) {
+      isStreamingRef.current = false;
+      setIsTyping(false);
+      console.error('[Interpret] Error:', error);
+      appendLastMessage("\n\n**[系统错误]** 深度解读请求失败。");
+    }
   };
 
   // Fetch messages when session changes
@@ -702,17 +779,31 @@ export function ChatStage() {
                                 }));
                                 // 提取文件相对路径用于深度解读
                                 const filePaths = files.map(f => f.path);
+
+                                // ✨ 从消息内容中提取隐藏的元数据（用户消息和代码）
+                                let extractedCode = '';
+                                let extractedUserMessage = '';
+                                const metaMatch = msg.content.match(/<!-- DEEP_INTERPRET_META\n([\s\S]*?)DEEP_INTERPRET_META -->/);
+                                if (metaMatch) {
+                                  const metaData = metaMatch[1];
+                                  const userMsgMatch = metaData.match(/USER_MESSAGE: (.*)/);
+                                  const codeMatch = metaData.match(/CODE_START\n([\s\S]*?)\nCODE_END/);
+                                  if (userMsgMatch) extractedUserMessage = userMsgMatch[1].trim();
+                                  if (codeMatch) extractedCode = codeMatch[1].trim();
+                                }
+
                                 return (
                                   <AssetTreeCard
                                     links={links}
                                     onPreview={handlePreviewAsset}
                                     onDownload={handleDownloadAsset}
-                                    onInterpret={() => handleInterpret(filePaths)}
+                                    onInterpret={() => handleInterpret(filePaths, extractedCode, extractedUserMessage)}
                                   />
                                 );
                               } else {
-                                // 无文件时降级为普通渲染
-                                return <MarkdownBlock content={msg.content} />;
+                                // 无文件时降级为普通渲染，清理隐藏元数据
+                                const cleanedContent = msg.content.replace(/<!-- DEEP_INTERPRET_META[\s\S]*?DEEP_INTERPRET_META -->\n?/g, '');
+                                return <MarkdownBlock content={cleanedContent} />;
                               }
                             })()}
 
