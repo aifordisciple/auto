@@ -177,19 +177,38 @@ async def get_chat_history(project_id: str, session: Session = Depends(get_sessi
     return {"status": "success", "data": messages}
 
 @router.post("/{project_id}/files")
-async def upload_file(project_id: str, file: UploadFile = File(...), session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+async def upload_file(
+    project_id: str,
+    file: UploadFile = File(...),
+    target_path: str = "raw_data",  # ✨ 新增：目标路径参数，默认 raw_data
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
     project = session.get(Project, project_id)
     if not project or project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作该项目")
 
-    # ✨ 创建项目专属文件夹: /app/uploads/project_{project_id}/raw_data
+    # ✨ 安全检查：防止路径穿越
+    if ".." in target_path or target_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="非法的目标路径")
+
+    # ✨ 只允许上传到 raw_data 或 results 目录下
+    if not (target_path == "raw_data" or target_path == "results" or
+            target_path.startswith("raw_data/") or target_path.startswith("results/")):
+        raise HTTPException(status_code=403, detail="只能上传到 raw_data 或 results 目录下")
+
+    # ✨ 禁止上传到 references 目录
+    if target_path.startswith("references"):
+        raise HTTPException(status_code=403, detail="全局参考库只读，禁止上传文件")
+
+    # ✨ 创建项目专属文件夹
     project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
-    raw_data_dir = project_dir / "raw_data"  # ✨ 目标存入原始数据区
-    raw_data_dir.mkdir(parents=True, exist_ok=True)
-    
-    # ✨ 文件保存在 raw_data 目录里
-    file_path = raw_data_dir / file.filename
-    
+    target_dir = project_dir / target_path
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # ✨ 文件保存在目标目录里
+    file_path = target_dir / file.filename
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 

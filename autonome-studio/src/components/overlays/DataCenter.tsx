@@ -176,6 +176,10 @@ export function DataCenter() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
+  // ✨ 上传目标路径
+  const [uploadTargetPath, setUploadTargetPath] = useState<string>('raw_data');
+  const [showUploadTargetSelector, setShowUploadTargetSelector] = useState(false);
+
   // ✨ 批量模式状态
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -405,6 +409,7 @@ export function DataCenter() {
       const uploadPromises = Array.from(files).map(async (file) => {
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("target_path", uploadTargetPath);  // ✨ 添加目标路径
         return fetchAPI(`/api/projects/${currentProjectId}/files`, {
           method: 'POST',
           body: formData
@@ -419,6 +424,32 @@ export function DataCenter() {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
+
+  // ✨ 获取可上传的文件夹列表（raw_data 和 results 下的所有文件夹）
+  const uploadableFolders = useMemo(() => {
+    const folders: { path: string; name: string; depth: number }[] = [
+      { path: 'raw_data', name: 'raw_data', depth: 0 },
+      { path: 'results', name: 'results', depth: 0 }
+    ];
+
+    projectFiles.forEach(item => {
+      const itemPath = (item as any).path;
+      const itemType = (item as any).type;
+
+      // 只添加 raw_data 和 results 下的文件夹
+      if (itemType === 'folder' &&
+          (itemPath.startsWith('raw_data/') || itemPath.startsWith('results/'))) {
+        const parts = itemPath.split('/');
+        folders.push({
+          path: itemPath,
+          name: parts[parts.length - 1],
+          depth: parts.length - 1
+        });
+      }
+    });
+
+    return folders;
+  }, [projectFiles]);
 
   // ✨ 执行右键菜单操作
   const handleContextMenuAction = useCallback((action: string) => {
@@ -551,6 +582,38 @@ export function DataCenter() {
               <ListChecks size={16} />
               <span>{isBatchMode ? '退出批量' : '批量管理'}</span>
             </button>
+
+            {/* ✨ 上传目标选择器 */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUploadTargetSelector(!showUploadTargetSelector)}
+                disabled={isUploading || isSyncing || isBatchMode}
+                className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50"
+              >
+                <Folder size={14} className="text-purple-400" />
+                <span className="max-w-[80px] truncate">{uploadTargetPath.split('/').pop()}</span>
+                <ChevronDown size={12} />
+              </button>
+
+              {showUploadTargetSelector && (
+                <div className="absolute top-full left-0 mt-1 bg-[#1a1a1c] border border-neutral-700 rounded-lg shadow-2xl py-1 min-w-[200px] max-h-64 overflow-y-auto z-50">
+                  {uploadableFolders.map(folder => (
+                    <button
+                      key={folder.path}
+                      onClick={() => {
+                        setUploadTargetPath(folder.path);
+                        setShowUploadTargetSelector(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-neutral-800 transition-colors flex items-center gap-2 ${uploadTargetPath === folder.path ? 'text-purple-400 bg-purple-500/10' : 'text-neutral-300'}`}
+                      style={{ paddingLeft: `${12 + folder.depth * 12}px` }}
+                    >
+                      <Folder size={14} className="shrink-0" />
+                      <span className="truncate">{folder.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <input type="file" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
             <button onClick={() => fileInputRef.current?.click()} disabled={isUploading || isSyncing || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50">
