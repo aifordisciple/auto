@@ -7,6 +7,7 @@ import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, Chevr
 import { fetchAPI, BASE_URL } from "@/lib/api";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { MoveFileModal } from "./MoveFileModal";
+import { UploadManager } from "./UploadManager";
 
 // ==========================================
 // 辅助函数：根据文件名分配图标
@@ -174,11 +175,16 @@ export function DataCenter() {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results', 'references']));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
 
   // ✨ 上传目标路径
   const [uploadTargetPath, setUploadTargetPath] = useState<string>('raw_data');
   const [showUploadTargetSelector, setShowUploadTargetSelector] = useState(false);
+
+  // ✨ 上传管理器状态
+  const [uploadManagerState, setUploadManagerState] = useState<{
+    isOpen: boolean;
+    files: File[];
+  }>({ isOpen: false, files: [] });
 
   // ✨ 批量模式状态
   const [isBatchMode, setIsBatchMode] = useState(false);
@@ -400,29 +406,23 @@ export function DataCenter() {
     setTimeout(() => setIsSyncing(false), 600);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0 || !currentProjectId) return;
+    if (!files || files.length === 0) return;
 
-    setIsUploading(true);
-    try {
-      const uploadPromises = Array.from(files).map(async (file) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("target_path", uploadTargetPath);  // ✨ 添加目标路径
-        return fetchAPI(`/api/projects/${currentProjectId}/files`, {
-          method: 'POST',
-          body: formData
-        });
-      });
-      await Promise.all(uploadPromises);
-      await handleSync();
-    } catch (error: any) {
-      alert(`❌ 数据中心上传失败: ${error.message}`);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    // 打开上传管理器
+    setUploadManagerState({
+      isOpen: true,
+      files: Array.from(files)
+    });
+
+    // 清空input以便可以再次选择相同文件
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUploadComplete = () => {
+    setUploadManagerState({ isOpen: false, files: [] });
+    handleSync();
   };
 
   // ✨ 获取可上传的文件夹列表（raw_data 和 results 下的所有文件夹）
@@ -615,9 +615,9 @@ export function DataCenter() {
               )}
             </div>
 
-            <input type="file" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading || isSyncing || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50">
-              {isUploading ? <Loader2 size={16} className="animate-spin text-purple-400" /> : <UploadCloud size={16} className="text-purple-400" />}
+            <input type="file" multiple ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+            <button onClick={() => fileInputRef.current?.click()} disabled={isSyncing || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm rounded-lg border border-neutral-700 transition-all disabled:opacity-50">
+              <UploadCloud size={16} className="text-purple-400" />
               <span>上传</span>
             </button>
             <button onClick={handleSync} disabled={isSyncing || isUploading || isBatchMode} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg shadow-lg shadow-purple-500/20 transition-all disabled:opacity-50 group">
@@ -816,6 +816,16 @@ export function DataCenter() {
         sourceName={moveFileModal.sourceName}
         isFolder={moveFileModal.isFolder}
         onSuccess={() => currentProjectId && fetchProjectFiles(currentProjectId)}
+      />
+
+      {/* ✨ 上传管理器 */}
+      <UploadManager
+        isOpen={uploadManagerState.isOpen}
+        onClose={() => setUploadManagerState({ isOpen: false, files: [] })}
+        projectId={currentProjectId || ''}
+        targetPath={uploadTargetPath}
+        files={uploadManagerState.files}
+        onComplete={handleUploadComplete}
       />
 
     </div>

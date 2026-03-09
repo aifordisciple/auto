@@ -2,7 +2,7 @@ import os
 import shutil
 import secrets
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -180,7 +180,7 @@ async def get_chat_history(project_id: str, session: Session = Depends(get_sessi
 async def upload_file(
     project_id: str,
     file: UploadFile = File(...),
-    target_path: str = "raw_data",  # ✨ 新增：目标路径参数，默认 raw_data
+    target_path: str = Form("raw_data"),  # ✨ 使用Form接收参数
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
@@ -233,6 +233,266 @@ async def upload_file(
     session.commit()
     session.refresh(new_file)
     return {"status": "success", "data": new_file}
+
+
+# ==========================================
+# 分段上传 API（支持大文件和断点续传）
+# ==========================================
+
+import uuid
+import json
+from typing import Optional
+
+# 临时存储上传会话信息（生产环境应使用Redis）
+UPLOAD_SESSIONS: dict = {}
+
+class UploadSessionInit(BaseModel):
+    filename: str
+    file_size: int
+    chunk_size: int = 5 * 1024 * 1024  # 默认5MB
+    target_path: str = "raw_data"
+
+class ChunkUploadInfo(BaseModel):
+    upload_id: str
+    chunk_index: int
+    total_chunks: int
+
+@router.post("/{project_id}/uploads/init")
+async def init_upload(
+    project_id: str,
+    info: UploadSessionInit,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """初始化分段上传会话"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    # 安全检查
+    if ".." in info.target_path or info.target_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="非法的目标路径")
+    if not (info.target_path == "raw_data" or info.target_path == "results" or
+            info.target_path.startswith("raw_data/") or info.target_path.startswith("results/")):
+        raise HTTPException(status_code=403, detail="只能上传到 raw_data 或 results 目录下")
+
+    # 生成唯一上传ID
+    upload_id = str(uuid.uuid4())
+
+    # 计算总分段数
+    total_chunks = (info.file_size + info.chunk_size - 1) // info.chunk_size
+
+    # 创建临时目录存放分段
+    temp_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}" / ".chunks" / upload_id
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    # 保存会话信息
+    UPLOAD_SESSIONS[upload_id] = {
+        "filename": info.filename,
+        "file_size": info.file_size,
+        "chunk_size": info.chunk_size,
+        "total_chunks": total_chunks,
+        "target_path": info.target_path,
+        "project_id": project_id,
+        "uploaded_chunks": [],
+        "temp_dir": str(temp_dir),
+        "created_at": os.path.getmtime(temp_dir) if temp_dir.exists() else None
+    }
+
+    # 保存会话信息到文件（用于服务重启后恢复）
+    session_file = temp_dir / "session.json"
+    with open(session_file, "w") as f:
+        json.dump(UPLOAD_SESSIONS[upload_id], f)
+
+    return {
+        "status": "success",
+        "upload_id": upload_id,
+        "total_chunks": total_chunks,
+        "chunk_size": info.chunk_size
+    }
+
+
+@router.post("/{project_id}/uploads/chunk")
+async def upload_chunk(
+    project_id: str,
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    chunk: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """上传单个分段"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    # 获取或恢复会话信息
+    upload_info = UPLOAD_SESSIONS.get(upload_id)
+    if not upload_info:
+        # 尝试从文件恢复
+        temp_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}" / ".chunks" / upload_id
+        session_file = temp_dir / "session.json"
+        if session_file.exists():
+            with open(session_file, "r") as f:
+                upload_info = json.load(f)
+                UPLOAD_SESSIONS[upload_id] = upload_info
+        else:
+            raise HTTPException(status_code=404, detail="上传会话不存在或已过期")
+
+    if upload_info["project_id"] != project_id:
+        raise HTTPException(status_code=400, detail="上传会话不属于此项目")
+
+    # 保存分段文件
+    temp_dir = Path(upload_info["temp_dir"])
+    chunk_file = temp_dir / f"chunk_{chunk_index}"
+
+    with open(chunk_file, "wb") as buffer:
+        shutil.copyfileobj(chunk.file, buffer)
+
+    # 更新已上传分段列表
+    if chunk_index not in upload_info["uploaded_chunks"]:
+        upload_info["uploaded_chunks"].append(chunk_index)
+
+    # 更新会话文件
+    session_file = temp_dir / "session.json"
+    with open(session_file, "w") as f:
+        json.dump(upload_info, f)
+
+    return {
+        "status": "success",
+        "chunk_index": chunk_index,
+        "uploaded_count": len(upload_info["uploaded_chunks"]),
+        "total_chunks": upload_info["total_chunks"]
+    }
+
+
+@router.post("/{project_id}/uploads/complete")
+async def complete_upload(
+    project_id: str,
+    upload_id: str = Form(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """完成上传，合并所有分段"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    upload_info = UPLOAD_SESSIONS.get(upload_id)
+    if not upload_info:
+        temp_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}" / ".chunks" / upload_id
+        session_file = temp_dir / "session.json"
+        if session_file.exists():
+            with open(session_file, "r") as f:
+                upload_info = json.load(f)
+        else:
+            raise HTTPException(status_code=404, detail="上传会话不存在")
+
+    # 检查所有分段是否已上传
+    if len(upload_info["uploaded_chunks"]) != upload_info["total_chunks"]:
+        missing = set(range(upload_info["total_chunks"])) - set(upload_info["uploaded_chunks"])
+        raise HTTPException(status_code=400, detail=f"缺少分段: {sorted(missing)}")
+
+    # 合并分段
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    target_dir = project_dir / upload_info["target_path"]
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    final_path = target_dir / upload_info["filename"]
+    temp_dir = Path(upload_info["temp_dir"])
+
+    with open(final_path, "wb") as outfile:
+        for i in range(upload_info["total_chunks"]):
+            chunk_file = temp_dir / f"chunk_{i}"
+            with open(chunk_file, "rb") as infile:
+                shutil.copyfileobj(infile, outfile)
+
+    # 清理临时文件
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    if upload_id in UPLOAD_SESSIONS:
+        del UPLOAD_SESSIONS[upload_id]
+
+    # 记录到数据库
+    file_ext = upload_info["filename"].split('.')[-1].lower() if '.' in upload_info["filename"] else ''
+    file_type_map = {
+        'fastq': 'fastq', 'fq': 'fastq', 'gz': 'fastq',
+        'bam': 'bam', 'sam': 'bam',
+        'csv': 'csv', 'tsv': 'csv', 'xlsx': 'csv',
+        'vcf': 'vcf', 'h5ad': 'h5ad'
+    }
+    file_type = file_type_map.get(file_ext, 'other')
+
+    new_file = DataFile(
+        filename=upload_info["filename"],
+        file_path=str(final_path),
+        file_size=upload_info["file_size"],
+        file_type=file_type,
+        project_id=project_id
+    )
+    session.add(new_file)
+    session.commit()
+    session.refresh(new_file)
+
+    return {
+        "status": "success",
+        "message": "上传完成",
+        "data": new_file
+    }
+
+
+@router.get("/{project_id}/uploads/{upload_id}/status")
+async def get_upload_status(
+    project_id: str,
+    upload_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取上传状态（用于断点续传）"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    upload_info = UPLOAD_SESSIONS.get(upload_id)
+    if not upload_info:
+        temp_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}" / ".chunks" / upload_id
+        session_file = temp_dir / "session.json"
+        if session_file.exists():
+            with open(session_file, "r") as f:
+                upload_info = json.load(f)
+                UPLOAD_SESSIONS[upload_id] = upload_info
+        else:
+            return {"status": "not_found", "message": "上传会话不存在"}
+
+    return {
+        "status": "success",
+        "upload_id": upload_id,
+        "filename": upload_info["filename"],
+        "total_chunks": upload_info["total_chunks"],
+        "uploaded_chunks": upload_info["uploaded_chunks"],
+        "missing_chunks": list(set(range(upload_info["total_chunks"])) - set(upload_info["uploaded_chunks"]))
+    }
+
+
+@router.delete("/{project_id}/uploads/{upload_id}")
+async def cancel_upload(
+    project_id: str,
+    upload_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """取消上传，清理临时文件"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    temp_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}" / ".chunks" / upload_id
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    if upload_id in UPLOAD_SESSIONS:
+        del UPLOAD_SESSIONS[upload_id]
+
+    return {"status": "success", "message": "上传已取消"}
 
 @router.get("/{project_id}/files")
 async def get_project_files(project_id: str, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
