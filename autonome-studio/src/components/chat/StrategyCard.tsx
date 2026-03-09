@@ -35,18 +35,13 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   // Generate unique key for localStorage based on card data
   const cacheKey = `strategy_status_${currentProjectId}_${data.title}_${data.description?.slice(0, 20)}`;
 
-  // Load cached status on mount (only if there's NO code to execute)
+  // Load cached status on mount
   useEffect(() => {
-    // Only use cached status if this card doesn't have executable code
-    if (data.code && data.code.length > 0) {
-      return; // Don't load cache for executable cards
-    }
-    
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
         const cachedData = JSON.parse(cached);
-        if (cachedData.taskStatus === 'SUCCESS') {
+        if (cachedData.taskId && cachedData.taskStatus) {
           setTaskId(cachedData.taskId);
           setTaskStatus(cachedData.taskStatus);
         }
@@ -54,7 +49,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
         // Invalid cache, ignore
       }
     }
-  }, [cacheKey, data.code]);
+  }, [cacheKey]);
 
   // Cleanup WebSocket on unmount
   useEffect(() => {
@@ -316,8 +311,24 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             )}
           </>
         ) : (
-          <div className="text-sm text-gray-500 dark:text-neutral-400">
-            Task ID: <code className="bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400">{taskId.slice(0, 8)}...</code>
+          <div className="flex items-center gap-3 w-full">
+            {/* 完成状态徽章 */}
+            {taskStatus === 'SUCCESS' && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-500/30 rounded-lg">
+                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <span className="text-sm font-medium text-green-700 dark:text-green-300">执行完成</span>
+              </div>
+            )}
+            {taskStatus === 'FAILURE' && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-500/30 rounded-lg">
+                <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                <span className="text-sm font-medium text-red-700 dark:text-red-300">执行失败</span>
+              </div>
+            )}
+            {/* 任务 ID */}
+            <div className="text-sm text-gray-500 dark:text-neutral-400">
+              Task ID: <code className="bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono">{taskId.slice(0, 8)}</code>
+            </div>
           </div>
         )}
       </div>
