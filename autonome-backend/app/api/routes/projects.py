@@ -250,8 +250,27 @@ async def get_project_files(project_id: str, session: Session = Depends(get_sess
             pass  # 忽略操作系统不支持或已存在的情况
 
     files = []
+    directories = []  # ✨ 新增：记录目录列表
+
     # 5. 核心修复：必须加 followlinks=True 才能穿透软链接，读取共享库里的文件
-    for root, _, filenames in os.walk(project_dir, followlinks=True):
+    for root, dirs, filenames in os.walk(project_dir, followlinks=True):
+        # 记录当前目录下的所有子目录
+        for dir_name in dirs:
+            full_dir_path = Path(root) / dir_name
+            rel_dir_path = full_dir_path.relative_to(project_dir)
+
+            # 过滤掉隐藏系统目录
+            if dir_name.startswith('.'):
+                continue
+
+            # 兼容 Windows 系统的路径分隔符
+            normalized_dir_path = str(rel_dir_path).replace('\\', '/')
+            directories.append({
+                "name": dir_name,
+                "path": normalized_dir_path,
+                "type": "folder"
+            })
+
         for filename in filenames:
             full_path = Path(root) / filename
             rel_path = full_path.relative_to(project_dir)
@@ -265,11 +284,15 @@ async def get_project_files(project_id: str, session: Session = Depends(get_sess
             files.append({
                 "name": filename,
                 "path": normalized_path,
+                "type": "file",
                 "size": full_path.stat().st_size,
                 "url": f"/api/projects/{project_id}/files/{normalized_path}/view"
             })
 
-    return {"status": "success", "data": files}
+    # 合并文件和目录，目录在前
+    all_items = directories + files
+
+    return {"status": "success", "data": all_items}
 
 @router.delete("/{project_id}/files/{file_path:path}")
 async def delete_project_file(

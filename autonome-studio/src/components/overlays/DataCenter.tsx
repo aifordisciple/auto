@@ -454,24 +454,58 @@ export function DataCenter() {
 
   const fileTree = useMemo(() => {
     const root: any = {};
+
+    // 第一遍：创建所有目录节点（包括空目录）
+    projectFiles.forEach(item => {
+      const itemPath = (item as any).path || (item as any).filename;
+      const itemType = (item as any).type || 'file';
+
+      if (itemType === 'folder') {
+        const parts = itemPath.split('/');
+        let currentLevel = root;
+
+        parts.forEach((part: string, idx: number) => {
+          if (!currentLevel[part]) {
+            currentLevel[part] = {
+              name: part,
+              path: parts.slice(0, idx + 1).join('/'),
+              type: 'folder',
+              children: {},
+              fileData: null
+            };
+          }
+          currentLevel = currentLevel[part].children;
+        });
+      }
+    });
+
+    // 第二遍：添加文件节点
     projectFiles.forEach(file => {
       const filePath = (file as any).path || file.filename;
-      const parts = filePath.split('/');
-      let currentLevel = root;
+      const fileType = (file as any).type || 'file';
 
-      parts.forEach((part: string, idx: number) => {
-        if (!currentLevel[part]) {
-          currentLevel[part] = {
-            name: part,
-            path: parts.slice(0, idx + 1).join('/'),
-            type: idx === parts.length - 1 ? 'file' : 'folder',
-            children: {},
-            fileData: idx === parts.length - 1 ? file : null
-          };
-        }
-        currentLevel = currentLevel[part].children;
-      });
+      if (fileType === 'file') {
+        const parts = filePath.split('/');
+        let currentLevel = root;
+
+        parts.forEach((part: string, idx: number) => {
+          if (!currentLevel[part]) {
+            currentLevel[part] = {
+              name: part,
+              path: parts.slice(0, idx + 1).join('/'),
+              type: idx === parts.length - 1 ? 'file' : 'folder',
+              children: {},
+              fileData: idx === parts.length - 1 ? file : null
+            };
+          } else if (idx === parts.length - 1) {
+            // 更新已存在的节点信息（文件）
+            currentLevel[part].fileData = file;
+          }
+          currentLevel = currentLevel[part].children;
+        });
+      }
     });
+
     return root;
   }, [projectFiles]);
 
