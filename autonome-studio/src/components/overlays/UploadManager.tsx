@@ -181,13 +181,15 @@ export function UploadManager({ isOpen, onClose, projectId, targetPath, files, o
     }
 
     setIsProcessing(false);
+  };
 
-    // 检查是否全部完成
-    const allCompleted = tasks.every(t => t.status === 'completed');
-    if (allCompleted) {
+  // 监听任务状态变化，全部完成时触发回调
+  useEffect(() => {
+    if (tasks.length > 0 && tasks.every(t => t.status === 'completed')) {
       onComplete();
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks]);
 
   // 暂停上传
   const pauseTask = (taskId: string) => {
