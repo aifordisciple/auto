@@ -22,6 +22,7 @@ interface UIState {
   toggleSkillCenter: () => void;
   openSkillCenter: () => void;
   closeSkillCenter: () => void;
+  openDataCenter: () => void;
   closeAllOverlays: () => void;
 }
 
@@ -48,6 +49,7 @@ export const useUIStore = create<UIState>()(
       toggleSkillCenter: () => set((state) => ({ isSkillCenterOpen: !state.isSkillCenterOpen, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false })),
       openSkillCenter: () => set({ isSkillCenterOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false }),
       closeSkillCenter: () => set({ isSkillCenterOpen: false }),
+      openDataCenter: () => set({ isDataCenterOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isControlPanelOpen: false, isSkillCenterOpen: false }),
 
       closeAllOverlays: () => set({ isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillCenterOpen: false })
     }),

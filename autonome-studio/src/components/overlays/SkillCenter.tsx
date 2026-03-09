@@ -3,8 +3,58 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, Box, Search, Play, Loader2, CheckCircle, XCircle, Clock, ChevronRight } from "lucide-react";
+import { X, Box, Search, Play, Loader2, CheckCircle, XCircle, ChevronRight, ChevronDown, Folder } from "lucide-react";
 import { BASE_URL } from "@/lib/api";
+import { toast } from 'sonner';
+import { FilePickerButton } from "@/components/FilePicker";
+
+// ==========================================
+// 系统内置分类
+// ==========================================
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  subcategories?: Category[];
+}
+
+const BUILT_IN_CATEGORIES: Category[] = [
+  { id: 'all', name: '全部', icon: '📦' },
+  {
+    id: 'quality_control',
+    name: '质量控制',
+    icon: '🔬',
+    subcategories: [
+      { id: 'fastq_qc', name: 'FastQ质控', icon: '' },
+      { id: 'bam_qc', name: 'BAM质控', icon: '' },
+      { id: 'vcf_qc', name: 'VCF质控', icon: '' }
+    ]
+  },
+  {
+    id: 'alignment',
+    name: '序列比对',
+    icon: '🧬',
+    subcategories: [
+      { id: 'dna_align', name: 'DNA比对', icon: '' },
+      { id: 'rna_align', name: 'RNA比对', icon: '' }
+    ]
+  },
+  {
+    id: 'quantification',
+    name: '定量分析',
+    icon: '📊'
+  },
+  {
+    id: 'visualization',
+    name: '可视化',
+    icon: '📈'
+  },
+  {
+    id: 'pipeline',
+    name: '流程编排',
+    icon: '⚙️'
+  }
+];
 
 // ==========================================
 // 类型定义
@@ -30,13 +80,18 @@ interface Skill {
   timeout_seconds: number;
   parameters_schema: SkillSchema;
   bundle_name: string;
+  category?: string;
+  category_name?: string;
+  subcategory?: string;
+  subcategory_name?: string;
+  tags?: string[];
 }
 
 // ==========================================
-// 主组件：SKILL 中心
+// 主组件：SKILL 兵器库
 // ==========================================
 export function SkillCenter() {
-  const { isSkillCenterOpen, closeAllOverlays } = useUIStore();
+  const { isSkillCenterOpen, closeAllOverlays, openDataCenter } = useUIStore();
   const { currentProjectId, currentSessionId } = useWorkspaceStore();
 
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -47,6 +102,10 @@ export function SkillCenter() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<string | null>(null);
+
+  // 分类导航状态
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['quality_control']));
 
   // 加载 SKILL 目录
   useEffect(() => {
@@ -84,23 +143,49 @@ export function SkillCenter() {
     }
   }, [selectedSkill]);
 
-  // 过滤 SKILL 列表
+  // 根据分类过滤 SKILL
+  const filteredByCategory = useMemo(() => {
+    if (selectedCategory === 'all') return skills;
+    return skills.filter(s => {
+      if (s.category === selectedCategory) return true;
+      if (s.subcategory === selectedCategory) return true;
+      return false;
+    });
+  }, [skills, selectedCategory]);
+
+  // 根据搜索词过滤
   const filteredSkills = useMemo(() => {
-    if (!searchQuery) return skills;
+    if (!searchQuery) return filteredByCategory;
     const query = searchQuery.toLowerCase();
-    return skills.filter(s =>
+    return filteredByCategory.filter(s =>
       s.name.toLowerCase().includes(query) ||
-      s.skill_id.toLowerCase().includes(query)
+      s.skill_id.toLowerCase().includes(query) ||
+      (s.tags && s.tags.some(tag => tag.toLowerCase().includes(query)))
     );
-  }, [skills, searchQuery]);
+  }, [filteredByCategory, searchQuery]);
+
+  // 切换分类展开状态
+  const toggleCategoryExpand = (categoryId: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
+  };
 
   // 执行 SKILL
   const handleExecute = async () => {
-    if (!selectedSkill) return;
+    if (!selectedSkill || !currentProjectId) {
+      toast.error('请先选择项目');
+      return;
+    }
 
     setIsExecuting(true);
     setTaskId(null);
     setTaskStatus(null);
+
+    toast.loading('正在提交任务...', { id: 'skill-exec' });
 
     try {
       const token = localStorage.getItem('autonome_access_token');
@@ -126,14 +211,17 @@ export function SkillCenter() {
       const result = await res.json();
       if (result.status === 'submitted') {
         setTaskId(result.task_id);
+        toast.success('任务已提交，正在后台执行', { id: 'skill-exec' });
         pollTaskStatus(result.task_id);
       } else {
         setTaskStatus('FAILURE');
         setIsExecuting(false);
+        toast.error('任务提交失败', { id: 'skill-exec' });
       }
     } catch (e) {
       setTaskStatus('FAILURE');
       setIsExecuting(false);
+      toast.error('任务提交失败，请检查网络连接', { id: 'skill-exec' });
     }
   };
 
@@ -145,13 +233,25 @@ export function SkillCenter() {
         const data = await res.json();
         setTaskStatus(data.status);
 
-        if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
+        if (data.status === 'SUCCESS') {
           setIsExecuting(false);
-          if (data.status === 'SUCCESS') {
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('refresh-chat'));
-            }, 500);
-          }
+          toast.success('SKILL执行完成！', {
+            id: 'skill-complete',
+            description: '结果已保存到输出目录',
+            action: {
+              label: '查看结果',
+              onClick: () => openDataCenter?.()
+            }
+          });
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('refresh-chat'));
+          }, 500);
+        } else if (data.status === 'FAILURE') {
+          setIsExecuting(false);
+          toast.error('SKILL执行失败', {
+            id: 'skill-failed',
+            description: '请检查参数或联系技术支持'
+          });
         } else {
           setTimeout(poll, 2000);
         }
@@ -165,9 +265,35 @@ export function SkillCenter() {
   // 渲染参数表单控件
   const renderParamInput = (key: string, prop: SkillParameter) => {
     const value = paramValues[key];
-    const isBool = prop.type === 'boolean';
+    const paramType = prop.type?.toLowerCase() || '';
 
-    if (isBool) {
+    // DirectoryPath / FilePath 类型：使用 FilePicker
+    if (paramType === 'directorypath' || paramType === 'string' && prop.description?.includes('目录') || prop.description?.includes('文件夹')) {
+      return (
+        <FilePickerButton
+          projectId={currentProjectId || ''}
+          value={String(value || '')}
+          onChange={(path) => setParamValues({ ...paramValues, [key]: path })}
+          type="directory"
+          placeholder="选择目录..."
+        />
+      );
+    }
+
+    if (paramType === 'filepath' || (prop.description?.includes('文件') && !prop.description?.includes('目录'))) {
+      return (
+        <FilePickerButton
+          projectId={currentProjectId || ''}
+          value={String(value || '')}
+          onChange={(path) => setParamValues({ ...paramValues, [key]: path })}
+          type="file"
+          placeholder="选择文件..."
+        />
+      );
+    }
+
+    // Boolean 类型：下拉选择
+    if (paramType === 'boolean') {
       return (
         <select
           value={String(value ?? false)}
@@ -180,14 +306,28 @@ export function SkillCenter() {
       );
     }
 
+    // Number/Integer 类型：数字输入
+    if (paramType === 'number' || paramType === 'integer') {
+      return (
+        <input
+          type="number"
+          value={String(value ?? '')}
+          onChange={(e) => setParamValues({
+            ...paramValues,
+            [key]: paramType === 'integer' ? parseInt(e.target.value) || 0 : parseFloat(e.target.value) || 0
+          })}
+          placeholder={prop.description || key}
+          className="w-full px-3 py-2 text-sm bg-neutral-800 border border-neutral-700 rounded-lg text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-neutral-500"
+        />
+      );
+    }
+
+    // 默认：文本输入
     return (
       <input
-        type={prop.type === 'number' || prop.type === 'integer' ? 'number' : 'text'}
+        type="text"
         value={String(value ?? '')}
-        onChange={(e) => setParamValues({
-          ...paramValues,
-          [key]: prop.type === 'number' || prop.type === 'integer' ? Number(e.target.value) : e.target.value
-        })}
+        onChange={(e) => setParamValues({ ...paramValues, [key]: e.target.value })}
         placeholder={prop.description || key}
         className="w-full px-3 py-2 text-sm bg-neutral-800 border border-neutral-700 rounded-lg text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-neutral-500"
       />
@@ -200,7 +340,7 @@ export function SkillCenter() {
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
 
-      <div className="relative w-[700px] h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-[900px] h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* Header */}
         <div className="h-16 shrink-0 border-b border-neutral-800 px-6 flex items-center justify-between bg-neutral-900/40">
@@ -218,9 +358,69 @@ export function SkillCenter() {
           </button>
         </div>
 
-        {/* Main Content */}
+        {/* Main Content: 三列布局 */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel: SKILL List */}
+          {/* Left Panel: 分类导航 (180px) */}
+          <div className="w-[180px] border-r border-neutral-800 flex flex-col bg-neutral-900/20">
+            <div className="p-3 border-b border-neutral-800">
+              <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">分类导航</h3>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+              {BUILT_IN_CATEGORIES.map((category) => {
+                const isExpanded = expandedCategories.has(category.id);
+                const isSelected = selectedCategory === category.id;
+                const hasSubcategories = category.subcategories && category.subcategories.length > 0;
+
+                return (
+                  <div key={category.id}>
+                    <button
+                      onClick={() => {
+                        setSelectedCategory(category.id);
+                        if (hasSubcategories) {
+                          toggleCategoryExpand(category.id);
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 ${
+                        isSelected
+                          ? 'bg-blue-500/10 border border-blue-500/30 text-blue-300'
+                          : 'hover:bg-neutral-800/50 text-neutral-400'
+                      }`}
+                    >
+                      <span className="text-sm">{category.icon}</span>
+                      <span className="text-xs font-medium flex-1">{category.name}</span>
+                      {hasSubcategories && (
+                        <span className="text-neutral-500">
+                          {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* 子分类 */}
+                    {hasSubcategories && isExpanded && (
+                      <div className="ml-4 mt-1 space-y-0.5">
+                        {category.subcategories!.map((sub) => (
+                          <button
+                            key={sub.id}
+                            onClick={() => setSelectedCategory(sub.id)}
+                            className={`w-full text-left px-3 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
+                              selectedCategory === sub.id
+                                ? 'bg-blue-500/10 text-blue-300'
+                                : 'hover:bg-neutral-800/50 text-neutral-500'
+                            }`}
+                          >
+                            <span className="text-[10px]">{sub.icon || '•'}</span>
+                            <span className="text-xs">{sub.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Middle Panel: SKILL 列表 (280px) */}
           <div className="w-[280px] border-r border-neutral-800 flex flex-col">
             {/* Search */}
             <div className="p-3 border-b border-neutral-800">
@@ -263,7 +463,14 @@ export function SkillCenter() {
                         <Box size={16} className="shrink-0 mt-0.5 opacity-60" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{skill.name}</p>
-                          <p className="text-[10px] text-neutral-500 font-mono truncate mt-0.5">{skill.skill_id}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-[10px] text-neutral-500 font-mono truncate">{skill.skill_id}</p>
+                            {skill.category_name && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400">
+                                {skill.category_name}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <ChevronRight size={14} className="shrink-0 opacity-40" />
                       </div>
@@ -274,7 +481,7 @@ export function SkillCenter() {
             </div>
           </div>
 
-          {/* Right Panel: SKILL Detail & Parameters */}
+          {/* Right Panel: 参数配置面板 (flex-1) */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {selectedSkill ? (
               <>
@@ -292,6 +499,18 @@ export function SkillCenter() {
                       by {selectedSkill.author}
                     </span>
                   </div>
+                  {selectedSkill.category_name && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs text-neutral-400">分类:</span>
+                      <span className="text-xs text-neutral-300">{selectedSkill.category_name}</span>
+                      {selectedSkill.subcategory_name && (
+                        <>
+                          <ChevronRight size={10} className="text-neutral-500" />
+                          <span className="text-xs text-neutral-300">{selectedSkill.subcategory_name}</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Parameters Form */}
@@ -353,7 +572,7 @@ export function SkillCenter() {
                 <div className="p-4 border-t border-neutral-800">
                   <button
                     onClick={handleExecute}
-                    disabled={isExecuting}
+                    disabled={isExecuting || !currentProjectId}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
                   >
                     {isExecuting ? (

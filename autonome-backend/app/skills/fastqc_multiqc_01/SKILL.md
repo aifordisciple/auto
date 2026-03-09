@@ -12,6 +12,12 @@ author: "BioData Core Analysis Team"
 executor_type: "Logical_Blueprint"        # 声明为逻辑蓝图，提示系统此节点需交由 Nextflow_Generator 转化为 .nf 脚本
 entry_point: "none"                       # 无直接执行脚本，由下游调度引擎接管
 timeout_seconds: 7200                     # 预估处理大量样本可能需要较长时间
+# 分类信息
+category: "quality_control"               # 一级分类ID
+category_name: "质量控制"                  # 一级分类显示名
+subcategory: "fastq_qc"                   # 二级分类ID
+subcategory_name: "FastQ质控"             # 二级分类显示名
+tags: ["fastqc", "multiqc", "quality"]    # 标签，用于搜索
 ---
 
 ## 1. 技能意图与功能边界 (Intent & Scope)

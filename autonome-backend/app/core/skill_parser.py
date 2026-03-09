@@ -123,6 +123,13 @@ class SkillBundleParser:
                 clean_yaml = '\n'.join(yaml_lines)
 
                 metadata = yaml.safe_load(clean_yaml)
+                if metadata:
+                    # 提取分类信息
+                    metadata['category'] = metadata.get('category', 'general')
+                    metadata['category_name'] = metadata.get('category_name', '通用')
+                    metadata['subcategory'] = metadata.get('subcategory')
+                    metadata['subcategory_name'] = metadata.get('subcategory_name')
+                    metadata['tags'] = metadata.get('tags', [])
                 return metadata if metadata else {}
             except yaml.YAMLError as e:
                 log.error(f"[SkillParser] YAML 解析错误: {e}")
