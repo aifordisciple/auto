@@ -81,7 +81,8 @@ const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, leve
   return (
     <div className="flex flex-col">
       <div
-        className={`flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-[#2d2d30]/80 rounded-md cursor-pointer group transition-colors ${level > 0 ? 'ml-3 border-l border-gray-200 dark:border-gray-700 pl-3' : ''}`}
+        className={`flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-[#2d2d30]/80 rounded-md cursor-pointer group transition-colors`}
+        style={level > 0 ? { marginLeft: `${level * 16}px`, borderLeft: '1px solid', borderLeftColor: level > 1 ? 'transparent' : undefined, paddingLeft: '12px' } : {}}
         onClick={() => isFolder ? setIsExpanded(!isExpanded) : onPreview(node.url, node.name)}
       >
         {isFolder ? (
@@ -243,6 +244,13 @@ function ExecutionResultCard({ content, onInterpret }: { content: string, onInte
 
 // ✨ 升级版树状卡片，带有解读按钮
 const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {url: string, title: string}[], onPreview: any, onDownload: any, onInterpret?: () => void }) => {
+  // 提取任务 ID（从第一个文件的路径中）
+  const taskId = useMemo(() => {
+    if (links.length === 0) return null;
+    const match = links[0].title.match(/task_([a-zA-Z0-9]+)/);
+    return match ? match[1] : null;
+  }, [links]);
+
   const tree = useMemo(() => {
     const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
     links.forEach(link => {
@@ -267,7 +275,14 @@ const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {
     <div className="w-full max-w-xl mt-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm dark:shadow-none overflow-hidden flex flex-col">
       <div className="px-4 py-2.5 bg-gray-50 dark:bg-[#252528] border-b border-gray-200 dark:border-[#2d2d30] flex items-center gap-2 shrink-0">
         <FolderOpen size={16} className="text-purple-500" />
-        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">生成的分析资产 (Output Assets)</span>
+        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+          生成的分析资产 (Output Assets)
+          {taskId && (
+            <span className="ml-2 text-xs font-mono text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded">
+              Task: {taskId}
+            </span>
+          )}
+        </span>
         <span className="text-xs bg-gray-200 dark:bg-black/30 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full ml-auto">{links.length} files</span>
       </div>
       <div className="p-2 max-h-64 overflow-y-auto custom-scrollbar">
