@@ -43,7 +43,18 @@ export const useShortcutStore = create<ShortcutState>()(
       resetToDefault: () => set({ shortcuts: defaultShortcuts }),
     }),
     {
-      name: 'autonome-shortcuts-storage', // 持久化到 localStorage
+      name: 'autonome-shortcuts-storage',
+      // ✨ 合并策略：将默认快捷键与已保存的合并，确保新添加的快捷键也能显示
+      merge: (persisted, current) => {
+        const persistedShortcuts = (persisted as any)?.shortcuts || {};
+        return {
+          ...current,
+          shortcuts: {
+            ...defaultShortcuts,  // 先放默认值（确保新快捷键存在）
+            ...persistedShortcuts, // 再用用户保存的覆盖
+          }
+        };
+      },
     }
   )
 );
