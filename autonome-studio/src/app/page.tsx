@@ -5,12 +5,10 @@ import { Sidebar } from "../components/layout/Sidebar";
 import { SessionSidebar } from "../components/layout/SessionSidebar";
 import { TopHeader } from "../components/layout/TopHeader";
 import { ChatStage } from "../components/chat/ChatStage";
-import { RightPanel } from "../components/RightPanel";
 import { GlobalOverlay } from "../components/GlobalOverlay";
 import { useAuthStore } from "../store/useAuthStore";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 import { useUIStore } from "../store/useUIStore";
-import { Panel, Group, Separator } from "react-resizable-panels";
 
 export default function AutonomeStudio() {
   const { token, user } = useAuthStore();
@@ -20,21 +18,17 @@ export default function AutonomeStudio() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string>("加载中...");
 
-  // 左右侧边栏开关状态
+  // 左侧边栏开关状态
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
   // 监听侧栏切换事件（由 ShortcutManager 分发）
   useEffect(() => {
     const handleToggleLeft = () => setIsLeftSidebarOpen(p => !p);
-    const handleToggleRight = () => setIsRightSidebarOpen(p => !p);
 
     window.addEventListener('shortcut-toggle-left-sidebar', handleToggleLeft);
-    window.addEventListener('shortcut-toggle-right-sidebar', handleToggleRight);
 
     return () => {
       window.removeEventListener('shortcut-toggle-left-sidebar', handleToggleLeft);
-      window.removeEventListener('shortcut-toggle-right-sidebar', handleToggleRight);
     };
   }, []);
 
@@ -48,7 +42,7 @@ export default function AutonomeStudio() {
       window.location.href = '/login';
       return;
     }
-    
+
     const currentId = localStorage.getItem('autonome_current_project_id');
     if (!currentId) {
       // 没有选中的项目，自动打开项目中心让用户选择
@@ -128,41 +122,19 @@ export default function AutonomeStudio() {
       )}
 
       {/* 主工作区 */}
-      <div className="flex-1 flex overflow-hidden">
-        <Group orientation="horizontal">
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* 顶栏 */}
+        <TopHeader
+          projectName={projectName}
+          isLeftOpen={isLeftSidebarOpen}
+          onToggleLeft={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+          onShare={() => {}}
+        />
 
-          {/* 中栏：聊天主舞台 */}
-          <Panel defaultSize={isRightSidebarOpen ? 80 : 100} minSize={40} className="flex flex-col bg-white dark:bg-[#131314]">
-
-            {/* 顶栏 */}
-            <TopHeader
-              projectName={projectName}
-              isLeftOpen={isLeftSidebarOpen}
-              isRightOpen={isRightSidebarOpen}
-              onToggleLeft={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
-              onToggleRight={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-              onShare={() => {}}
-            />
-
-            {/* 聊天主容器 */}
-            <div className="flex-1 overflow-hidden w-full relative">
-              <ChatStage />
-            </div>
-
-          </Panel>
-
-          {/* 右侧边栏与分隔条 - 根据 isRightSidebarOpen 条件渲染 */}
-          {isRightSidebarOpen && (
-            <>
-              <Separator className="w-1 bg-gray-200 dark:bg-[#2d2d30] hover:bg-blue-500/50 transition-colors cursor-col-resize" />
-
-              <Panel defaultSize={20} minSize={15} className="bg-gray-50 dark:bg-[#1e1e20] border-l border-gray-200 dark:border-[#2d2d30] flex flex-col">
-                <RightPanel />
-              </Panel>
-            </>
-          )}
-
-        </Group>
+        {/* 聊天主容器 */}
+        <div className="flex-1 overflow-hidden w-full relative">
+          <ChatStage />
+        </div>
       </div>
     </main>
   );

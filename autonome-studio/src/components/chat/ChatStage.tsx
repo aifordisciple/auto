@@ -307,7 +307,7 @@ const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {
 };
 
 export function ChatStage() {
-  const { currentProjectId, mountedFiles, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
+  const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
   const { messages, addMessage, setMessages, appendLastMessage, isTyping, setIsTyping } = useChatStore();
   const { updateCredits } = useAuthStore();
 
@@ -577,7 +577,7 @@ export function ChatStage() {
         body: JSON.stringify({
           project_id: currentProjectId,
           message: currentInput,
-          context_files: contextFiles || mountedFiles,  // 使用传入的文件或默认挂载文件
+          context_files: contextFiles || [],  // 不再注入默认挂载文件
           session_id: currentSessionId
         }),
         openWhenHidden: true,
