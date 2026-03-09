@@ -863,6 +863,93 @@ async def move_file(
         raise HTTPException(status_code=500, detail=f"移动失败: {str(e)}")
 
 
+# ==========================================
+# 重命名文件/文件夹 API
+# ==========================================
+class RenameRequest(BaseModel):
+    """重命名请求"""
+    source_path: str
+    new_name: str
+
+
+@router.post("/{project_id}/files/rename")
+async def rename_file_or_folder(
+    project_id: str,
+    request: RenameRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """重命名文件或文件夹"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    # 1. 防御路径穿越
+    if ".." in request.source_path or ".." in request.new_name:
+        raise HTTPException(status_code=400, detail="非法的路径")
+
+    source_path = request.source_path.strip('/')
+    new_name = request.new_name.strip()
+
+    # 2. 验证新名称
+    if not new_name:
+        raise HTTPException(status_code=400, detail="名称不能为空")
+
+    # 禁止特殊字符
+    forbidden_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    for char in forbidden_chars:
+        if char in new_name:
+            raise HTTPException(status_code=400, detail=f"名称不能包含特殊字符: {char}")
+
+    # 3. 不能重命名根目录
+    if source_path in ['raw_data', 'results', 'references']:
+        raise HTTPException(status_code=403, detail="禁止重命名根目录")
+
+    # 4. 不能重命名 references 目录下的内容
+    if source_path.startswith('references'):
+        raise HTTPException(status_code=403, detail="全局参考库只读，禁止重命名")
+
+    project_dir = Path(settings.UPLOAD_DIR) / f"project_{project_id}"
+    source_full = project_dir / source_path
+
+    # 5. 检查源文件/文件夹是否存在
+    if not source_full.exists():
+        raise HTTPException(status_code=404, detail="文件或文件夹不存在")
+
+    # 6. 构建新路径
+    parent_dir = source_full.parent
+    new_full = parent_dir / new_name
+
+    # 7. 检查是否与现有文件冲突
+    if new_full.exists():
+        raise HTTPException(status_code=409, detail="已存在同名文件或文件夹")
+
+    # 8. 执行重命名
+    try:
+        source_full.rename(new_full)
+        log.info(f"重命名成功: {source_full} -> {new_full}")
+
+        # 计算新的相对路径
+        parent_rel_path = str(parent_dir.relative_to(project_dir))
+        if parent_rel_path == '.':
+            new_rel_path = new_name
+        else:
+            new_rel_path = f"{parent_rel_path}/{new_name}"
+
+        return {
+            "status": "success",
+            "message": "重命名成功",
+            "data": {
+                "old_path": source_path,
+                "new_path": new_rel_path,
+                "new_name": new_name
+            }
+        }
+    except Exception as e:
+        log.error(f"重命名失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"重命名失败: {str(e)}")
+
+
 @router.get("/{project_id}/folders")
 async def get_folder_tree(
     project_id: str,

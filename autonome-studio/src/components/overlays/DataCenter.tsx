@@ -3,11 +3,12 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput } from "lucide-react";
+import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput, Pencil } from "lucide-react";
 import { fetchAPI, BASE_URL } from "@/lib/api";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { MoveFileModal } from "./MoveFileModal";
 import { UploadManager } from "./UploadManager";
+import { RenameModal } from "./RenameModal";
 
 // ==========================================
 // 辅助函数：根据文件名分配图标
@@ -126,6 +127,12 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
                 <Move size={14} />
               </button>
             )}
+            {/* 新增：重命名按钮 */}
+            {!isProtectedRoot && !isReadOnly && (
+              <button onClick={(e) => { e.stopPropagation(); onContextMenu({ preventDefault: () => {}, stopPropagation: () => {} }, { ...node, _action: 'rename' }); }} className="p-1.5 text-neutral-500 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-md transition-all" title="重命名">
+                <Pencil size={14} />
+              </button>
+            )}
             {!isProtectedRoot && !isFolder && !isReadOnly && (
               <button onClick={(e) => { e.stopPropagation(); onDelete(node.path); }} className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all" title="彻底删除">
                 <Trash2 size={14} />
@@ -217,6 +224,14 @@ export function DataCenter() {
     isFolder: boolean;
   }>({ isOpen: false, sourcePath: '', sourceName: '', isFolder: false });
 
+  // ✨ 重命名模态框状态
+  const [renameModal, setRenameModal] = useState<{
+    isOpen: boolean;
+    sourcePath: string;
+    sourceName: string;
+    isFolder: boolean;
+  }>({ isOpen: false, sourcePath: '', sourceName: '', isFolder: false });
+
   // ✨ 处理右键菜单
   const handleContextMenu = useCallback((e: React.MouseEvent | { preventDefault: () => void; stopPropagation: () => void }, node: any) => {
     // 如果是通过按钮触发的假事件，直接处理
@@ -229,6 +244,13 @@ export function DataCenter() {
         setCreateFolderModal({ isOpen: true, parentPath: actualNode.path });
       } else if (action === 'move') {
         setMoveFileModal({
+          isOpen: true,
+          sourcePath: actualNode.path,
+          sourceName: actualNode.name,
+          isFolder: actualNode.type === 'folder'
+        });
+      } else if (action === 'rename') {
+        setRenameModal({
           isOpen: true,
           sourcePath: actualNode.path,
           sourceName: actualNode.name,
@@ -470,6 +492,14 @@ export function DataCenter() {
         break;
       case 'move':
         setMoveFileModal({
+          isOpen: true,
+          sourcePath: node.path,
+          sourceName: node.name,
+          isFolder: node.type === 'folder'
+        });
+        break;
+      case 'rename':
+        setRenameModal({
           isOpen: true,
           sourcePath: node.path,
           sourceName: node.name,
@@ -778,6 +808,17 @@ export function DataCenter() {
                   </button>
                 )}
 
+                {/* 重命名 */}
+                {canMove && (
+                  <button
+                    onClick={() => handleContextMenuAction('rename')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <Pencil size={14} className="text-yellow-400" />
+                    重命名
+                  </button>
+                )}
+
                 {/* 删除 */}
                 {canDelete && (
                   <>
@@ -822,6 +863,17 @@ export function DataCenter() {
         sourcePath={moveFileModal.sourcePath}
         sourceName={moveFileModal.sourceName}
         isFolder={moveFileModal.isFolder}
+        onSuccess={() => currentProjectId && fetchProjectFiles(currentProjectId)}
+      />
+
+      {/* ✨ 重命名模态框 */}
+      <RenameModal
+        isOpen={renameModal.isOpen}
+        onClose={() => setRenameModal({ isOpen: false, sourcePath: '', sourceName: '', isFolder: false })}
+        projectId={currentProjectId || ''}
+        sourcePath={renameModal.sourcePath}
+        sourceName={renameModal.sourceName}
+        isFolder={renameModal.isFolder}
         onSuccess={() => currentProjectId && fetchProjectFiles(currentProjectId)}
       />
 
