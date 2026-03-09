@@ -48,7 +48,12 @@ async def get_skill_catalog():
                 "executor_type": meta.get("executor_type"),
                 "timeout_seconds": meta.get("timeout_seconds"),
                 "parameters_schema": skill.get("parameters_schema", {}),
-                "bundle_name": skill.get("bundle_name")
+                "bundle_name": skill.get("bundle_name"),
+                "category": meta.get("category"),
+                "category_name": meta.get("category_name"),
+                "subcategory": meta.get("subcategory"),
+                "subcategory_name": meta.get("subcategory_name"),
+                "tags": meta.get("tags", [])
             })
 
         return {
