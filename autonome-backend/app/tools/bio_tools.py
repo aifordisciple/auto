@@ -173,16 +173,18 @@ def run_nextflow_in_sandbox(
     """
     try:
         host_upload_dir = os.environ.get("HOST_UPLOAD_DIR", "/app/uploads")
+        params_json = json.dumps(params)
 
-        # 构建执行脚本
-        nf_script = f'''
+        # 构建执行脚本（注意：不使用 f-string，避免花括号冲突）
+        nf_script = '''
 import subprocess
 import sys
 import os
+import json
 
 # 设置环境
-os.environ["PATH"] = "{CONDA_CONTAINER_PATH}/bin:" + os.environ.get("PATH", "")
-os.environ["NXF_HOME"] = "{CONDA_CONTAINER_PATH}/nextflow"
+os.environ["PATH"] = "''' + CONDA_CONTAINER_PATH + '''/bin:" + os.environ.get("PATH", "")
+os.environ["NXF_HOME"] = "''' + CONDA_CONTAINER_PATH + '''/nextflow"
 
 def check_and_install(tool_name, conda_package=None):
     """检查工具是否存在，不存在则用 conda 安装"""
@@ -194,13 +196,13 @@ def check_and_install(tool_name, conda_package=None):
     except:
         print(f"📥 {tool_name} 未安装，正在使用 conda 安装...")
         result = subprocess.run([
-            "{CONDA_CONTAINER_PATH}/bin/conda", "install", "-y", "-c", "bioconda", "-c", "conda-forge", conda_package
+            "''' + CONDA_CONTAINER_PATH + '''/bin/conda", "install", "-y", "-c", "bioconda", "-c", "conda-forge", conda_package
         ], capture_output=True, text=True)
         if result.returncode == 0:
             print(f"✅ {tool_name} 安装成功")
             return True
         else:
-            print(f"❌ {tool_name} 安装失败: {{result.stderr}}")
+            print(f"❌ {tool_name} 安装失败: {result.stderr}")
             return False
 
 # 检查必要工具
@@ -211,22 +213,22 @@ for tool in tools_needed:
 
 # 执行 Nextflow
 print("\\n🚀 启动 Nextflow 流程...")
-work_dir = "{work_dir}"
+work_dir = "''' + work_dir + '''"
 
 # 构建参数
 params_str = ""
-params_dict = {json.dumps(params)}
+params_dict = ''' + params_json + '''
 for k, v in params_dict.items():
     if isinstance(v, str):
-        params_str += f" --{k} '{{v}}'"
+        params_str += f" --{k} \\"{v}\\""
     elif isinstance(v, bool):
         if v:
             params_str += f" --{k}"
     else:
-        params_str += f" --{k} {{v}}"
+        params_str += f" --{k} {v}"
 
-cmd = f"nextflow run main.nf{{params_str}} -resume"
-print(f"执行命令: {{cmd}}")
+cmd = f"nextflow run main.nf{params_str} -resume"
+print(f"执行命令: {cmd}")
 
 result = subprocess.run(cmd, shell=True, cwd=work_dir, capture_output=False)
 sys.exit(result.returncode)
