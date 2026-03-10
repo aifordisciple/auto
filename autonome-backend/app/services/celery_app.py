@@ -620,7 +620,8 @@ def execute_nextflow_compiler(
     cmd = [
         "python", nf_compiler_script,
         "--payload", payload_file,
-        "--bundle_dir", bundle_path
+        "--bundle_dir", bundle_path,
+        "--compile-only"  # 仅生成脚本，不执行 Nextflow（API容器无Nextflow环境）
     ]
 
     log_msg("🚀 启动 Nextflow 编译器...")
@@ -761,18 +762,36 @@ def execute_bundle_task(self, payload: dict):
 
                 # 写入完成消息
                 with Session(engine) as db:
-                    final_content = (
-                        f"✅ **Nextflow 流程执行完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"工作目录: `{result['work_dir']}`\n\n"
-                        f"### 📊 执行日志\n\n"
-                        f"```text\n{result['output']}\n```\n\n"
-                        f"### 📁 生成的文件\n\n"
-                        f"{chr(10).join(result['files'])}\n"
-                    )
+                    # 检查是否生成了 main.nf
+                    has_main_nf = 'main.nf' in result.get('files', [])
+                    if has_main_nf:
+                        final_content = (
+                            f"✅ **Nextflow 流程脚本生成完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                            f"工作目录: `{result['work_dir']}`\n\n"
+                            f"### 📊 编译日志\n\n"
+                            f"```text\n{result['output']}\n```\n\n"
+                            f"### 📁 生成的文件\n\n"
+                            f"{chr(10).join(f'- {f}' for f in result['files'])}\n\n"
+                            f"---\n\n"
+                            f"**下一步**: 进入工作目录执行 `nextflow run main.nf` 运行流程\n"
+                            f"```bash\n"
+                            f"cd {result['work_dir']}\n"
+                            f"nextflow run main.nf\n"
+                            f"```"
+                        )
+                    else:
+                        final_content = (
+                            f"✅ **Nextflow 编译器执行完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                            f"工作目录: `{result['work_dir']}`\n\n"
+                            f"### 📊 执行日志\n\n"
+                            f"```text\n{result['output']}\n```\n\n"
+                            f"### 📁 生成的文件\n\n"
+                            f"{chr(10).join(f'- {f}' for f in result['files'])}\n"
+                        )
                     db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                     db.commit()
 
-                log_msg("🎉 Nextflow 流程执行完成！")
+                log_msg("🎉 Nextflow 脚本生成完成！")
                 return {"status": "success", "result": result}
 
             except Exception as e:

@@ -204,11 +204,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Autonome Nextflow Compiler")
     parser.add_argument("--payload", required=True, help="包含完整执行指令和拓扑图的 JSON 文件路径")
     parser.add_argument("--bundle_dir", required=True, help="Nextflow Generator SKILL 所在的物理根目录")
-    
+    parser.add_argument("--compile-only", action="store_true", help="仅生成脚本，不执行 Nextflow")
+
     args = parser.parse_args()
-    
+
     # 初始化并启动编译与执行流程
     compiler = NextflowCompiler(payload_path=args.payload, bundle_dir=args.bundle_dir)
     compiler.generate_config()
     compiler.generate_main_script()
-    compiler.execute_pipeline()
+
+    if not args.compile_only:
+        compiler.execute_pipeline()
+    else:
+        logger.info("📋 仅编译模式：已生成 main.nf 和 nextflow.config，跳过执行")
+        logger.info(f"📁 输出目录: {compiler.work_dir}")
