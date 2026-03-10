@@ -10,7 +10,8 @@ process FASTQC {
     tuple val(sample_id), path(reads)
 
     output:
-    path "fastqc_${sample_id}_*", emit: qc_reports
+    path "*_fastqc.html", emit: qc_html
+    path "*_fastqc.zip", emit: qc_zip
 
     script:
     """
@@ -49,6 +50,6 @@ workflow FASTQC_MULTIQC_PIPELINE_01 {
     // 执行 FastQC
     FASTQC(samples)
 
-    // 汇总报告
-    MULTIQC(FASTQC.out.qc_reports.collect())
+    // 汇总报告（收集所有 html 和 zip 文件）
+    MULTIQC(FASTQC.out.qc_html.mix(FASTQC.out.qc_zip).collect())
 }

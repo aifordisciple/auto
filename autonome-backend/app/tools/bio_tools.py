@@ -276,8 +276,12 @@ sys.exit(result.returncode)
 
         # ✨ 实时读取日志
         import time
+        import re
         log_output = ""
         last_size = 0
+
+        # ANSI 转义码清理函数
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
         while True:
             info = docker_api_request("GET", f"/containers/{container_id}/json")
@@ -295,11 +299,14 @@ sys.exit(result.returncode)
                 log_output = current_log
                 last_size = len(current_log)
 
-                # 回调日志
+                # 回调日志（清理 ANSI 转义码）
                 if log_callback:
                     for line in new_content.split('\n'):
-                        if line.strip():
-                            log_callback(line.strip())
+                        # 清理 ANSI 转义码和不可见字符
+                        clean_line = ansi_escape.sub('', line)
+                        clean_line = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', clean_line)
+                        if clean_line.strip():
+                            log_callback(clean_line.strip())
 
             if status == 'exited':
                 break
