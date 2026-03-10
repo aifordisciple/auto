@@ -45,7 +45,9 @@ const formatBytes = (bytes?: number) => {
 const formatDateTime = (timestamp?: string | number) => {
   if (!timestamp) return '';
   try {
-    const date = new Date(timestamp);
+    // 后端返回的是秒级时间戳，需要转换为毫秒
+    const ts = typeof timestamp === 'number' ? timestamp * 1000 : parseInt(timestamp) * 1000;
+    const date = new Date(ts);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
 
