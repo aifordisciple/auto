@@ -21,6 +21,9 @@ const getFileIcon = (filename: string) => {
   if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.pdf') || lower.endsWith('.svg')) {
     return <ImageIcon size={16} className="text-pink-400 shrink-0" />;
   }
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+    return <FileText size={16} className="text-orange-400 shrink-0" />;
+  }
   return <FileText size={16} className="text-neutral-400 shrink-0" />;
 };
 
@@ -34,6 +37,41 @@ const formatBytes = (bytes?: number) => {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+// ==========================================
+// 辅助函数：格式化时间
+// ==========================================
+const formatDateTime = (timestamp?: string | number) => {
+  if (!timestamp) return '';
+  try {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+
+    // 小于1分钟
+    if (diff < 60000) return '刚刚';
+    // 小于1小时
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
+    // 小于24小时
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
+    // 小于7天
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`;
+
+    // 其他显示日期
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    // 如果是今年，不显示年份
+    if (date.getFullYear() === now.getFullYear()) {
+      return `${month}-${day} ${hours}:${minutes}`;
+    }
+    return `${date.getFullYear()}-${month}-${day}`;
+  } catch {
+    return '';
+  }
 };
 
 // ==========================================
@@ -141,11 +179,19 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
           </div>
         )}
 
-        {/* 文件大小 */}
+        {/* 文件大小和时间 */}
         {!isFolder && (node.fileData?.size !== undefined || node.fileData?.file_size !== undefined) && (
-          <span className="text-[10px] text-neutral-600 font-mono bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800 group-hover:hidden shrink-0 ml-auto">
-            {formatBytes(node.fileData?.size ?? node.fileData?.file_size)}
-          </span>
+          <div className="flex items-center gap-2 ml-auto shrink-0 group-hover:hidden">
+            <span className="text-[10px] text-neutral-600 font-mono bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800">
+              {formatBytes(node.fileData?.size ?? node.fileData?.file_size)}
+            </span>
+            {/* 修改时间 */}
+            {(node.fileData?.modified_at || node.fileData?.mtime) && (
+              <span className="text-[10px] text-neutral-600 font-mono bg-neutral-900/50 px-1.5 py-0.5 rounded">
+                {formatDateTime(node.fileData?.modified_at || node.fileData?.mtime)}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -321,7 +367,7 @@ export function DataCenter() {
 
   // 预览弹窗状态
   const [previewPath, setPreviewPath] = useState<string | null>(null);
-  const [previewType, setPreviewType] = useState<'image' | 'text' | 'pdf' | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'text' | 'pdf' | 'html' | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
@@ -376,10 +422,11 @@ export function DataCenter() {
     if (!currentProjectId) return;
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
     const isImage = ['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext);
-    const isText = ['txt', 'csv', 'tsv', 'md', 'py', 'r', 'json', 'sh', 'log', 'yaml', 'yml'].includes(ext);
+    const isText = ['txt', 'csv', 'tsv', 'md', 'py', 'r', 'json', 'sh', 'log', 'yaml', 'yml', 'nf', 'config'].includes(ext);
     const isPdf = ext === 'pdf';
+    const isHtml = ['html', 'htm'].includes(ext);
 
-    if (!isImage && !isText && !isPdf) {
+    if (!isImage && !isText && !isPdf && !isHtml) {
       alert("💡 当前文件格式暂不支持内存预览，请点击右侧【下载】按钮直接下载。");
       return;
     }
@@ -406,6 +453,11 @@ export function DataCenter() {
         const url = URL.createObjectURL(blob);
         setPreviewContent(url);
         setPreviewType('pdf');
+      } else if (isHtml) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        setPreviewContent(url);
+        setPreviewType('html');
       } else {
         const text = await res.text();
         const MAX_LENGTH = 100000;
@@ -421,7 +473,7 @@ export function DataCenter() {
   };
 
   const closePreview = () => {
-    if ((previewType === 'image' || previewType === 'pdf') && previewContent) {
+    if ((previewType === 'image' || previewType === 'pdf' || previewType === 'html') && previewContent) {
       URL.revokeObjectURL(previewContent);
     }
     setPreviewPath(null);
@@ -583,7 +635,7 @@ export function DataCenter() {
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
 
-      <div className="relative w-[600px] h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-[1200px] h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         <div className="h-16 shrink-0 border-b border-neutral-800 px-6 flex items-center justify-between bg-neutral-900/40">
           <div className="flex items-center gap-3">
@@ -734,6 +786,8 @@ export function DataCenter() {
                 <img src={previewContent} alt="Preview" className="max-w-full max-h-full object-contain rounded drop-shadow-2xl" />
               ) : previewType === 'pdf' && previewContent ? (
                 <iframe src={previewContent} className="w-full h-full rounded-xl border border-neutral-800 bg-white" title="PDF Preview" />
+              ) : previewType === 'html' && previewContent ? (
+                <iframe src={previewContent} className="w-full h-full rounded-xl border border-neutral-800 bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin" />
               ) : previewType === 'text' && previewContent ? (
                 <div className="w-full h-full bg-[#1e1e1e] rounded-xl border border-neutral-800 p-4 overflow-auto custom-scrollbar">
                   <pre className="text-[13px] leading-relaxed text-neutral-300 font-mono whitespace-pre-wrap">
