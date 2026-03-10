@@ -582,8 +582,9 @@ def execute_nextflow_compiler(
     """
     执行 Nextflow 编译器 - 将逻辑蓝图编译为可执行的 Nextflow 流程
 
-    注意: nf_compiler.py 是模板生成器，不是重型计算任务，
-    直接在 API 容器中执行（无需沙箱），这样可以访问 skills 目录和依赖库。
+    流程:
+    1. 在 API 容器中生成 Nextflow 脚本（需要访问 skills 目录）
+    2. 返回脚本路径，由用户在宿主机（有 Nextflow 环境）执行
     """
 
     # 1. 获取 Nextflow Generator SKILL 的 bundle 路径
@@ -613,15 +614,14 @@ def execute_nextflow_compiler(
         json.dump(payload, f, ensure_ascii=False, indent=2)
     log_msg(f"📋 Payload 文件已创建: pipeline_payload.json")
 
-    # 4. 直接在 API 容器中执行 nf_compiler.py（不使用沙箱）
-    # 因为沙箱容器无网络无法安装 jinja2，且编译器本身不是重型计算
+    # 4. 在 API 容器中执行 nf_compiler.py（生成脚本）
     import subprocess
 
     cmd = [
         "python", nf_compiler_script,
         "--payload", payload_file,
         "--bundle_dir", bundle_path,
-        "--compile-only"  # 仅生成脚本，不执行 Nextflow（API容器无Nextflow环境）
+        "--compile-only"
     ]
 
     log_msg("🚀 启动 Nextflow 编译器...")
@@ -631,12 +631,11 @@ def execute_nextflow_compiler(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,  # 5分钟超时
+            timeout=300,
             cwd=task_work_dir,
             env={**os.environ, "TASK_OUT_DIR": task_work_dir, "PROJECT_ID": project_id}
         )
 
-        # 合并 stdout 和 stderr
         result_output = result.stdout
         if result.stderr:
             result_output += "\n" + result.stderr
@@ -660,17 +659,37 @@ def execute_nextflow_compiler(
             log_msg(f"  [NF] {line}")
 
     if exit_code != 0:
-        raise RuntimeError(f"Nextflow 执行失败 (Exit: {exit_code})")
+        raise RuntimeError(f"Nextflow 编译失败 (Exit: {exit_code})")
 
     # 6. 扫描生成的文件
     generated_files = []
+    process_blocks_files = []
     if os.path.exists(task_work_dir):
         for f in os.listdir(task_work_dir):
             full_path = os.path.join(task_work_dir, f)
             if os.path.isfile(full_path):
                 generated_files.append(f)
+        # 检查 process_blocks 目录
+        pb_dir = os.path.join(task_work_dir, "process_blocks")
+        if os.path.exists(pb_dir):
+            for f in os.listdir(pb_dir):
+                process_blocks_files.append(f"process_blocks/{f}")
 
-    log_msg(f"📂 生成的文件: {generated_files}")
+    all_files = generated_files + process_blocks_files
+    log_msg(f"📂 生成的文件: {all_files}")
+
+    # 7. 检查是否生成了 main.nf
+    main_nf_path = os.path.join(task_work_dir, "main.nf")
+    if not os.path.exists(main_nf_path):
+        raise RuntimeError("main.nf 未生成")
+
+    log_msg("✅ Nextflow 脚本编译完成！")
+
+    return {
+        "work_dir": task_work_dir,
+        "output": result_output,
+        "files": all_files
+    }
 
     return {
         "work_dir": task_work_dir,

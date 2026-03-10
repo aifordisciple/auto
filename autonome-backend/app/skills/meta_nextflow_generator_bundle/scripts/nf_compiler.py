@@ -106,35 +106,55 @@ class NextflowCompiler:
         """
         params = self.payload.get("params", {})
         topology = params.get("pipeline_topology", [])
-        
+
         if not topology:
             logger.error("流水线拓扑 (pipeline_topology) 为空，无法生成脚本！")
             sys.exit(1)
 
-        # 1. 收集需要引入的 Process 模块
-        # 假设我们将生信工具的 nf 定义放在 templates/process_blocks 下
+        # 1. 创建 process_blocks 目录
+        process_blocks_dir = self.work_dir / "process_blocks"
+        process_blocks_dir.mkdir(exist_ok=True)
+
+        # 2. 收集需要引入的 Process 模块，并复制模块文件
         includes = []
         for step in topology:
             tool_id = step.get("tool_id")
             step_name = step.get("step_name")
-            # 简化演示：动态生成 include 语句 (实际生产中需确保 process_blocks 下存在这些 .nf)
+
+            # 从 SKILL bundle 中复制 Nextflow 模块
+            # 假设 SKILL bundle 结构: {skill_bundle}/nextflow/process.nf
+            skill_bundle_dir = self.bundle_dir.parent / tool_id.replace("_pipeline_01", "_01")
+            if not skill_bundle_dir.exists():
+                # 尝试另一种命名模式
+                skill_bundle_dir = self.bundle_dir.parent / tool_id
+
+            source_nf = skill_bundle_dir / "nextflow" / "process.nf"
+            target_nf = process_blocks_dir / f"{tool_id}.nf"
+
+            if source_nf.exists():
+                import shutil
+                shutil.copy(source_nf, target_nf)
+                logger.info(f"复制模块文件: {source_nf} -> {target_nf}")
+            else:
+                logger.warning(f"未找到 Nextflow 模块: {source_nf}，将生成占位模块")
+                # 生成占位模块
+                self._generate_placeholder_module(tool_id, target_nf, step.get("params", {}))
+
             includes.append(f"include {{ {tool_id.upper()} as {step_name.upper()} }} from './process_blocks/{tool_id}.nf'")
 
-        # 2. 动态构建 workflow 连线逻辑
+        # 3. 动态构建 workflow 连线逻辑
         workflow_lines = ["workflow {"]
-        
+
         for step in topology:
             step_name = step.get("step_name").upper()
             inputs = step.get("inputs", [])
-            
-            # 解析该步骤的输入。
-            # 如果输入是 raw_data（外部文件），则创建 Channel.fromPath
-            # 如果输入是 upstream_step（上游输出），则直接引用上游的 out channel
+            step_params = step.get("params", {})
+
+            # 解析该步骤的输入
             parsed_inputs = []
             for inp in inputs:
                 if inp.startswith("file://"):
                     path = inp.replace("file://", "")
-                    # 处理 FastQC 常见的双端匹配模式
                     if "fastq" in path or "fq" in path:
                          parsed_inputs.append(f"Channel.fromFilePairs('{path}')")
                     else:
@@ -143,22 +163,56 @@ class NextflowCompiler:
                     channel_name = inp.replace("channel://", "")
                     parsed_inputs.append(channel_name)
                 else:
-                    parsed_inputs.append(f"'{inp}'") # 作为普通值传入
-            
-            # 组装 DSL2 函数调用: MULTIQC( FASTQC.out.mix().collect() )
+                    parsed_inputs.append(f"'{inp}'")
+
             input_str = ", ".join(parsed_inputs)
             workflow_lines.append(f"    {step_name}( {input_str} )")
 
         workflow_lines.append("}")
 
-        # 3. 拼装为完整的 main.nf 文件
+        # 4. 拼装为完整的 main.nf 文件
         main_nf_content = "\n".join(includes) + "\n\n" + "\n".join(workflow_lines)
-        
+
         main_file = self.work_dir / "main.nf"
         with open(main_file, "w", encoding="utf-8") as f:
             f.write(main_nf_content)
-            
+
         logger.info(f"生成核心流水线脚本成功: {main_file}")
+
+    def _generate_placeholder_module(self, tool_id: str, target_path: Path, params: dict):
+        """生成占位的 Nextflow 模块"""
+        content = f"""// 自动生成的占位模块: {tool_id}
+// 请在 SKILL bundle 中创建 nextflow/process.nf 文件来定义具体流程
+
+process {tool_id.upper()} {{
+    cpus 4
+    memory '4.GB'
+
+    input:
+    val input_data
+
+    output:
+    stdout, emit: output
+
+    script:
+    \"\"\"
+    echo "占位模块: {tool_id}"
+    echo "输入数据: ${{input_data}}"
+    echo "参数: {params}"
+    \"\"\"
+}}
+
+workflow {tool_id.upper()} {{
+    take:
+    input_data
+
+    main:
+    {tool_id.upper()}(input_data)
+}}
+"""
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info(f"生成占位模块: {target_path}")
 
     def execute_pipeline(self):
         """拉起底层 Nextflow 进程执行计算任务"""

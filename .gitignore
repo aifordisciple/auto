@@ -10,6 +10,8 @@ node_modules/
 !.yarn/releases
 !.yarn/versions
 
+autonome_conda/
+
 # testing
 /coverage
 
