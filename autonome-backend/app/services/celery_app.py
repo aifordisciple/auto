@@ -583,8 +583,8 @@ def execute_nextflow_compiler(
     执行 Nextflow 编译器 - 将逻辑蓝图编译为可执行的 Nextflow 流程
 
     不使用递归调用 Celery 任务，而是直接执行编译器脚本
+    注意: 沙箱容器无法访问 skills 目录，需要读取脚本内容并内联传递
     """
-    import tempfile
 
     # 1. 获取 Nextflow Generator SKILL 的 bundle 路径
     parser = get_skill_parser()
@@ -601,29 +601,34 @@ def execute_nextflow_compiler(
     if not os.path.exists(nf_compiler_script):
         raise RuntimeError(f"Nextflow 编译器脚本不存在: {nf_compiler_script}")
 
-    # 2. 创建任务专属工作目录
+    # 2. 读取脚本内容（在 API 容器中读取，因为沙箱容器无法访问 skills 目录）
+    with open(nf_compiler_script, 'r', encoding='utf-8') as f:
+        script_content = f.read()
+    log_msg(f"📄 已读取编译器脚本 ({len(script_content)} bytes)")
+
+    # 3. 创建任务专属工作目录
     task_short_id = str(task_id)[:8]
     task_work_dir = f"/app/uploads/project_{project_id}/results/task_{task_short_id}"
     os.makedirs(task_work_dir, exist_ok=True)
     log_msg(f"📁 工作目录: {task_work_dir}")
 
-    # 3. 创建 payload JSON 文件
+    # 4. 创建 payload JSON 文件
     payload_file = os.path.join(task_work_dir, "pipeline_payload.json")
     with open(payload_file, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     log_msg(f"📋 Payload 文件已创建: pipeline_payload.json")
 
-    # 4. 构建执行命令（通过命令行参数传递）
-    # nf_compiler.py 期望 --payload 和 --bundle_dir 参数
+    # 5. 构建执行命令（将脚本内容内联，设置命令行参数）
+    # 注意: 使用 repr() 来安全地转义脚本内容中的特殊字符
     command = f'''
 import sys
-sys.argv = ['nf_compiler.py', '--payload', '{payload_file}', '--bundle_dir', '{bundle_path}']
-exec(open('{nf_compiler_script}').read())
+sys.argv = ['nf_compiler.py', '--payload', {repr(payload_file)}, '--bundle_dir', {repr(bundle_path)}]
+exec({repr(script_content)})
 '''
 
     log_msg("🚀 启动 Nextflow 编译器...")
 
-    # 5. 在 Docker 沙箱中执行
+    # 6. 在 Docker 沙箱中执行
     result_output, exit_code = run_container(
         "autonome-tool-env",
         command,
@@ -631,7 +636,7 @@ exec(open('{nf_compiler_script}').read())
         environment={"TASK_OUT_DIR": task_work_dir, "PROJECT_ID": project_id}
     )
 
-    # 6. 清理终端乱码并记录日志
+    # 7. 清理终端乱码并记录日志
     if result_output:
         result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
         result_output = re.sub(r'\[\?\d+[hl]', '', result_output)
@@ -645,7 +650,7 @@ exec(open('{nf_compiler_script}').read())
     if exit_code != 0:
         raise RuntimeError(f"Nextflow 执行失败 (Exit: {exit_code})")
 
-    # 7. 扫描生成的文件
+    # 8. 扫描生成的文件
     generated_files = []
     if os.path.exists(task_work_dir):
         for f in os.listdir(task_work_dir):
@@ -753,7 +758,7 @@ def execute_bundle_task(self, payload: dict):
                         f"### 📁 生成的文件\n\n"
                         f"{chr(10).join(result['files'])}\n"
                     )
-                    db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+                    db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                     db.commit()
 
                 log_msg("🎉 Nextflow 流程执行完成！")
@@ -770,7 +775,7 @@ def execute_bundle_task(self, payload: dict):
                         f"错误信息: {error_msg}\n\n"
                         f"> *请检查参数配置或联系技术支持。*"
                     )
-                    db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+                    db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                     db.commit()
 
                 return {"status": "error", "message": error_msg}
@@ -844,7 +849,7 @@ def execute_bundle_task(self, payload: dict):
                     f"```text\n{result_output}\n```\n\n"
                     f"> *(请查阅上方报错信息，或联系技术支持。)*"
                 )
-                db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+                db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                 db.commit()
             return {"status": "failure"}
 
@@ -901,7 +906,7 @@ def execute_bundle_task(self, payload: dict):
                 f"---\n"
                 f"{expert_report}"
             )
-            db.add(ChatMessage(session_id=int(session_id), role="assistant", content=final_content))
+            db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
             db.commit()
 
         return {"status": "success", "files": generated_files}
