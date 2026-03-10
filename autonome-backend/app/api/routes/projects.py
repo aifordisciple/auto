@@ -542,12 +542,19 @@ async def get_project_files(project_id: str, session: Session = Depends(get_sess
             if dir_name.startswith('.'):
                 continue
 
+            # 获取目录修改时间
+            try:
+                dir_mtime = full_dir_path.stat().st_mtime
+            except:
+                dir_mtime = None
+
             # 兼容 Windows 系统的路径分隔符
             normalized_dir_path = str(rel_dir_path).replace('\\', '/')
             directories.append({
                 "name": dir_name,
                 "path": normalized_dir_path,
-                "type": "folder"
+                "type": "folder",
+                "modified_at": dir_mtime
             })
 
         for filename in filenames:
@@ -558,13 +565,17 @@ async def get_project_files(project_id: str, session: Session = Depends(get_sess
             if filename.startswith('.'):
                 continue
 
+            # 获取文件信息
+            file_stat = full_path.stat()
+
             # 兼容 Windows 系统的路径分隔符
             normalized_path = str(rel_path).replace('\\', '/')
             files.append({
                 "name": filename,
                 "path": normalized_path,
                 "type": "file",
-                "size": full_path.stat().st_size,
+                "size": file_stat.st_size,
+                "modified_at": file_stat.st_mtime,  # 修改时间（Unix 时间戳）
                 "url": f"/api/projects/{project_id}/files/{normalized_path}/view"
             })
 
