@@ -11,7 +11,7 @@ from jinja2 import Template
 from sqlmodel import Session
 from app.core.database import engine
 from app.models.domain import ChatMessage
-from app.tools.bio_tools import run_container
+from app.tools.bio_tools import run_container, run_nextflow_in_sandbox
 
 # ✨ 引入全局配置中心
 from app.core.config import settings
@@ -577,14 +577,15 @@ def execute_nextflow_compiler(
     project_id: str,
     task_id: str,
     session_id: str,
-    log_msg: callable
+    log_msg: callable,
+    skill_parameters: dict = None
 ) -> dict:
     """
     执行 Nextflow 编译器 - 将逻辑蓝图编译为可执行的 Nextflow 流程
 
     流程:
     1. 在 API 容器中生成 Nextflow 脚本（需要访问 skills 目录）
-    2. 返回脚本路径，由用户在宿主机（有 Nextflow 环境）执行
+    2. 在沙箱中执行 Nextflow（使用 conda 环境）
     """
 
     # 1. 获取 Nextflow Generator SKILL 的 bundle 路径
@@ -685,16 +686,47 @@ def execute_nextflow_compiler(
 
     log_msg("✅ Nextflow 脚本编译完成！")
 
-    return {
-        "work_dir": task_work_dir,
-        "output": result_output,
-        "files": all_files
+    # 8. 在沙箱中执行 Nextflow（使用 conda 环境）
+    log_msg("🚀 在沙箱中启动 Nextflow 执行...")
+
+    # 提取 Nextflow 参数（从 skill_parameters 或 payload 中获取）
+    params_source = skill_parameters or payload.get("params", {}).get("pipeline_topology", [{}])[0].get("params", {})
+    nf_params = {
+        "fastq_dir": params_source.get("fastq_dir", "./fastq"),
+        "is_paired_end": params_source.get("is_paired_end", True),
+        "file_pattern": params_source.get("file_pattern", "*_{1,2}.fastq.gz"),
+        "threads_per_sample": params_source.get("threads_per_sample", 4),
+        "outdir": params_source.get("output_dir", "./qc_reports")
     }
+
+    log_msg(f"📋 Nextflow 参数: {json.dumps(nf_params, ensure_ascii=False)}")
+
+    # 执行 Nextflow
+    nf_output, nf_exit_code = run_nextflow_in_sandbox(
+        work_dir=task_work_dir,
+        params=nf_params,
+        log_callback=log_msg
+    )
+
+    if nf_exit_code != 0:
+        raise RuntimeError(f"Nextflow 执行失败 (Exit: {nf_exit_code})")
+
+    log_msg("🎉 Nextflow 流程执行完成！")
+
+    # 9. 扫描最终生成的文件
+    final_files = []
+    if os.path.exists(task_work_dir):
+        for root, dirs, files in os.walk(task_work_dir):
+            for f in files:
+                rel_path = os.path.relpath(os.path.join(root, f), task_work_dir)
+                final_files.append(rel_path)
+
+    log_msg(f"📂 最终生成的文件: {final_files[:20]}...")  # 限制显示数量
 
     return {
         "work_dir": task_work_dir,
-        "output": result_output,
-        "files": generated_files
+        "output": result_output + "\n" + nf_output,
+        "files": final_files
     }
 
 
@@ -776,41 +808,24 @@ def execute_bundle_task(self, payload: dict):
                     project_id=project_id,
                     task_id=task_id,
                     session_id=session_id,
-                    log_msg=log_msg
+                    log_msg=log_msg,
+                    skill_parameters=parameters
                 )
 
                 # 写入完成消息
                 with Session(engine) as db:
-                    # 检查是否生成了 main.nf
-                    has_main_nf = 'main.nf' in result.get('files', [])
-                    if has_main_nf:
-                        final_content = (
-                            f"✅ **Nextflow 流程脚本生成完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                            f"工作目录: `{result['work_dir']}`\n\n"
-                            f"### 📊 编译日志\n\n"
-                            f"```text\n{result['output']}\n```\n\n"
-                            f"### 📁 生成的文件\n\n"
-                            f"{chr(10).join(f'- {f}' for f in result['files'])}\n\n"
-                            f"---\n\n"
-                            f"**下一步**: 进入工作目录执行 `nextflow run main.nf` 运行流程\n"
-                            f"```bash\n"
-                            f"cd {result['work_dir']}\n"
-                            f"nextflow run main.nf\n"
-                            f"```"
-                        )
-                    else:
-                        final_content = (
-                            f"✅ **Nextflow 编译器执行完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                            f"工作目录: `{result['work_dir']}`\n\n"
-                            f"### 📊 执行日志\n\n"
-                            f"```text\n{result['output']}\n```\n\n"
-                            f"### 📁 生成的文件\n\n"
-                            f"{chr(10).join(f'- {f}' for f in result['files'])}\n"
-                        )
+                    final_content = (
+                        f"✅ **Nextflow 流程执行完成 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"工作目录: `{result['work_dir']}`\n\n"
+                        f"### 📊 执行日志\n\n"
+                        f"```text\n{result['output'][-3000:]}\n```\n\n"  # 限制日志长度
+                        f"### 📁 生成的文件\n\n"
+                        f"{chr(10).join(f'- {f}' for f in result['files'][:30])}\n"
+                    )
                     db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                     db.commit()
 
-                log_msg("🎉 Nextflow 脚本生成完成！")
+                log_msg("🎉 Nextflow 流程执行完成！")
                 return {"status": "success", "result": result}
 
             except Exception as e:
