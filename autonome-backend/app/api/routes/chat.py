@@ -177,19 +177,87 @@ async def chat_stream(
                     tool_name = event.get("name", "unknown")
                     if tool_name in ["execute_python_code"]:
                         cost_credits += 4.0
-                        msg = f"\n\n*(🚀 Agent 正在调用工具: {tool_name})*\n\n"
+                        msg = f"\n\n> 🚀 *(启动安全沙箱，正在执行分析代码...)*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
-                        
+                    elif tool_name == "peek_tabular_data":
+                        msg = f"\n\n> 🟢 *(调用环境探针：正在预览表格数据结构...)*\n\n"
+                        ai_full_response += msg
+                        yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+                    elif tool_name == "scan_workspace":
+                        msg = f"\n\n> 🟢 *(调用环境探针：正在扫描工作区目录...)*\n\n"
+                        ai_full_response += msg
+                        yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+                    else:
+                        # 其他工具的通用提示
+                        msg = f"\n\n*(🔄 Agent 正在调用工具: {tool_name})*\n\n"
+                        ai_full_response += msg
+                        yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "unknown")
+                    output = event.get("data", {}).get("output", "")
+
                     if tool_name in ["execute_python_code"]:
-                        msg = f"\n*(✅ 工具 {tool_name} 执行完毕)*\n\n"
+                        if "❌" in str(output):
+                            msg = f"\n\n> 🔴 *(沙箱执行受阻！Debugger 正在接管修复...)*\n\n"
+                        else:
+                            msg = f"\n\n> ✅ *(沙箱代码执行成功，产物已落盘)*\n\n"
+                        ai_full_response += msg
+                        yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+                    elif tool_name == "peek_tabular_data":
+                        msg = f"\n\n> ✅ *(探针返回：表格结构已解析)*\n\n"
+                        ai_full_response += msg
+                        yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+                    elif tool_name == "scan_workspace":
+                        msg = f"\n\n> ✅ *(探针返回：目录结构已扫描)*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
 
             # ✨ 打印 AI 的最终完整回复
             log.info(f"✅ [AI 完整输出结果]:\n{ai_full_response if ai_full_response else '<空> (AI没有返回任何文本)'}")
+
+            # ==========================================
+            # ✨ 蓝图拦截与 DAG 调度
+            # ==========================================
+            if "```json_blueprint" in ai_full_response or '"is_complex_task": true' in ai_full_response:
+                from app.services.orchestrator import extract_blueprint, run_dag_stream
+
+                blueprint = extract_blueprint(ai_full_response)
+
+                if blueprint and blueprint.get("is_complex_task"):
+                    log.info(f"🔄 [Chat] 检测到复杂任务蓝图，启动 DAG 调度器")
+
+                    # 推送蓝图检测事件
+                    yield {
+                        "event": "blueprint_detected",
+                        "data": json.dumps({
+                            "project_goal": blueprint.get("project_goal", ""),
+                            "task_count": len(blueprint.get("tasks", []))
+                        })
+                    }
+
+                    # 启动 DAG 流式执行
+                    try:
+                        async for dag_event in run_dag_stream(
+                            blueprint_data=blueprint,
+                            api_key=api_key,
+                            base_url=base_url,
+                            model_name=model_name,
+                            project_id=request.project_id,
+                            session_id=str(session_id_for_ai)
+                        ):
+                            # 转发 DAG 事件到前端
+                            yield dag_event
+
+                        log.info(f"✅ [Chat] DAG 执行完成")
+
+                    except Exception as dag_error:
+                        log.error(f"❌ [Chat] DAG 执行错误: {str(dag_error)}")
+                        yield {
+                            "event": "blueprint_error",
+                            "data": json.dumps({"error": str(dag_error)})
+                        }
 
         except Exception as e:
             import traceback

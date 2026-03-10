@@ -373,5 +373,7 @@ def execute_python_code(code: str) -> str:
         return f"❌ 代码执行报错:\n{str(e)}\n请根据此报错修正代码。"
 
 
-# ✨ 核心修改：只导出这一个真正的底层算力工具！
-bio_tools_list = [execute_python_code]
+# ✨ 核心修改：导出底层算力工具 + 环境探针工具
+from app.tools.probe_tools import probe_tools_list
+
+bio_tools_list = [execute_python_code] + probe_tools_list

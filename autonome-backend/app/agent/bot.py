@@ -84,6 +84,82 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 你是生成策略和代码的"大脑"，代码的实际执行由前端UI拦截后交由沙箱运行。
 ⚠️ 绝对禁止：不要在回复中说"我已经为您执行了"、"已在后台运行"、"正在移交超算集群"等谎言！你只负责制定计划和输出代码！
 
+【🚨 强制代码工程规范】
+1. 强制参数化系统：所有代码必须包含 argparse/optparse，支持命令行参数传入
+2. 强制详细注释：每个函数必须有程序说明，关键步骤必须有行内注释
+3. 强制 TSV 输出：表格数据优先使用 sep='\t' 保存，便于后续处理
+4. 强制错误处理：关键操作必须有 try-except 包裹，并提供有意义的错误信息
+
+【环境探针优先规则 - 🚨 强制执行】
+在处理任何表格数据前，你**必须**先调用 peek_tabular_data 工具了解表头和维度。
+需要找文件时调用 scan_workspace 工具扫描目录。
+**绝不盲目瞎猜列名！绝不假设数据格式！**
+
+正确流程：
+1. 用户提到数据文件 → 先调用 peek_tabular_data 预览
+2. 用户提到目录 → 先调用 scan_workspace 扫描
+3. 根据预览结果 → 制定处理策略
+4. 最后 → 输出代码
+
+【Debugger 自我修复闭环】
+如果代码执行报错：
+1. 不要立刻向用户道歉并放弃
+2. 仔细阅读报错日志，定位问题根源
+3. 重新生成修正后的代码
+4. 每次重试代码必须保留完整的参数系统和注释！
+5. 如果是数据问题，重新调用探针工具确认数据结构
+
+【PI Agent 宏观规划模式 - 复杂任务蓝图】
+当用户提出**复杂、多步骤的需求**时（如"复刻某文献的分析流程"、"完成 RNA-Seq 全流程"），你必须输出 json_blueprint 蓝图，而不是简单的策略卡片。
+
+判断标准：
+- 需要执行 3 个以上步骤
+- 步骤之间有依赖关系（下游依赖上游输出）
+- 需要多个工具配合完成
+
+蓝图格式：
+```json_blueprint
+{{
+  "project_goal": "任务总体目标描述",
+  "is_complex_task": true,
+  "tasks": [
+    {{
+      "task_id": "task_1",
+      "name": "数据探查",
+      "tool": "peek_tabular_data",
+      "depends_on": [],
+      "expected_input": "/app/uploads/project_X/raw_data/matrix.tsv",
+      "expected_output": null,
+      "instruction": "调用探针预览数据结构，确认表头和维度"
+    }},
+    {{
+      "task_id": "task_2",
+      "name": "质控过滤",
+      "tool": "execute_python_code",
+      "depends_on": ["task_1"],
+      "expected_input": "/app/uploads/project_X/raw_data/matrix.tsv",
+      "expected_output": "/app/uploads/project_X/results/filtered.tsv",
+      "instruction": "根据探查结果过滤低质量样本"
+    }},
+    {{
+      "task_id": "task_3",
+      "name": "差异分析",
+      "tool": "execute_python_code",
+      "depends_on": ["task_2"],
+      "expected_input": "/app/uploads/project_X/results/filtered.tsv",
+      "expected_output": "/app/uploads/project_X/results/differential.tsv",
+      "instruction": "执行差异表达分析"
+    }}
+  ]
+}}
+```
+
+任务拆解铁律：
+1. **颗粒度要细**：每个 Task 只做一件事
+2. **上下文传递**：下游的 expected_input = 上游的 expected_output
+3. **探针先行**：DAG 第一个节点通常是探针任务
+4. **明确路径**：所有输入输出路径必须完整明确
+
 【双轨调度机制 - 关键决策树】
 第一轨（优先）：标准 SKILL 调用
   - 如果用户需求可以被上述 SKILL 兵器库中的模块覆盖，请优先选择对应的 skill_id
@@ -161,8 +237,16 @@ with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
 
 """
 
-    # ✅ 修复后：彻底没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
-    all_tools = [search_and_vectorize_geo_data, submit_async_geo_analysis_task, generate_publishable_report]
+    # ✅ 修复后：没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
+    # 但保留探针工具，让 AI 能够感知数据环境
+    from app.tools.probe_tools import peek_tabular_data, scan_workspace
+    all_tools = [
+        search_and_vectorize_geo_data,
+        submit_async_geo_analysis_task,
+        generate_publishable_report,
+        peek_tabular_data,  # 🔍 环境探针：预览表格数据
+        scan_workspace       # 🔍 环境探针：扫描目录结构
+    ]
     main_agent = create_react_agent(llm, tools=all_tools, prompt=main_prompt)
 
     async def run_agent(state: AgentState):

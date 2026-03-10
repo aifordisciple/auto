@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StrategyCard, parseStrategyCard } from "./StrategyCard";
+import { BlueprintCard, parseBlueprint } from "./BlueprintCard";
 import { BASE_URL } from "@/lib/api";
 
 // ==========================================
@@ -1176,6 +1177,7 @@ export function ChatStage() {
                   }
                   
                   const strategyCard = msg.role === 'assistant' ? parseStrategyCard(msg.content) : null;
+                  const blueprintData = msg.role === 'assistant' ? parseBlueprint(msg.content) : null;
                   
                   return (
                   <motion.div 
@@ -1291,6 +1293,9 @@ export function ChatStage() {
 
                             {/* ✨ 调整顺序 2：把策略卡片放到最后面，作为用户的下一步行动入口 */}
                             {strategyCard && <StrategyCard data={strategyCard} />}
+
+                            {/* ✨ 蓝图卡片：复杂任务可视化 */}
+                            {blueprintData && <BlueprintCard content={JSON.stringify(blueprintData)} />}
                           </div>
                         )}
                       </div>
