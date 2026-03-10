@@ -49,15 +49,22 @@ interface WorkspaceState {
   setProjectFiles: (files: RealFile[]) => void;
   addProjectFile: (file: RealFile) => void;
   fetchProjectFiles: (projectId?: string) => Promise<void>;
-  
+
   mountedFiles: string[];
   toggleMountFile: (file: string) => void;
-  
+
   // Dynamic Toolbox: active tool and parameters
   activeTool: ToolSchema | null;
   toolParams: Record<string, any>;
   setActiveTool: (tool: ToolSchema | null) => void;
   updateToolParam: (key: string, value: any) => void;
+
+  // Pending chat attachments (from DataCenter batch selection)
+  pendingChatAttachments: string[];
+  setPendingChatAttachments: (paths: string[]) => void;
+  addPendingChatAttachment: (path: string) => void;
+  removePendingChatAttachment: (path: string) => void;
+  clearPendingChatAttachments: () => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -125,10 +132,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ activeTool: tool, toolParams: initialParams });
       },
       
-      updateToolParam: (key, value) => 
+      updateToolParam: (key, value) =>
         set((state) => ({
           toolParams: { ...state.toolParams, [key]: value }
         })),
+
+      // Pending chat attachments (from DataCenter batch selection)
+      pendingChatAttachments: [],
+      setPendingChatAttachments: (paths) => set({ pendingChatAttachments: paths }),
+      addPendingChatAttachment: (path) => set((state) => ({
+        pendingChatAttachments: [...state.pendingChatAttachments, path]
+      })),
+      removePendingChatAttachment: (path) => set((state) => ({
+        pendingChatAttachments: state.pendingChatAttachments.filter(p => p !== path)
+      })),
+      clearPendingChatAttachments: () => set({ pendingChatAttachments: [] }),
     }),
     {
       name: 'autonome-workspace-storage',

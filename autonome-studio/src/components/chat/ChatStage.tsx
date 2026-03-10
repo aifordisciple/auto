@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet } from "lucide-react";
+import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet, Paperclip } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
@@ -307,7 +307,7 @@ const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {
 };
 
 export function ChatStage() {
-  const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
+  const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId, pendingChatAttachments, clearPendingChatAttachments } = useWorkspaceStore();
   const { messages, addMessage, setMessages, appendLastMessage, isTyping, setIsTyping } = useChatStore();
   const { updateCredits } = useAuthStore();
 
@@ -550,11 +550,15 @@ export function ChatStage() {
 
   const handleSend = async (messageText?: string, contextFiles?: string[]) => {
     const currentInput = messageText || inputValue;
-    if (!currentInput?.trim()) return;
+    // 允许空消息但有附件时发送
+    if (!currentInput?.trim() && pendingChatAttachments.length === 0) return;
 
     if (!messageText) {
       setInputValue("");
     }
+
+    // 合并附件
+    const filesToSend = contextFiles || pendingChatAttachments;
 
     addMessage('user', currentInput);
     addMessage('assistant', '');
@@ -562,6 +566,11 @@ export function ChatStage() {
 
     // ✨ 开启流式护盾
     isStreamingRef.current = true;
+
+    // 发送后清除附件
+    if (pendingChatAttachments.length > 0) {
+      clearPendingChatAttachments();
+    }
 
     try {
       const token = localStorage.getItem('autonome_access_token');
@@ -577,7 +586,7 @@ export function ChatStage() {
         body: JSON.stringify({
           project_id: currentProjectId,
           message: currentInput,
-          context_files: contextFiles || [],  // 不再注入默认挂载文件
+          context_files: filesToSend,  // 使用附件
           session_id: currentSessionId
         }),
         openWhenHidden: true,
@@ -652,10 +661,24 @@ export function ChatStage() {
         className="w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm"
       />
       <div className="flex justify-between items-center px-2 pb-1">
-        <div className="flex gap-2"></div>
+        {/* 左侧: 附件显示 */}
+        {pendingChatAttachments.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <Paperclip size={14} className="text-blue-400" />
+            <span className="text-xs text-blue-300">{pendingChatAttachments.length} 个文件已附加</span>
+            <button
+              onClick={clearPendingChatAttachments}
+              className="ml-1 hover:text-white text-neutral-400 transition-colors"
+              title="清除附件"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
+        {/* 右侧: 发送按钮 */}
         <button
           onClick={() => handleSend()}
-          disabled={isTyping || !inputValue.trim()}
+          disabled={isTyping || (!inputValue.trim() && pendingChatAttachments.length === 0)}
           className="p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>

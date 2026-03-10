@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput, Pencil } from "lucide-react";
+import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput, Pencil, MessageSquarePlus } from "lucide-react";
 import { fetchAPI, BASE_URL } from "@/lib/api";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { MoveFileModal } from "./MoveFileModal";
@@ -225,7 +225,7 @@ const TreeNode = ({ node, expandedFolders, toggleExpand, onDelete, onDownload, o
 // ==========================================
 export function DataCenter() {
   const { isDataCenterOpen, closeAllOverlays } = useUIStore();
-  const { currentProjectId, projectFiles, fetchProjectFiles } = useWorkspaceStore();
+  const { currentProjectId, projectFiles, fetchProjectFiles, setPendingChatAttachments } = useWorkspaceStore();
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results', 'references']));
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -365,6 +365,43 @@ export function DataCenter() {
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  // ✨ 批量添加到聊天：发送给 AI
+  const handleBatchAddToChat = () => {
+    if (selectedPaths.size === 0) return;
+
+    // 辅助函数：递归查找节点
+    const findNodeByPath = (nodes: any, targetPath: string): any => {
+      for (const key of Object.keys(nodes)) {
+        const node = nodes[key];
+        if (node.path === targetPath) return node;
+        if (node.children) {
+          const found = findNodeByPath(node.children, targetPath);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    // 只选择文件（排除文件夹）
+    const filePaths = Array.from(selectedPaths).filter(path => {
+      const node = findNodeByPath(fileTree, path);
+      return node && node.type !== 'folder';
+    });
+
+    if (filePaths.length === 0) {
+      alert("请选择文件（暂不支持文件夹）");
+      return;
+    }
+
+    setPendingChatAttachments(filePaths);
+    closeAllOverlays();
+
+    // 聚焦聊天输入框
+    setTimeout(() => {
+      document.getElementById("chat-input-box")?.focus();
+    }, 100);
   };
 
   // 预览弹窗状态
@@ -743,14 +780,26 @@ export function DataCenter() {
         {isBatchMode && (
           <div className="shrink-0 p-4 border-t border-neutral-800 bg-neutral-900 flex items-center justify-between animate-in slide-in-from-bottom-2">
             <span className="text-sm text-neutral-400">已选择 <strong className="text-red-400">{selectedPaths.size}</strong> 项</span>
-            <button
-              onClick={handleBatchDelete}
-              disabled={selectedPaths.size === 0 || isSyncing}
-              className="flex items-center gap-2 px-5 py-2 bg-red-600 hover:bg-red-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-red-900/20"
-            >
-              {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-              彻底删除
-            </button>
+            <div className="flex items-center gap-2">
+              {/* 新增: 发送给 AI 按钮 */}
+              <button
+                onClick={handleBatchAddToChat}
+                disabled={selectedPaths.size === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                <MessageSquarePlus size={16} />
+                发送给 AI
+              </button>
+              {/* 现有: 删除按钮 */}
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedPaths.size === 0 || isSyncing}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm font-medium rounded-lg transition-colors"
+              >
+                {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                彻底删除
+              </button>
+            </div>
           </div>
         )}
       </div>
