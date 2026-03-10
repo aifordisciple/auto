@@ -1,8 +1,9 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column
+from sqlalchemy.dialects.postgresql import JSONB
 import uuid
 
 # ✨ 引入 pgvector 的 Vector 类型
@@ -35,6 +36,15 @@ class RoleEnum(str, Enum):
     user = "user"
     assistant = "assistant"
     system = "system"
+
+
+class SkillStatus(str, Enum):
+    """SKILL 技能的状态机"""
+    DRAFT = "DRAFT"                 # 草稿：AI 刚生成，还未进行沙箱测试
+    PRIVATE = "PRIVATE"             # 私有：沙箱测试通过，仅自己可用
+    PENDING_REVIEW = "PENDING_REVIEW"  # 待审核：用户已提交，等待管理员审核
+    PUBLISHED = "PUBLISHED"         # 已发布：管理员审核通过，全平台可用
+    REJECTED = "REJECTED"           # 已驳回：审核不通过
 
 
 def get_utc_now():
@@ -212,3 +222,65 @@ class PublicDataset(SQLModel, table=True):
     owner_id: int = Field(foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=get_utc_now)
     updated_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 8. SKILL 资产库模型 (SkillAsset)
+# ==========================================
+def generate_skill_id():
+    """生成 SKILL 唯一 ID"""
+    return f"skill_{uuid.uuid4().hex[:8]}"
+
+
+class SkillAssetBase(SQLModel):
+    """SKILL 资产基础模型"""
+    name: str = Field(max_length=255, description="SKILL的显示名称")
+    description: Optional[str] = Field(default=None, description="一句话简介")
+    version: str = Field(default="1.0.0", max_length=50)
+    executor_type: str = Field(default="Python_env", max_length=50)
+
+    # 核心资产内容
+    parameters_schema: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    expert_knowledge: Optional[str] = Field(default=None)
+    script_code: Optional[str] = Field(default=None, description="实际执行的Python/R代码")
+    dependencies: List[str] = Field(default_factory=list, sa_column=Column(JSONB))
+
+    # 状态控制
+    status: SkillStatus = Field(default=SkillStatus.DRAFT)
+    reject_reason: Optional[str] = Field(default=None, description="如果被驳回，管理员填写的理由")
+
+
+class SkillAsset(SkillAssetBase, table=True):
+    """SKILL 资产数据库表"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: str = Field(default_factory=generate_skill_id, unique=True, index=True, max_length=100, description="全局唯一的英文ID")
+    owner_id: int = Field(foreign_key="user.id", index=True, description="创建者的User ID")
+
+    created_at: datetime = Field(default_factory=get_utc_now)
+    updated_at: datetime = Field(default_factory=get_utc_now)
+
+
+class SkillAssetCreate(SkillAssetBase):
+    """用于前端创建 SKILL 的请求体"""
+    skill_id: Optional[str] = None  # 可选，如果不提供则自动生成
+
+
+class SkillAssetUpdate(SQLModel):
+    """用于更新 SKILL 的请求体"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    executor_type: Optional[str] = None
+    parameters_schema: Optional[Dict[str, Any]] = None
+    expert_knowledge: Optional[str] = None
+    script_code: Optional[str] = None
+    dependencies: Optional[List[str]] = None
+
+
+class SkillAssetPublic(SkillAssetBase):
+    """返回给前端的 SKILL 公共信息"""
+    id: int
+    skill_id: str
+    owner_id: int
+    created_at: datetime
+    updated_at: datetime

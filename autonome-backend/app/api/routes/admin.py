@@ -2,9 +2,14 @@ import docker
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 from pydantic import BaseModel
+from typing import List
+
 from app.core.database import get_session
 from app.core.logger import log
-from app.models.domain import User, Project, BillingAccount, ChatSession
+from app.models.domain import (
+    User, Project, BillingAccount, ChatSession,
+    SkillAsset, SkillAssetPublic, SkillStatus
+)
 from app.api.deps import get_current_superuser
 
 # ✨ 引入底层任务队列引擎
@@ -262,3 +267,141 @@ async def kill_sandbox_container(
         raise HTTPException(status_code=404, detail="容器不存在或已自动销毁")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# SKILL 审核相关 API
+# ==========================================
+
+class ReviewActionRequest(BaseModel):
+    """审核动作请求"""
+    action: str  # "APPROVE" 或 "REJECT"
+    reject_reason: str = ""
+
+
+@router.get("/skills/pending", response_model=List[SkillAssetPublic])
+def get_pending_skills(
+    session: Session = Depends(get_session),
+    admin_user: User = Depends(get_current_superuser)
+):
+    """
+    【管理员专供】获取所有待审核的 SKILL 列表
+    """
+    statement = select(SkillAsset).where(
+        SkillAsset.status == SkillStatus.PENDING_REVIEW
+    ).order_by(SkillAsset.updated_at.desc())
+
+    skills = session.exec(statement).all()
+    log.info(f"📋 [Admin] 管理员 {admin_user.email} 查询待审核技能，共 {len(skills)} 个")
+    return skills
+
+
+@router.post("/skills/{skill_id}/review")
+def review_skill(
+    skill_id: str,
+    req: ReviewActionRequest,
+    session: Session = Depends(get_session),
+    admin_user: User = Depends(get_current_superuser)
+):
+    """
+    【管理员专供】审批动作：通过或驳回
+
+    Args:
+        skill_id: 技能 ID
+        req: 审核动作请求，包含 action (APPROVE/REJECT) 和 reject_reason
+    """
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+
+    if not skill:
+        raise HTTPException(status_code=404, detail="SKILL不存在")
+
+    if skill.status != SkillStatus.PENDING_REVIEW:
+        raise HTTPException(status_code=400, detail="该技能不在待审核状态，无法执行此操作")
+
+    if req.action == "APPROVE":
+        skill.status = SkillStatus.PUBLISHED
+        skill.reject_reason = None
+        session.add(skill)
+        session.commit()
+        log.info(f"✅ 管理员 {admin_user.email} 批准了技能上架: {skill_id}")
+        return {
+            "status": "success",
+            "message": "技能已批准上架",
+            "new_status": skill.status.value
+        }
+
+    elif req.action == "REJECT":
+        if not req.reject_reason:
+            raise HTTPException(status_code=400, detail="驳回必须填写理由")
+
+        skill.status = SkillStatus.REJECTED
+        skill.reject_reason = req.reject_reason
+        session.add(skill)
+        session.commit()
+        log.warning(f"❌ 管理员 {admin_user.email} 驳回了技能: {skill_id}, 理由: {req.reject_reason}")
+        return {
+            "status": "success",
+            "message": "技能已驳回",
+            "new_status": skill.status.value
+        }
+
+    else:
+        raise HTTPException(status_code=400, detail="未知的审核动作，请使用 APPROVE 或 REJECT")
+
+
+@router.get("/skills/all", response_model=List[SkillAssetPublic])
+def get_all_skills_admin(
+    status: str = None,
+    session: Session = Depends(get_session),
+    admin_user: User = Depends(get_current_superuser)
+):
+    """
+    【管理员专供】获取所有 SKILL 列表（可按状态筛选）
+
+    Args:
+        status: 可选的状态筛选参数
+    """
+    if status:
+        try:
+            status_enum = SkillStatus(status)
+            statement = select(SkillAsset).where(SkillAsset.status == status_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"无效的状态值: {status}")
+    else:
+        statement = select(SkillAsset)
+
+    statement = statement.order_by(SkillAsset.created_at.desc())
+    skills = session.exec(statement).all()
+    return skills
+
+
+@router.post("/skills/{skill_id}/unpublish")
+def unpublish_skill(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    admin_user: User = Depends(get_current_superuser)
+):
+    """
+    【管理员专供】下架已发布的技能
+    """
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+
+    if not skill:
+        raise HTTPException(status_code=404, detail="SKILL不存在")
+
+    if skill.status != SkillStatus.PUBLISHED:
+        raise HTTPException(status_code=400, detail="只能下架已发布的技能")
+
+    skill.status = SkillStatus.PRIVATE
+    session.add(skill)
+    session.commit()
+
+    log.warning(f"⬇️ 管理员 {admin_user.email} 下架了技能: {skill_id}")
+    return {
+        "status": "success",
+        "message": "技能已下架",
+        "new_status": skill.status.value
+    }
+
+
+log.info("🛡️ Admin API 路由已加载（含 SKILL 审核）")

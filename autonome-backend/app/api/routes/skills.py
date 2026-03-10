@@ -1,22 +1,30 @@
 """
-SKILL API 路由 - 提供 SKILL 目录查询和知识固化接口
+SKILL API 路由 - 提供 SKILL 目录查询、知识固化、SKILL 工厂接口
 """
 
 import os
 import json
+import re
+from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from sqlmodel import Session, select, or_
 
-from app.core.skill_parser import get_skill_parser
+from app.core.skill_parser import get_skill_parser, get_combined_skills, get_db_skill_parser
 from app.core.logger import log
 from app.api.deps import get_current_user
-from app.models.domain import User, Project, SystemConfig
+from app.models.domain import (
+    User, Project, SystemConfig,
+    SkillAsset, SkillAssetCreate, SkillAssetUpdate, SkillAssetPublic, SkillStatus
+)
 from app.core.database import Session, get_session
 
 router = APIRouter()
 
 
+# ==========================================
+# 请求模型定义
+# ==========================================
 class TransformRequest(BaseModel):
     """Live_Coding 转 SKILL 请求"""
     session_id: int
@@ -29,26 +37,373 @@ class ConsolidateRequest(BaseModel):
     """蓝图固化请求"""
     project_id: str
     blueprint_json: str  # JSON 字符串
-    skill_name: Optional[str] = None  # 可选的自定义名称
+    skill_name: str = None  # 可选的自定义名称
+
+
+class CraftRequest(BaseModel):
+    """SKILL 锻造请求"""
+    raw_material: str = Field(..., description="原始素材：代码/指令/文献段落")
+
+
+class SkillTestRequest(BaseModel):
+    """SKILL 测试请求"""
+    script_code: str = Field(..., description="需要测试的代码")
+    test_instruction: str = Field(default="", description="测试环境变量或传参模拟代码")
+
+
+# ==========================================
+# 铁律校验函数
+# ==========================================
+def validate_iron_rules(script_code: str) -> tuple[bool, str]:
+    """
+    双保险强制校验 - 确保代码符合三大铁律
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not script_code:
+        return False, "代码不能为空"
+
+    # 1. 校验参数系统 (检查是否包含 argparse 或 optparse 或 sys.argv)
+    if not re.search(r'(argparse|optparse|sys\.argv|commandArgs)', script_code):
+        return False, "拦截：代码未包含参数解析系统！必须使用 argparse (Python) 或 optparse/commandArgs (R)"
+
+    # 2. 校验输出格式 (如果是 pandas 输出，检查是否带 tab 或 tsv)
+    if 'to_csv' in script_code:
+        if not re.search(r"(sep=[\'\"]\\t[\'\"]|sep='\t'|sep=\"\t\"|\.tsv|sep='\t')", script_code):
+            return False, "拦截：表格输出必须明确指定 tab 分割的 tsv 格式！请添加 sep='\\t' 或输出为 .tsv 文件"
+
+    # 3. 校验注释密度 (简单判断是否包含一定数量的注释)
+    comment_count = script_code.count('#')
+    docstring_count = script_code.count('"""') + script_code.count("'''")
+    if comment_count < 3 and docstring_count < 1:
+        return False, "拦截：代码缺乏详尽的程序说明注释！请添加至少3行注释或文档字符串"
+
+    return True, ""
+
+
+# ==========================================
+# GET /api/skills/ - 获取用户可用的所有 SKILL
+# ==========================================
+@router.get("/", response_model=List[SkillAssetPublic])
+def list_available_skills(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    【权限隔离】获取当前用户可用的所有 SKILL：
+    包含：全平台已发布的 (PUBLISHED) + 用户自己创建的 (任何状态)
+    """
+    statement = select(SkillAsset).where(
+        or_(
+            SkillAsset.status == SkillStatus.PUBLISHED,
+            SkillAsset.owner_id == current_user.id
+        )
+    ).order_by(SkillAsset.created_at.desc())
+
+    skills = session.exec(statement).all()
+    return skills
+
+
+# ==========================================
+# POST /api/skills/ - 创建新的自定义 SKILL
+# ==========================================
+@router.post("/", response_model=SkillAssetPublic)
+def create_skill(
+    skill_in: SkillAssetCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """创建新的自定义 SKILL (初始状态为 DRAFT)"""
+    # 如果未提供 skill_id，自动生成
+    if not skill_in.skill_id:
+        from app.models.domain import generate_skill_id
+        skill_in.skill_id = generate_skill_id()
+
+    # 检查 skill_id 是否冲突
+    existing = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_in.skill_id)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="该 Skill ID 已被占用，请更换")
+
+    skill = SkillAsset.model_validate(skill_in)
+    skill.owner_id = current_user.id
+    skill.status = SkillStatus.DRAFT  # 强制设定为草稿
+
+    session.add(skill)
+    session.commit()
+    session.refresh(skill)
+    log.info(f"✅ [Skills API] 用户 {current_user.id} 创建了新技能: {skill.skill_id}")
+    return skill
+
+
+# ==========================================
+# GET /api/skills/{skill_id} - 获取单个 SKILL 详情
+# ==========================================
+@router.get("/{skill_id}")
+def get_skill_detail(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取单个 SKILL 详情（带越权检查）"""
+    # 先尝试从数据库获取
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+
+    if skill:
+        # 权限检查：如果不是已发布的公共技能，且不是自己的，拒绝访问
+        if skill.status != SkillStatus.PUBLISHED and skill.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="无权访问该私有技能")
+
+        return {
+            "status": "success",
+            "source": "database",
+            "data": {
+                "id": skill.id,
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "description": skill.description,
+                "version": skill.version,
+                "executor_type": skill.executor_type,
+                "parameters_schema": skill.parameters_schema,
+                "expert_knowledge": skill.expert_knowledge,
+                "script_code": skill.script_code,
+                "dependencies": skill.dependencies,
+                "status": skill.status.value,
+                "reject_reason": skill.reject_reason,
+                "owner_id": skill.owner_id,
+                "created_at": skill.created_at.isoformat(),
+                "updated_at": skill.updated_at.isoformat()
+            }
+        }
+
+    # 如果数据库中没有，尝试从文件系统获取
+    parser = get_skill_parser()
+    fs_skill = parser.get_skill_by_id(skill_id)
+
+    if fs_skill:
+        return {
+            "status": "success",
+            "source": "filesystem",
+            "data": fs_skill
+        }
+
+    raise HTTPException(status_code=404, detail=f"SKILL not found: {skill_id}")
+
+
+# ==========================================
+# PUT /api/skills/{skill_id} - 更新自己的 SKILL
+# ==========================================
+@router.put("/{skill_id}", response_model=SkillAssetPublic)
+def update_skill(
+    skill_id: str,
+    skill_in: SkillAssetUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """更新自己的 SKILL"""
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    if skill.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只能修改自己创建的技能")
+
+    # 如果被驳回后修改，自动退回草稿
+    if skill.status == SkillStatus.REJECTED:
+        skill.status = SkillStatus.DRAFT
+
+    update_data = skill_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(skill, key, value)
+
+    session.add(skill)
+    session.commit()
+    session.refresh(skill)
+    log.info(f"📝 [Skills API] 用户 {current_user.id} 更新了技能: {skill_id}")
+    return skill
+
+
+# ==========================================
+# DELETE /api/skills/{skill_id} - 删除自己的 SKILL
+# ==========================================
+@router.delete("/{skill_id}")
+def delete_skill(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """删除自己的 SKILL（只能删除自己创建的）"""
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    if skill.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只能删除自己创建的技能")
+
+    # 已发布的技能不能直接删除
+    if skill.status == SkillStatus.PUBLISHED:
+        raise HTTPException(status_code=400, detail="已发布的技能不能删除，请联系管理员下架")
+
+    session.delete(skill)
+    session.commit()
+    log.info(f"🗑️ [Skills API] 用户 {current_user.id} 删除了技能: {skill_id}")
+    return {"status": "success", "message": "技能已删除"}
+
+
+# ==========================================
+# POST /api/skills/{skill_id}/submit_review - 提交审核
+# ==========================================
+@router.post("/{skill_id}/submit_review")
+def submit_skill_for_review(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """【状态流转】将自己的技能提交给管理员审核"""
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    if skill.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作此技能")
+
+    # 检查是否有代码
+    if not skill.script_code:
+        raise HTTPException(status_code=400, detail="请先添加执行代码")
+
+    skill.status = SkillStatus.PENDING_REVIEW
+    session.add(skill)
+    session.commit()
+    log.info(f"📤 [Skills API] 用户 {current_user.id} 提交了技能审核: {skill_id}")
+    return {"status": "success", "message": "已提交审核，请等待管理员通过"}
+
+
+# ==========================================
+# POST /api/skills/craft_from_material - AI 锻造接口
+# ==========================================
+@router.post("/craft_from_material")
+async def craft_skill_api(
+    req: CraftRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    【SKILL Forge】前端传入原始素材，后台调用大模型锻造并返回结构化的资产草稿。
+    (注意：此接口仅返回锻造结果供前端预览，并不直接写入数据库)
+    """
+    if not req.raw_material or len(req.raw_material.strip()) < 10:
+        raise HTTPException(status_code=400, detail="素材内容过短，无法锻造")
+
+    # 1. 动态获取 LLM 配置
+    config = session.get(SystemConfig, 1)
+    db_api_key = config.openai_api_key if config else None
+    db_base_url = config.openai_base_url if config else None
+    db_model = config.default_model if config else None
+
+    env_api_key = os.getenv("OPENAI_API_KEY")
+    is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
+
+    api_key = (db_api_key if db_api_key is not None else "") if is_local_model else (db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key)
+    base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
+    model_name = db_model if db_model else "gpt-3.5-turbo"
+
+    # 2. 调用 Crafter Agent
+    try:
+        from app.agent.crafter import craft_skill_from_material
+
+        log.info(f"🔨 [Skills API] 用户 {current_user.id} 开始锻造技能...")
+        crafted_result = await craft_skill_from_material(
+            raw_material=req.raw_material,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name
+        )
+
+        # 3. 校验铁律
+        if crafted_result.get("script_code"):
+            is_valid, error_msg = validate_iron_rules(crafted_result["script_code"])
+            if not is_valid:
+                crafted_result["validation_warning"] = error_msg
+            else:
+                crafted_result["validation_passed"] = True
+
+        return {"status": "success", "data": crafted_result}
+
+    except Exception as e:
+        log.error(f"Forge API 报错: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# POST /api/skills/test_draft - 沙箱测试接口
+# ==========================================
+@router.post("/test_draft")
+async def test_skill_draft_api(
+    req: SkillTestRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    【SKILL Forge】自动化沙箱测试接口。
+    前端传入生成的草稿代码和测试参数，后端扔进沙箱跑。如果失败自动触发 AI 修复。
+    返回最终是否跑通，以及最终修复好的代码。
+    """
+    if not req.script_code:
+        raise HTTPException(status_code=400, detail="缺少需要测试的代码")
+
+    # 铁律校验
+    is_valid, error_msg = validate_iron_rules(req.script_code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # 动态获取 LLM 配置
+    config = session.get(SystemConfig, 1)
+    db_api_key = config.openai_api_key if config else None
+    db_base_url = config.openai_base_url if config else None
+    db_model = config.default_model if config else None
+
+    env_api_key = os.getenv("OPENAI_API_KEY")
+    is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
+
+    api_key = (db_api_key if db_api_key is not None else "") if is_local_model else (db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key)
+    base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
+    model_name = db_model if db_model else "gpt-3.5-turbo"
+
+    try:
+        from app.agent.skill_tester import auto_test_and_heal_skill
+
+        log.info(f"🧪 [Skills API] 用户 {current_user.id} 开始沙箱测试...")
+        test_result = await auto_test_and_heal_skill(
+            script_code=req.script_code,
+            test_instruction=req.test_instruction,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name
+        )
+
+        return {"status": "success", "data": test_result}
+
+    except Exception as e:
+        log.error(f"自动化测试接口报错: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
 # GET /api/skills/catalog - 获取 SKILL 目录
 # ==========================================
-@router.get("/catalog")
-async def get_skill_catalog():
+@router.get("/catalog/list")
+async def get_skill_catalog(
+    current_user: User = Depends(get_current_user)
+):
     """
-    获取所有可用 SKILL 的目录信息
+    获取所有可用 SKILL 的目录信息（包含文件系统和数据库）
 
     返回所有 SKILL 的元数据、参数 Schema 和专家知识库
     """
     try:
-        parser = get_skill_parser()
-        skills = parser.get_all_skills()
+        # 合并文件系统和数据库的技能
+        all_skills = get_combined_skills(current_user.id)
 
         # 精简返回信息
         catalog = []
-        for skill in skills:
+        for skill in all_skills:
             meta = skill.get("metadata", {})
             catalog.append({
                 "skill_id": meta.get("skill_id"),
@@ -63,7 +418,9 @@ async def get_skill_catalog():
                 "category_name": meta.get("category_name"),
                 "subcategory": meta.get("subcategory"),
                 "subcategory_name": meta.get("subcategory_name"),
-                "tags": meta.get("tags", [])
+                "tags": meta.get("tags", []),
+                "source": skill.get("source", "filesystem"),
+                "status": meta.get("status", "PUBLISHED")
             })
 
         return {
@@ -80,29 +437,6 @@ async def get_skill_catalog():
             "total": 0,
             "data": []
         }
-
-
-# ==========================================
-# GET /api/skills/{skill_id} - 获取单个 SKILL 详情
-# ==========================================
-@router.get("/{skill_id}")
-async def get_skill_detail(skill_id: str):
-    """
-    获取单个 SKILL 的详细信息
-
-    Args:
-        skill_id: SKILL 的唯一标识符
-    """
-    parser = get_skill_parser()
-    skill = parser.get_skill_by_id(skill_id)
-
-    if not skill:
-        raise HTTPException(status_code=404, detail=f"SKILL not found: {skill_id}")
-
-    return {
-        "status": "success",
-        "data": skill
-    }
 
 
 # ==========================================

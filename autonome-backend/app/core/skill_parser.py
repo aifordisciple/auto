@@ -1,6 +1,10 @@
 """
 SKILL Bundle Parser - 解析 SKILL.md 文件，提取元数据、参数 Schema 和专家知识库
 
+支持两种数据源：
+1. 文件系统：解析 /app/skills 目录下的 SKILL.md 文件（用于官方预置技能）
+2. 数据库：查询 SkillAsset 表（用于用户自定义技能，支持 RBAC 权限过滤）
+
 SKILL.md 格式规范：
 1. YAML Frontmatter（---包裹）包含核心元数据
 2. 第2节（## 2. 动态参数定义规范）包含参数表格
@@ -11,10 +15,12 @@ import os
 import re
 import json
 from typing import Dict, List, Any, Optional
-from pathlib import Path
 
 import yaml
+from sqlmodel import Session, select, or_
 from app.core.logger import log
+from app.core.database import engine
+from app.models.domain import SkillAsset, SkillStatus
 
 
 class SkillBundleParser:
@@ -309,8 +315,173 @@ class SkillBundleParser:
 _skill_parser_instance = None
 
 def get_skill_parser() -> SkillBundleParser:
-    """获取全局 SKILL 解析器实例"""
+    """获取全局 SKILL 解析器实例（文件系统版本）"""
     global _skill_parser_instance
     if _skill_parser_instance is None:
         _skill_parser_instance = SkillBundleParser()
     return _skill_parser_instance
+
+
+class DBSkillParser:
+    """
+    数据库 SKILL 解析器 - 支持基于用户 ID 的 RBAC 权限过滤
+
+    查询规则：
+    - 用户可以看到所有 PUBLISHED 状态的技能（公共技能）
+    - 用户可以看到自己创建的所有状态技能（私有技能）
+    """
+
+    def __init__(self, user_id: int):
+        """
+        初始化数据库解析器
+
+        Args:
+            user_id: 当前用户 ID，用于权限过滤
+        """
+        self.user_id = user_id
+        log.info(f"[DBSkillParser] 初始化数据库 SKILL 解析器，用户 ID: {user_id}")
+
+    def get_all_skills(self) -> List[Dict[str, Any]]:
+        """
+        获取当前用户可见的所有 SKILL
+
+        Returns:
+            包含所有可见 SKILL 信息的列表
+        """
+        skills_list = []
+        try:
+            with Session(engine) as session:
+                # RBAC 权限过滤：PUBLISHED 或 自己创建的
+                statement = select(SkillAsset).where(
+                    or_(
+                        SkillAsset.status == SkillStatus.PUBLISHED,
+                        SkillAsset.owner_id == self.user_id
+                    )
+                ).order_by(SkillAsset.created_at.desc())
+
+                db_skills = session.exec(statement).all()
+
+                for s in db_skills:
+                    # 将数据库模型转为 AI 熟悉的旧版 JSON 结构，保持向下兼容
+                    skills_list.append({
+                        "metadata": {
+                            "skill_id": s.skill_id,
+                            "name": s.name,
+                            "description": s.description,
+                            "executor_type": s.executor_type,
+                            "version": s.version,
+                            "author": f"user_{s.owner_id}",
+                            "status": s.status.value if s.status else "DRAFT"
+                        },
+                        "parameters_schema": s.parameters_schema or {},
+                        "expert_knowledge": s.expert_knowledge or "暂无专家指导。",
+                        "script_code": s.script_code,
+                        "dependencies": s.dependencies or [],
+                        "source": "database",  # 标记来源
+                        "owner_id": s.owner_id
+                    })
+
+            log.info(f"[DBSkillParser] 查询到 {len(skills_list)} 个可见 SKILL")
+            return skills_list
+
+        except Exception as e:
+            log.error(f"[DBSkillParser] 从数据库加载 SKILL 失败: {e}")
+            return []
+
+    def get_skill_by_id(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        """
+        根据 skill_id 获取单个 SKILL（带权限检查）
+
+        Args:
+            skill_id: SKILL 的唯一标识符
+
+        Returns:
+            SKILL 信息字典，如果无权限或不存在则返回 None
+        """
+        try:
+            with Session(engine) as session:
+                skill = session.exec(
+                    select(SkillAsset).where(SkillAsset.skill_id == skill_id)
+                ).first()
+
+                if not skill:
+                    return None
+
+                # 权限检查：必须是 PUBLISHED 或 自己创建的
+                if skill.status != SkillStatus.PUBLISHED and skill.owner_id != self.user_id:
+                    log.warning(f"[DBSkillParser] 用户 {self.user_id} 无权访问 SKILL: {skill_id}")
+                    return None
+
+                return {
+                    "metadata": {
+                        "skill_id": skill.skill_id,
+                        "name": skill.name,
+                        "description": skill.description,
+                        "executor_type": skill.executor_type,
+                        "version": skill.version,
+                        "author": f"user_{skill.owner_id}",
+                        "status": skill.status.value if skill.status else "DRAFT"
+                    },
+                    "parameters_schema": skill.parameters_schema or {},
+                    "expert_knowledge": skill.expert_knowledge or "暂无专家指导。",
+                    "script_code": skill.script_code,
+                    "dependencies": skill.dependencies or [],
+                    "source": "database",
+                    "owner_id": skill.owner_id
+                }
+
+        except Exception as e:
+            log.error(f"[DBSkillParser] 查询 SKILL 失败: {e}")
+            return None
+
+
+def get_db_skill_parser(user_id: int) -> DBSkillParser:
+    """
+    获取数据库 SKILL 解析器实例
+
+    Args:
+        user_id: 当前用户 ID
+
+    Returns:
+        DBSkillParser 实例
+    """
+    return DBSkillParser(user_id=user_id)
+
+
+def get_combined_skills(user_id: int) -> List[Dict[str, Any]]:
+    """
+    获取合并的 SKILL 列表（文件系统 + 数据库）
+
+    这是供 AI Agent 使用的主要接口，返回用户可见的所有技能
+
+    Args:
+        user_id: 当前用户 ID
+
+    Returns:
+        合并后的 SKILL 列表
+    """
+    all_skills = []
+
+    # 1. 从文件系统加载官方预置技能
+    try:
+        fs_parser = get_skill_parser()
+        fs_skills = fs_parser.get_all_skills()
+        for skill in fs_skills:
+            skill["source"] = "filesystem"
+            skill["owner_id"] = 0  # 官方技能
+        all_skills.extend(fs_skills)
+        log.info(f"[CombinedSkills] 从文件系统加载 {len(fs_skills)} 个官方技能")
+    except Exception as e:
+        log.warning(f"[CombinedSkills] 文件系统技能加载失败: {e}")
+
+    # 2. 从数据库加载用户自定义技能
+    try:
+        db_parser = get_db_skill_parser(user_id)
+        db_skills = db_parser.get_all_skills()
+        all_skills.extend(db_skills)
+        log.info(f"[CombinedSkills] 从数据库加载 {len(db_skills)} 个用户技能")
+    except Exception as e:
+        log.warning(f"[CombinedSkills] 数据库技能加载失败: {e}")
+
+    log.info(f"[CombinedSkills] 总计 {len(all_skills)} 个可用技能")
+    return all_skills

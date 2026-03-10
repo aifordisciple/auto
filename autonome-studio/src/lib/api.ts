@@ -106,3 +106,145 @@ export async function moveFile(projectId: string, request: MoveFileRequest) {
 export async function getFolderTree(projectId: string): Promise<{ status: string; data: FolderNode[] }> {
   return fetchAPI(`/api/projects/${projectId}/folders`);
 }
+
+
+// ==========================================
+// SKILL Forge 技能工厂 API
+// ==========================================
+
+export interface SkillAsset {
+  id: number;
+  skill_id: string;
+  name: string;
+  description: string | null;
+  version: string;
+  executor_type: string;
+  parameters_schema: Record<string, any>;
+  expert_knowledge: string | null;
+  script_code: string | null;
+  dependencies: string[];
+  status: string;
+  reject_reason: string | null;
+  owner_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export const skillForgeApi = {
+  /**
+   * 获取当前用户可用的所有技能（已包含权限过滤）
+   */
+  listSkills: async (): Promise<SkillAsset[]> => {
+    const response = await fetchAPI('/api/skills/');
+    return response;
+  },
+
+  /**
+   * 将非结构化素材发送给大脑进行锻造
+   */
+  craftFromMaterial: async (rawMaterial: string): Promise<any> => {
+    const response = await fetchAPI('/api/skills/craft_from_material', {
+      method: 'POST',
+      body: JSON.stringify({ raw_material: rawMaterial }),
+    });
+    return response.data; // 返回包含 schema 和 code 的 JSON
+  },
+
+  /**
+   * 将生成的代码提交到沙箱进行自动化测试
+   */
+  testDraftSkill: async (scriptCode: string, testInstruction: string): Promise<any> => {
+    const response = await fetchAPI('/api/skills/test_draft', {
+      method: 'POST',
+      body: JSON.stringify({
+        script_code: scriptCode,
+        test_instruction: testInstruction
+      }),
+    });
+    return response.data; // 返回测试状态、日志和可能被自愈修改过的新代码
+  },
+
+  /**
+   * 保存为私有技能 (入库)
+   */
+  savePrivateSkill: async (skillData: Partial<SkillAsset>): Promise<SkillAsset> => {
+    const response = await fetchAPI('/api/skills/', {
+      method: 'POST',
+      body: JSON.stringify(skillData),
+    });
+    return response;
+  },
+
+  /**
+   * 获取单个技能详情
+   */
+  getSkill: async (skillId: string): Promise<any> => {
+    const response = await fetchAPI(`/api/skills/${skillId}`);
+    return response;
+  },
+
+  /**
+   * 更新技能
+   */
+  updateSkill: async (skillId: string, skillData: Partial<SkillAsset>): Promise<SkillAsset> => {
+    const response = await fetchAPI(`/api/skills/${skillId}`, {
+      method: 'PUT',
+      body: JSON.stringify(skillData),
+    });
+    return response;
+  },
+
+  /**
+   * 删除技能
+   */
+  deleteSkill: async (skillId: string): Promise<any> => {
+    const response = await fetchAPI(`/api/skills/${skillId}`, {
+      method: 'DELETE',
+    });
+    return response;
+  },
+
+  /**
+   * 提交给管理员审核
+   */
+  submitForReview: async (skillId: string): Promise<any> => {
+    const response = await fetchAPI(`/api/skills/${skillId}/submit_review`, {
+      method: 'POST',
+    });
+    return response;
+  },
+
+  /**
+   * 获取技能目录（包含文件系统和数据库）
+   */
+  getCatalog: async (): Promise<any> => {
+    const response = await fetchAPI('/api/skills/catalog/list');
+    return response;
+  }
+};
+
+
+// ==========================================
+// Admin 管理员专区 API
+// ==========================================
+
+export const adminApi = {
+  /**
+   * 获取待审核的 SKILL 列表
+   */
+  getPendingSkills: async (): Promise<SkillAsset[]> => {
+    const response = await fetchAPI('/api/admin/skills/pending');
+    return response;
+  },
+
+  /**
+   * 提交审核决策
+   */
+  reviewSkill: async (skillId: string, action: 'APPROVE' | 'REJECT', rejectReason: string = ""): Promise<any> => {
+    const response = await fetchAPI(`/api/admin/skills/${skillId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reject_reason: rejectReason }),
+    });
+    return response;
+  }
+};
