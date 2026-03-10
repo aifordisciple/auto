@@ -1193,13 +1193,13 @@ export function ChatStage() {
                       }`}>
                         {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
                       </div>
-                      <div className={`flex-1 rounded-xl p-4 ${
+                      <div className={`flex-1 min-w-0 rounded-xl p-4 ${
                         msg.role === 'user'
                           ? 'bg-blue-50 dark:bg-neutral-800/50 text-gray-800 dark:text-neutral-200'
                           : 'bg-gray-100 dark:bg-neutral-900/60 text-gray-700 dark:text-neutral-300'
                       }`}>
                         {msg.role === 'user' ? (
-                          <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+                          <div className="whitespace-pre-wrap break-words text-sm">{msg.content}</div>
                         ) : (
                           <div className="flex flex-col gap-4 w-full">
 

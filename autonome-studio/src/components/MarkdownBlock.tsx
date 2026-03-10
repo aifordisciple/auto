@@ -379,7 +379,7 @@ export function MarkdownBlock({ content }: { content: string }) {
   };
 
   return (
-    <div className={`prose prose-sm max-w-none prose-pre:p-0 prose-pre:bg-transparent ${isDark ? 'prose-invert' : ''}`}>
+    <div className={`prose prose-sm max-w-none break-words prose-pre:p-0 prose-pre:bg-transparent ${isDark ? 'prose-invert' : ''}`}>
       <ReactMarkdown
         components={{
           code({ className, children, ...props }) {
