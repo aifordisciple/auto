@@ -21,7 +21,8 @@ def build_executor_agent(
     api_key: str,
     base_url: str,
     model_name: str,
-    project_id: str
+    project_id: str,
+    environment: Dict[str, str] = None
 ):
     """
     构建执行单个 DAG 节点的 Agent
@@ -30,8 +31,16 @@ def build_executor_agent(
     1. 预览数据结构
     2. 执行分析代码
     3. 生成结果文件
+
+    Args:
+        api_key: LLM API Key
+        base_url: LLM Base URL
+        model_name: 模型名称
+        project_id: 项目 ID
+        environment: 要注入沙箱的环境变量字典
     """
     actual_api_key = api_key if (api_key and api_key.strip() != "") else "ollama-local"
+    env_info = environment or {}
 
     llm = ChatOpenAI(
         api_key=actual_api_key,
@@ -42,20 +51,41 @@ def build_executor_agent(
         max_retries=2
     )
 
-    log.info(f"🤖 [Executor] 构建 Executor Agent - Model: {model_name}")
+    log.info(f"🤖 [Executor] 构建 Executor Agent - Model: {model_name}, Env: {env_info}")
 
-    # 工具列表：探针 + 沙箱执行
+    # 工具列表：探针 + 沙箱执行（注入环境变量）
     tools = [
         peek_tabular_data,      # 探针：预览表格
         scan_workspace,         # 探针：扫描目录
-        execute_python_code     # 沙箱：执行代码
     ]
+
+    # ✨ 创建带环境变量的沙箱执行工具
+    from functools import partial
+    from app.tools.bio_tools import execute_python_code
+
+    # 使用 partial 绑定环境变量
+    execute_with_env = lambda code: execute_python_code.invoke({
+        "code": code,
+        "environment": environment
+    })
+
+    # 包装成工具（LangChain 工具需要特殊处理）
+    from langchain_core.tools import Tool
+    execute_tool = Tool(
+        name="execute_python_code",
+        description="在 Docker 沙箱中执行 Python 代码。自动注入环境变量 TASK_OUT_DIR（输出目录）、PROJECT_ID（项目ID）、TASK_ID（任务ID）。",
+        func=lambda code: execute_python_code.invoke({"code": code, "environment": environment})
+    )
+
+    tools.append(execute_tool)
 
     system_prompt = f"""你是 Autonome 的任务执行专家，专门负责执行 DAG 流水线中的单个节点任务。
 
 【当前上下文】
 - 项目 ID: {project_id}
 - 工作目录: /app/uploads/project_{project_id}/
+- 任务输出目录: {env_info.get('TASK_OUT_DIR', f'/app/uploads/project_{project_id}/results/default')}
+- 任务 ID: {env_info.get('TASK_ID', 'unknown')}
 
 【你的能力】
 1. 🔍 数据探针：
@@ -63,7 +93,7 @@ def build_executor_agent(
    - scan_workspace: 扫描目录下的所有文件和文件夹
 
 2. 🚀 代码执行：
-   - execute_python_code: 在 Docker 沙箱中执行 Python 代码
+   - execute_python_code: 在 Docker 沙箱中执行 Python 代码（已自动注入环境变量）
 
 【执行规则】
 1. **先探查，再执行**：处理数据前，先用探针了解数据结构
@@ -81,7 +111,7 @@ def build_executor_agent(
 import os
 import pandas as pd
 
-# 获取任务输出目录
+# 获取任务输出目录（已注入环境变量）
 out_dir = os.environ.get('TASK_OUT_DIR', f'/app/uploads/project_{project_id}/results/default')
 os.makedirs(out_dir, exist_ok=True)
 
@@ -128,12 +158,29 @@ async def execute_single_task(
     """
     log.info(f"🎯 [Executor] 执行任务: {task.name}")
 
+    # ✨ 构建环境变量注入
+    environment = {
+        "TASK_OUT_DIR": f"/app/uploads/project_{project_id}/results/{task.task_id}",
+        "PROJECT_ID": project_id,
+        "TASK_ID": task.task_id
+    }
+
+    # 如果任务有期望输出路径，使用该路径
+    if task.expected_output:
+        # 解析输出目录
+        output_dir = os.path.dirname(task.expected_output)
+        if output_dir:
+            environment["TASK_OUT_DIR"] = output_dir
+
+    log.info(f"🔧 [Executor] 注入环境变量: {environment}")
+
     # 构建 Executor Agent
     agent = build_executor_agent(
         api_key=api_key,
         base_url=base_url,
         model_name=model_name,
-        project_id=project_id
+        project_id=project_id,
+        environment=environment  # 传递环境变量到 Agent
     )
 
     # 构建任务提示

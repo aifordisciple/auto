@@ -55,28 +55,41 @@ def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
             if first_line.count('  ') > 0:
                 delimiter = None  # 使用 split() 自动处理多空格
 
-        # 读取文件内容
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            all_lines = f.readlines()
-
-        # 解析表头
-        if delimiter:
-            headers = [h.strip() for h in all_lines[0].strip().split(delimiter)]
-        else:
-            headers = all_lines[0].strip().split()
-
-        n_cols = len(headers)
-        n_total_rows = len(all_lines) - 1  # 减去表头
-
-        # 预览数据行
-        preview_lines = all_lines[1:n_rows + 1]
+        # ✨ 修复内存风险：改用逐行读取，避免 readlines() 加载整个文件到内存
+        # 只读取表头和预览行
+        headers = []
         preview_data = []
-        for i, line in enumerate(preview_lines, 1):
+        n_total_rows = 0
+
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            # 读取第一行作为表头
+            first_line = f.readline()
+            if not first_line.strip():
+                return "❌ 文件为空"
+
             if delimiter:
-                cells = [c.strip() for c in line.strip().split(delimiter)]
+                headers = [h.strip() for h in first_line.strip().split(delimiter)]
             else:
-                cells = line.strip().split()
-            preview_data.append(cells)
+                headers = first_line.strip().split()
+
+            # 读取预览行并计数总行数
+            for i, line in enumerate(f):
+                if i < n_rows:
+                    if delimiter:
+                        cells = [c.strip() for c in line.strip().split(delimiter)]
+                    else:
+                        cells = line.strip().split()
+                    preview_data.append(cells)
+
+                n_total_rows += 1
+
+                # ✨ 安全限制：超过 100 万行停止计数，避免超大文件
+                if n_total_rows > 1000000:
+                    n_total_rows = ">1000000"
+                    break
+
+        # 计算列数
+        n_cols = len(headers)
 
         # 构建结构化输出
         # 先计算分隔符描述（f-string 不支持反斜杠）
@@ -253,6 +266,314 @@ def scan_workspace(directory_path: str, max_depth: int = 3) -> str:
         return f"❌ 扫描目录失败: {str(e)}"
 
 
+# ==========================================
+# ✨ 多组学探针工具（新增）
+# ==========================================
+
+@tool
+def inspect_h5ad(file_path: str) -> str:
+    """
+    解析 .h5ad 单细胞 AnnData 文件结构。
+
+    返回 obs（细胞注释）、var（基因注释）、obsm（降维坐标）、varm、uns（非结构化信息）等结构概览。
+    在处理单细胞数据前，强烈建议先调用此工具了解数据结构！
+
+    Args:
+        file_path: .h5ad 文件的绝对路径
+
+    Returns:
+        AnnData 对象的结构化信息字符串
+    """
+    log.info(f"🔍 [Probe] inspect_h5ad called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    if not file_path.endswith('.h5ad'):
+        return f"⚠️ 文件扩展名不是 .h5ad，可能不是有效的 AnnData 文件"
+
+    try:
+        # 尝试导入 scanpy
+        try:
+            import scanpy as sc
+        except ImportError:
+            return "❌ scanpy 未安装，无法解析 .h5ad 文件。请在沙箱环境中安装 scanpy。"
+
+        # 读取文件
+        adata = sc.read_h5ad(file_path)
+
+        # 构建结构化报告
+        result = f"""🧬 AnnData 单细胞数据结构报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {os.path.getsize(file_path) / 1024 / 1024:.2f} MB
+
+📐 核心维度:
+  - 观测数 (n_obs): {adata.n_obs} 个细胞
+  - 变量数 (n_vars): {adata.n_vars} 个基因
+  - 数据矩阵: {adata.n_obs} × {adata.n_vars}
+
+📊 obs (细胞注释，前5列):
+"""
+        # 显示 obs 列
+        if adata.obs is not None and len(adata.obs.columns) > 0:
+            obs_cols = list(adata.obs.columns)[:10]
+            result += f"  列名: {obs_cols}\n"
+            if len(adata.obs.columns) > 10:
+                result += f"  ... 共 {len(adata.obs.columns)} 列\n"
+            result += f"  示例:\n{adata.obs.head(3).to_string()}\n"
+        else:
+            result += "  （无细胞注释）\n"
+
+        result += f"""
+📊 var (基因注释，前5列):
+"""
+        # 显示 var 列
+        if adata.var is not None and len(adata.var.columns) > 0:
+            var_cols = list(adata.var.columns)[:10]
+            result += f"  列名: {var_cols}\n"
+            if len(adata.var.columns) > 10:
+                result += f"  ... 共 {len(adata.var.columns)} 列\n"
+            result += f"  示例:\n{adata.var.head(3).to_string()}\n"
+        else:
+            result += "  （无基因注释）\n"
+
+        # 显示 obsm（降维结果）
+        result += f"\n📍 obsm (降维坐标):\n"
+        if adata.obsm is not None and len(adata.obsm) > 0:
+            for key in list(adata.obsm.keys())[:5]:
+                shape = adata.obsm[key].shape
+                result += f"  - {key}: {shape}\n"
+        else:
+            result += "  （无降维结果）\n"
+
+        # 显示 uns（非结构化信息）
+        result += f"\n📦 uns (非结构化信息):\n"
+        if adata.uns is not None and len(adata.uns) > 0:
+            for key in list(adata.uns.keys())[:10]:
+                result += f"  - {key}\n"
+            if len(adata.uns) > 10:
+                result += f"  ... 共 {len(adata.uns)} 项\n"
+        else:
+            result += "  （无非结构化信息）\n"
+
+        # 显示 layers
+        result += f"\n📚 layers (数据层):\n"
+        if adata.layers is not None and len(adata.layers) > 0:
+            for key in adata.layers.keys():
+                result += f"  - {key}\n"
+        else:
+            result += "  （无额外数据层）\n"
+
+        log.info(f"✅ [Probe] h5ad 解析完成: {adata.n_obs} 细胞, {adata.n_vars} 基因")
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] h5ad 解析失败: {str(e)}")
+        return f"❌ 解析 .h5ad 文件失败: {str(e)}"
+
+
+@tool
+def inspect_fastq(file_path: str, n_reads: int = 5) -> str:
+    """
+    预览 FASTQ 测序文件的基本信息。
+
+    统计 reads 数量、读取长度分布、GC 含量等基本信息。
+    适用于 RNA-Seq、单细胞、ChIP-Seq 等测序数据的快速预览。
+
+    Args:
+        file_path: FASTQ 文件路径（支持 .fastq, .fq, .fastq.gz, .fq.gz）
+        n_reads: 预览的 reads 数量，默认 5 条
+
+    Returns:
+        FASTQ 文件的结构化信息字符串
+    """
+    log.info(f"🔍 [Probe] inspect_fastq called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in ['.fastq', '.fq', '.gz']:
+        return f"⚠️ 文件扩展名 {ext} 不是标准的 FASTQ 格式"
+
+    try:
+        import gzip
+
+        # 根据扩展名选择打开方式
+        if file_path.endswith('.gz'):
+            opener = gzip.open
+            mode = 'rt'
+        else:
+            opener = open
+            mode = 'r'
+
+        read_lengths = []
+        gc_contents = []
+        total_reads = 0
+        preview_reads = []
+
+        with opener(file_path, mode) as f:
+            while True:
+                # FASTQ 格式：每 4 行为一个 read
+                header = f.readline()
+                if not header:
+                    break
+                seq = f.readline().strip()
+                plus = f.readline()
+                qual = f.readline().strip()
+
+                if not seq:
+                    break
+
+                total_reads += 1
+                read_lengths.append(len(seq))
+
+                # 计算 GC 含量
+                gc_count = seq.count('G') + seq.count('C')
+                gc_contents.append(gc_count / len(seq) * 100 if len(seq) > 0 else 0)
+
+                # 保存预览
+                if len(preview_reads) < n_reads:
+                    preview_reads.append({
+                        "header": header.strip(),
+                        "seq": seq[:80] + "..." if len(seq) > 80 else seq,
+                        "qual": qual[:80] + "..." if len(qual) > 80 else qual
+                    })
+
+                # 限制统计数量以提高性能
+                if total_reads >= 100000:
+                    break
+
+        # 统计分析
+        import statistics
+        avg_length = statistics.mean(read_lengths) if read_lengths else 0
+        avg_gc = statistics.mean(gc_contents) if gc_contents else 0
+
+        result = f"""🧬 FASTQ 测序文件预览报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {os.path.getsize(file_path) / 1024 / 1024:.2f} MB
+
+📊 统计信息:
+  - 总 reads 数: {total_reads:,}{'（已截取前10万条统计）' if total_reads >= 100000 else ''}
+  - 平均长度: {avg_length:.1f} bp
+  - 长度范围: {min(read_lengths)} - {max(read_lengths)} bp
+  - 平均 GC 含量: {avg_gc:.1f}%
+
+📝 前 {len(preview_reads)} 条 reads 预览:
+"""
+        for i, read in enumerate(preview_reads, 1):
+            result += f"""
+--- Read {i} ---
+Header: {read['header']}
+Seq: {read['seq']}
+Qual: {read['qual']}
+"""
+
+        log.info(f"✅ [Probe] FASTQ 预览完成: {total_reads} reads, 平均长度 {avg_length:.1f}bp")
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] FASTQ 解析失败: {str(e)}")
+        return f"❌ 解析 FASTQ 文件失败: {str(e)}"
+
+
+@tool
+def inspect_bam(file_path: str) -> str:
+    """
+    预览 BAM 比对文件的基本信息。
+
+    统计比对率、染色体分布、插入片段大小等信息。
+    适用于 RNA-Seq、WGS、ChIP-Seq 等比对结果的快速预览。
+
+    Args:
+        file_path: BAM 文件路径（.bam）
+
+    Returns:
+        BAM 文件的结构化信息字符串
+    """
+    log.info(f"🔍 [Probe] inspect_bam called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    if not file_path.endswith('.bam'):
+        return f"⚠️ 文件扩展名不是 .bam"
+
+    try:
+        # 检查 pysam 是否可用
+        try:
+            import pysam
+        except ImportError:
+            return "❌ pysam 未安装，无法解析 BAM 文件。请在沙箱环境中安装 pysam。"
+
+        # 打开 BAM 文件
+        bamfile = pysam.AlignmentFile(file_path, "rb")
+
+        # 统计信息
+        total_reads = 0
+        mapped_reads = 0
+        unmapped_reads = 0
+        chrom_counts = {}
+        insert_sizes = []
+
+        for read in bamfile:
+            total_reads += 1
+
+            if read.is_unmapped:
+                unmapped_reads += 1
+            else:
+                mapped_reads += 1
+
+                # 染色体统计
+                chrom = bamfile.get_reference_name(read.reference_id)
+                chrom_counts[chrom] = chrom_counts.get(chrom, 0) + 1
+
+                # 插入片段大小
+                if read.template_length > 0:
+                    insert_sizes.append(read.template_length)
+
+            # 限制统计数量
+            if total_reads >= 100000:
+                break
+
+        bamfile.close()
+
+        # 计算统计指标
+        mapping_rate = mapped_reads / total_reads * 100 if total_reads > 0 else 0
+        avg_insert = sum(insert_sizes) / len(insert_sizes) if insert_sizes else 0
+
+        # 排序染色体
+        sorted_chroms = sorted(chrom_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+        result = f"""🧬 BAM 比对文件预览报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {os.path.getsize(file_path) / 1024 / 1024:.2f} MB
+
+📊 统计信息:
+  - 总 reads 数: {total_reads:,}{'（已截取前10万条统计）' if total_reads >= 100000 else ''}
+  - 比对成功: {mapped_reads:,} ({mapping_rate:.1f}%)
+  - 未比对: {unmapped_reads:,}
+  - 平均插入片段: {avg_insert:.1f} bp
+
+📍 染色体分布 (Top 10):
+"""
+        for chrom, count in sorted_chroms:
+            result += f"  - {chrom}: {count:,}\n"
+
+        if len(chrom_counts) > 10:
+            result += f"  ... 共 {len(chrom_counts)} 个染色体/contig\n"
+
+        log.info(f"✅ [Probe] BAM 预览完成: {total_reads} reads, 比对率 {mapping_rate:.1f}%")
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] BAM 解析失败: {str(e)}")
+        return f"❌ 解析 BAM 文件失败: {str(e)}"
+
+
 def _format_size(size_bytes: int) -> str:
     """格式化文件大小显示"""
     if size_bytes < 1024:
@@ -285,6 +606,6 @@ def _get_file_icon(ext: str) -> str:
 
 
 # 导出工具列表（供 bio_tools.py 导入）
-probe_tools_list = [peek_tabular_data, scan_workspace]
+probe_tools_list = [peek_tabular_data, scan_workspace, inspect_h5ad, inspect_fastq, inspect_bam]
 
-log.info("🔍 环境探针工具模块已加载")
+log.info("🔍 环境探针工具模块已加载（含多组学探针）")

@@ -332,29 +332,34 @@ DOCKER_SANDBOX_AVAILABLE = True
 log.info("🛡️ Docker 沙箱引擎已就绪 (纯净算力版)")
 
 @tool
-def execute_python_code(code: str) -> str:
+def execute_python_code(code: str, environment: dict = None) -> str:
     """
     在安全的 Docker 沙箱中执行 Python 数据科学和生信分析代码。
     此工具拥有完整的 matplotlib, pandas, scanpy 等数据科学生态。
     代码生成的任何图表或文件必须保存在 /app/uploads 挂载目录中。
-    
+
     Args:
         code: 包含有效 Python 语法的字符串代码。
+        environment: 可选的环境变量字典，如 {"TASK_OUT_DIR": "/app/uploads/project_1/results", "PROJECT_ID": "1"}
     """
     log.info("========== 🤖 AI 尝试执行的代码 ==========")
     log.info(code[:1000] if len(code) > 1000 else code)
     log.info("==========================================")
-    
+
+    if environment:
+        log.info(f"🔧 [Sandbox] 环境变量注入: {environment}")
+
     if not DOCKER_SANDBOX_AVAILABLE:
         log.error("❌ Docker sandbox not available")
         return "❌ 严重系统错误：沙箱引擎未就绪。"
 
     log.info("🛡️ 正在拉起重型分析沙箱...")
-    
+
     try:
         result_output, exit_code = run_container(
             image='autonome-tool-env',
-            command=code
+            command=code,
+            environment=environment
         )
         
         log.info("========== 📦 沙箱返回的结果 ==========")

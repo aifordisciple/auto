@@ -13,9 +13,17 @@ import os
 import json
 import re
 import asyncio
+import time
 from typing import AsyncGenerator, Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from app.core.logger import log
+
+
+# ✨ 超时配置常量
+TASK_EXECUTION_TIMEOUT = 300  # 单个任务执行超时（5分钟）
+AGENT_INVOKE_TIMEOUT = 180   # Agent 调用超时（3分钟）
+VISUAL_REVIEW_TIMEOUT = 60   # 视觉审稿超时（1分钟）
+HEARTBEAT_INTERVAL = 30      # 心跳间隔（30秒）
 
 
 @dataclass
@@ -69,10 +77,24 @@ class BlueprintOrchestrator:
         """
         Kahn 算法拓扑排序
         返回按依赖关系排序的任务 ID 列表
+
+        Raises:
+            ValueError: 如果存在循环依赖或缺失的依赖节点
         """
+        # 检查缺失的依赖节点
+        missing_deps = set()
+        for task_id, task in self.tasks.items():
+            for dep in task.depends_on:
+                if dep not in self.tasks:
+                    missing_deps.add(dep)
+
+        if missing_deps:
+            log.error(f"❌ [Orchestrator] 发现缺失的依赖节点: {missing_deps}")
+            raise ValueError(f"DAG 中存在缺失的依赖节点: {missing_deps}")
+
         # 计算入度
         in_degree = {task_id: 0 for task_id in self.tasks}
-        for task in self.tasks.values():
+        for task_id, task in self.tasks.items():
             for dep in task.depends_on:
                 if dep in in_degree:
                     in_degree[task_id] = in_degree.get(task_id, 0) + 1
@@ -95,9 +117,10 @@ class BlueprintOrchestrator:
 
         # 检查是否有环
         if len(result) != len(self.tasks):
-            log.warning(f"⚠️ [Orchestrator] 检测到 DAG 中存在环，部分任务无法执行")
-            # 返回已排序的部分
-            return result
+            # 找出循环依赖的节点
+            cycle_nodes = [tid for tid in self.tasks if tid not in result]
+            log.error(f"❌ [Orchestrator] 检测到 DAG 中存在循环依赖，涉及节点: {cycle_nodes}")
+            raise ValueError(f"DAG 中存在循环依赖，涉及节点: {cycle_nodes}")
 
         return result
 
@@ -138,6 +161,23 @@ class BlueprintOrchestrator:
         log.info(f"🚀 [Orchestrator] 开始执行 DAG，共 {len(execution_order)} 个任务")
         log.info(f"📋 [Orchestrator] 执行顺序: {execution_order}")
 
+        # ✨ 心跳状态
+        heartbeat_active = True
+        last_heartbeat = time.time()
+
+        async def heartbeat_generator():
+            """后台心跳任务"""
+            while heartbeat_active:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                if heartbeat_active:
+                    yield {
+                        "event": "heartbeat",
+                        "data": json.dumps({
+                            "timestamp": time.time(),
+                            "status": "running"
+                        })
+                    }
+
         # 推送开始事件
         yield {
             "event": "blueprint_start",
@@ -154,6 +194,18 @@ class BlueprintOrchestrator:
             task.status = "running"
 
             log.info(f"🔄 [Orchestrator] 执行任务: {task.name} ({task_id})")
+
+            # ✨ 推送心跳事件（保持连接活跃）
+            if time.time() - last_heartbeat > HEARTBEAT_INTERVAL:
+                last_heartbeat = time.time()
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps({
+                        "timestamp": last_heartbeat,
+                        "current_task": task.name,
+                        "progress": f"{execution_order.index(task_id) + 1}/{len(execution_order)}"
+                    })
+                }
 
             # 推送任务开始事件
             yield {
@@ -175,16 +227,25 @@ class BlueprintOrchestrator:
                 current_instruction = task.instruction
 
                 while review_attempts <= max_review_attempts:
-                    # 执行单个任务
-                    result = await execute_single_task(
-                        task=task,
-                        api_key=api_key,
-                        base_url=base_url,
-                        model_name=model_name,
-                        project_id=project_id,
-                        session_id=session_id,
-                        upstream_outputs=upstream_outputs
-                    )
+                    # ✨ 添加任务执行超时
+                    try:
+                        result = await asyncio.wait_for(
+                            execute_single_task(
+                                task=task,
+                                api_key=api_key,
+                                base_url=base_url,
+                                model_name=model_name,
+                                project_id=project_id,
+                                session_id=session_id,
+                                upstream_outputs=upstream_outputs
+                            ),
+                            timeout=TASK_EXECUTION_TIMEOUT
+                        )
+                    except asyncio.TimeoutError:
+                        log.error(f"⏰ [Orchestrator] 任务执行超时: {task.name}")
+                        task.status = "timeout"
+                        task.error = f"任务执行超时（>{TASK_EXECUTION_TIMEOUT}秒）"
+                        raise TimeoutError(f"任务 {task.name} 执行超时")
 
                     task.result = result.get("output", "")
 
@@ -251,9 +312,11 @@ class BlueprintOrchestrator:
 请根据上述意见修改代码，重新生成图表。注意解决审稿人指出的问题。
 """
                                 else:
-                                    # 达到最大重试次数，标记为部分成功
+                                    # 达到最大重试次数，标记为审稿未通过
                                     log.warning(f"⚠️ [Orchestrator] 达到最大重试次数，审稿仍未通过")
+                                    task.status = "review_failed"
                                     task.result += f"\n\n⚠️ 视觉审稿未通过: {review_result}"
+                                    break  # 退出重试循环
                         else:
                             # 非图片输出，直接成功
                             break
@@ -261,25 +324,42 @@ class BlueprintOrchestrator:
                         # 无需视觉审稿，直接成功
                         break
 
-                task.status = "success"
+                # ✨ 根据审稿结果设置最终状态
+                if task.status == "review_failed":
+                    # 审稿未通过，推送特殊完成事件
+                    log.info(f"⚠️ [Orchestrator] 任务完成（审稿未通过）: {task.name}")
+                    yield {
+                        "event": "task_complete",
+                        "data": json.dumps({
+                            "task_id": task_id,
+                            "name": task.name,
+                            "status": "review_failed",
+                            "result": task.result[:500] if task.result else "",
+                            "output_path": task.expected_output,
+                            "warning": "视觉审稿未通过，图表可能存在质量问题"
+                        })
+                    }
+                else:
+                    # 正常成功
+                    task.status = "success"
 
-                # 更新工作区记忆
-                if task.expected_output:
-                    self.workspace_memory[task_id] = [task.expected_output]
+                    # 更新工作区记忆
+                    if task.expected_output:
+                        self.workspace_memory[task_id] = [task.expected_output]
 
-                log.info(f"✅ [Orchestrator] 任务完成: {task.name}")
+                    log.info(f"✅ [Orchestrator] 任务完成: {task.name}")
 
-                # 推送任务完成事件
-                yield {
-                    "event": "task_complete",
-                    "data": json.dumps({
-                        "task_id": task_id,
-                        "name": task.name,
-                        "status": "success",
-                        "result": task.result[:500] if task.result else "",
-                        "output_path": task.expected_output
-                    })
-                }
+                    # 推送任务完成事件
+                    yield {
+                        "event": "task_complete",
+                        "data": json.dumps({
+                            "task_id": task_id,
+                            "name": task.name,
+                            "status": "success",
+                            "result": task.result[:500] if task.result else "",
+                            "output_path": task.expected_output
+                        })
+                    }
 
             except Exception as e:
                 task.status = "failed"
@@ -305,6 +385,10 @@ class BlueprintOrchestrator:
         # 推送完成事件
         success_count = sum(1 for t in self.tasks.values() if t.status == "success")
         failed_count = sum(1 for t in self.tasks.values() if t.status == "failed")
+        review_failed_count = sum(1 for t in self.tasks.values() if t.status == "review_failed")
+
+        # ✨ 停止心跳
+        heartbeat_active = False
 
         yield {
             "event": "blueprint_complete",
@@ -313,11 +397,12 @@ class BlueprintOrchestrator:
                 "total_tasks": len(self.tasks),
                 "success_count": success_count,
                 "failed_count": failed_count,
+                "review_failed_count": review_failed_count,
                 "workspace_memory": self.workspace_memory
             })
         }
 
-        log.info(f"🏁 [Orchestrator] DAG 执行完成: {success_count} 成功, {failed_count} 失败")
+        log.info(f"🏁 [Orchestrator] DAG 执行完成: {success_count} 成功, {failed_count} 失败, {review_failed_count} 审稿未通过")
 
 
 def extract_blueprint(text: str) -> Optional[Dict[str, Any]]:

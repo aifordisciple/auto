@@ -2,6 +2,8 @@
 SKILL API 路由 - 提供 SKILL 目录查询和知识固化接口
 """
 
+import os
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -9,7 +11,8 @@ from typing import Optional
 from app.core.skill_parser import get_skill_parser
 from app.core.logger import log
 from app.api.deps import get_current_user
-from app.models.domain import User
+from app.models.domain import User, Project, SystemConfig
+from app.core.database import Session, get_session
 
 router = APIRouter()
 
@@ -20,6 +23,13 @@ class TransformRequest(BaseModel):
     message_id: int
     skill_name: str
     description: str
+
+
+class ConsolidateRequest(BaseModel):
+    """蓝图固化请求"""
+    project_id: str
+    blueprint_json: str  # JSON 字符串
+    skill_name: Optional[str] = None  # 可选的自定义名称
 
 
 # ==========================================
@@ -173,3 +183,139 @@ async def get_bundle_scripts(bundle_name: str):
         "bundle_name": bundle_name,
         "scripts": scripts
     }
+
+
+# ==========================================
+# POST /api/skills/consolidate - 蓝图固化为 SKILL
+# ==========================================
+@router.post("/consolidate")
+async def consolidate_skill(
+    req: ConsolidateRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    将成功的 DAG 蓝图固化为标准 SKILL.md
+
+    流程：
+    1. 验证蓝图格式
+    2. 调用 Consolidator Agent 逆向生成 SKILL.md
+    3. 保存到 /app/skills 目录
+
+    Args:
+        req: 包含蓝图 JSON 和可选的自定义名称
+
+    Returns:
+        固化结果，包括 skill_id 和文件路径
+    """
+    from app.agent.consolidator import consolidate_and_save
+
+    # 1. 安全校验：检查项目权限
+    if req.project_id:
+        project = session.get(Project, req.project_id)
+        if not project or project.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    # 2. 验证蓝图 JSON 格式
+    try:
+        blueprint_data = json.loads(req.blueprint_json)
+        if not blueprint_data.get("is_complex_task"):
+            raise HTTPException(status_code=400, detail="蓝图格式错误：缺少 is_complex_task 标记")
+        if not blueprint_data.get("tasks"):
+            raise HTTPException(status_code=400, detail="蓝图格式错误：缺少任务列表")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"蓝图 JSON 解析失败: {str(e)}")
+
+    # 3. 获取 LLM 配置
+    config = session.get(SystemConfig, 1)
+
+    db_api_key = config.openai_api_key if config else None
+    db_base_url = config.openai_base_url if config else None
+    db_model = config.default_model if config else None
+
+    env_api_key = os.getenv("OPENAI_API_KEY")
+
+    is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
+
+    if is_local_model:
+        api_key = db_api_key if db_api_key is not None else ""
+    else:
+        api_key = db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key
+
+    base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
+    model_name = db_model if db_model else "gpt-3.5-turbo"
+
+    log.info(f"🔄 [Skills API] 开始固化蓝图 - user={current_user.id}, project={req.project_id}")
+
+    # 4. 调用 Consolidator 固化
+    try:
+        result = await consolidate_and_save(
+            blueprint_json=req.blueprint_json,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            skills_dir="/app/skills"
+        )
+
+        if result.get("success"):
+            log.info(f"✅ [Skills API] SKILL 固化成功: {result.get('skill_id')}")
+            return {
+                "status": "success",
+                "skill_id": result.get("skill_id"),
+                "file_path": result.get("file_path"),
+                "content_preview": result.get("content_preview")
+            }
+        else:
+            log.error(f"❌ [Skills API] SKILL 固化失败: {result.get('error')}")
+            return {
+                "status": "error",
+                "message": result.get("error", "SKILL 固化失败")
+            }
+
+    except Exception as e:
+        log.error(f"❌ [Skills API] 固化异常: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"SKILL 固化失败: {str(e)}")
+
+
+# ==========================================
+# GET /api/skills/list - 获取 SKILL 文件列表
+# ==========================================
+@router.get("/list")
+async def list_skills():
+    """
+    获取所有 SKILL 文件列表
+
+    返回 /app/skills 目录下的所有 .md 文件
+    """
+    skills_dir = "/app/skills"
+
+    if not os.path.exists(skills_dir):
+        return {
+            "status": "success",
+            "total": 0,
+            "data": []
+        }
+
+    skills = []
+    for f in os.listdir(skills_dir):
+        if f.endswith('.md'):
+            file_path = os.path.join(skills_dir, f)
+            try:
+                stat = os.stat(file_path)
+                skills.append({
+                    "filename": f,
+                    "path": file_path,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime
+                })
+            except Exception as e:
+                log.warning(f"无法读取 SKILL 文件 {f}: {e}")
+
+    return {
+        "status": "success",
+        "total": len(skills),
+        "data": sorted(skills, key=lambda x: x["modified"], reverse=True)
+    }
+
+
+log.info("📚 SKILL API 路由已加载")
