@@ -388,7 +388,7 @@ async def test_skill_draft_api(
 # ==========================================
 # GET /api/skills/catalog - 获取 SKILL 目录
 # ==========================================
-@router.get("/catalog/list")
+@router.get("/catalog")
 async def get_skill_catalog(
     current_user: User = Depends(get_current_user)
 ):

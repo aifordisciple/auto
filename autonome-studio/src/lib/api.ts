@@ -218,7 +218,7 @@ export const skillForgeApi = {
    * 获取技能目录（包含文件系统和数据库）
    */
   getCatalog: async (): Promise<any> => {
-    const response = await fetchAPI('/api/skills/catalog/list');
+    const response = await fetchAPI('/api/skills/catalog');
     return response;
   }
 };
