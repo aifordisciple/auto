@@ -215,9 +215,11 @@ for tool in tools_needed:
 print("\\n🚀 启动 Nextflow 流程...")
 work_dir = "''' + work_dir + '''"
 
-# 构建参数
+# 构建参数（使用 json.loads 解析 JSON 字符串）
+import json
+params_json_raw = r"""''' + params_json + '''"""
+params_dict = json.loads(params_json_raw)
 params_str = ""
-params_dict = ''' + params_json + '''
 for k, v in params_dict.items():
     if isinstance(v, str):
         params_str += f" --{k} \\"{v}\\""
