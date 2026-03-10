@@ -367,35 +367,19 @@ export function DataCenter() {
     }
   };
 
-  // ✨ 批量添加到聊天：发送给 AI
+  // ✨ 批量添加到聊天：发送给 AI（支持文件和文件夹）
   const handleBatchAddToChat = () => {
     if (selectedPaths.size === 0) return;
 
-    // 辅助函数：递归查找节点
-    const findNodeByPath = (nodes: any, targetPath: string): any => {
-      for (const key of Object.keys(nodes)) {
-        const node = nodes[key];
-        if (node.path === targetPath) return node;
-        if (node.children) {
-          const found = findNodeByPath(node.children, targetPath);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
+    // 直接使用选中的路径（文件和文件夹都支持）
+    const selectedPathsArray = Array.from(selectedPaths);
 
-    // 只选择文件（排除文件夹）
-    const filePaths = Array.from(selectedPaths).filter(path => {
-      const node = findNodeByPath(fileTree, path);
-      return node && node.type !== 'folder';
-    });
-
-    if (filePaths.length === 0) {
-      alert("请选择文件（暂不支持文件夹）");
+    if (selectedPathsArray.length === 0) {
+      alert("请选择文件或文件夹");
       return;
     }
 
-    setPendingChatAttachments(filePaths);
+    setPendingChatAttachments(selectedPathsArray);
     closeAllOverlays();
 
     // 聚焦聊天输入框
@@ -668,6 +652,27 @@ export function DataCenter() {
     return root;
   }, [projectFiles]);
 
+  // ✨ 计算文件夹数量（用于显示提示）
+  const folderCount = useMemo(() => {
+    let count = 0;
+    const findNodeByPath = (nodes: any, targetPath: string): any => {
+      for (const key of Object.keys(nodes)) {
+        const node = nodes[key];
+        if (node.path === targetPath) return node;
+        if (node.children) {
+          const found = findNodeByPath(node.children, targetPath);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    selectedPaths.forEach(path => {
+      const node = findNodeByPath(fileTree, path);
+      if (node && node.type === 'folder') count++;
+    });
+    return count;
+  }, [selectedPaths, fileTree]);
+
   if (!isDataCenterOpen) return null;
 
   return (
@@ -779,7 +784,15 @@ export function DataCenter() {
         {/* ✨ 批量操作执行栏 (仅在 Batch Mode 且有选中项时弹出) */}
         {isBatchMode && (
           <div className="shrink-0 p-4 border-t border-neutral-800 bg-neutral-900 flex items-center justify-between animate-in slide-in-from-bottom-2">
-            <span className="text-sm text-neutral-400">已选择 <strong className="text-red-400">{selectedPaths.size}</strong> 项</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-neutral-400">已选择 <strong className="text-red-400">{selectedPaths.size}</strong> 项</span>
+              {/* 显示文件夹数量提示 */}
+              {folderCount > 0 && (
+                <span className="text-xs text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                  含 {folderCount} 个文件夹
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               {/* 新增: 发送给 AI 按钮 */}
               <button

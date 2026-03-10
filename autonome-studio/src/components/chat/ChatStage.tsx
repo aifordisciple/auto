@@ -12,6 +12,209 @@ import { MarkdownBlock } from "../MarkdownBlock";
 import { StrategyCard, parseStrategyCard } from "./StrategyCard";
 import { BASE_URL } from "@/lib/api";
 
+// ==========================================
+// ✨ 附件选择器 - 树节点组件
+// ==========================================
+const AttachmentTreeNode = ({ node, selectedPaths, setSelectedPaths, expandedFolders, setExpandedFolders }: {
+  node: any;
+  selectedPaths: Set<string>;
+  setSelectedPaths: React.Dispatch<React.SetStateAction<Set<string>>>;
+  expandedFolders: Set<string>;
+  setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
+}) => {
+  const isFolder = node.type === 'folder';
+  const isExpanded = expandedFolders.has(node.path);
+  const isSelected = selectedPaths.has(node.path);
+
+  return (
+    <div className="flex flex-col">
+      <div
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/60 rounded cursor-pointer group"
+        onClick={() => {
+          if (isFolder) {
+            setExpandedFolders(prev => {
+              const next = new Set(prev);
+              next.has(node.path) ? next.delete(node.path) : next.add(node.path);
+              return next;
+            });
+          }
+        }}
+      >
+        {/* 复选框 */}
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={(e) => {
+            e.stopPropagation();
+            setSelectedPaths((prev: Set<string>) => {
+              const next = new Set(prev);
+              isSelected ? next.delete(node.path) : next.add(node.path);
+              return next;
+            });
+          }}
+          className="w-4 h-4 rounded border-neutral-600 bg-neutral-800 text-blue-500 focus:ring-blue-500/20 cursor-pointer"
+        />
+
+        {/* 文件夹展开图标 */}
+        {isFolder && (
+          isExpanded ? <ChevronDown size={14} className="text-neutral-500" /> : <ChevronRight size={14} className="text-neutral-500" />
+        )}
+
+        {/* 图标 */}
+        {isFolder ? (
+          <Folder size={16} className="text-purple-400 shrink-0" />
+        ) : (
+          <FileText size={16} className="text-neutral-400 shrink-0" />
+        )}
+
+        {/* 名称 */}
+        <span className="text-sm text-neutral-300 truncate flex-1">{node.name}</span>
+
+        {/* 文件夹标签 */}
+        {isFolder && (
+          <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0">文件夹</span>
+        )}
+      </div>
+
+      {/* 子节点 */}
+      {isFolder && isExpanded && node.children && Object.keys(node.children).length > 0 && (
+        <div className="ml-6 border-l border-neutral-800 pl-2">
+          {Object.values(node.children).map((child: any) => (
+            <AttachmentTreeNode
+              key={child.path}
+              node={child}
+              selectedPaths={selectedPaths}
+              setSelectedPaths={setSelectedPaths}
+              expandedFolders={expandedFolders}
+              setExpandedFolders={setExpandedFolders}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==========================================
+// ✨ 附件选择器弹窗组件
+// ==========================================
+const AttachmentPicker = ({ isOpen, onClose, onAddFiles, projectId }: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAddFiles: (paths: string[]) => void;
+  projectId: string | null;
+}) => {
+  const [files, setFiles] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results']));
+
+  useEffect(() => {
+    if (isOpen && projectId) {
+      setIsLoading(true);
+      const token = localStorage.getItem('autonome_access_token');
+      fetch(`${BASE_URL}/api/projects/${projectId}/files`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+        .then(res => res.json())
+        .then(data => setFiles(data.data || []))
+        .finally(() => setIsLoading(false));
+    }
+  }, [isOpen, projectId]);
+
+  // 构建文件树
+  const fileTree = useMemo(() => {
+    const root: any = {};
+    files.forEach(file => {
+      const filePath = (file as any).path || file.filename;
+      const fileType = (file as any).type || 'file';
+
+      const parts = filePath.split('/');
+      let current = root;
+      parts.forEach((part, idx) => {
+        if (!current[part]) {
+          current[part] = {
+            name: part,
+            path: parts.slice(0, idx + 1).join('/'),
+            type: idx === parts.length - 1 && fileType === 'file' ? 'file' : 'folder',
+            children: {},
+            fileData: idx === parts.length - 1 ? file : null
+          };
+        }
+        current = current[part].children;
+      });
+    });
+    return root;
+  }, [files]);
+
+  const handleConfirm = () => {
+    onAddFiles(Array.from(selectedPaths));
+    setSelectedPaths(new Set());
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-[500px] max-h-[70vh] bg-[#1a1a1c] border border-neutral-700 rounded-xl shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="shrink-0 border-b border-neutral-800 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Paperclip size={18} className="text-blue-400" />
+            <h3 className="text-sm font-semibold text-neutral-200">添加附件</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* File Tree */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8 text-neutral-500">
+              <Loader2 size={20} className="animate-spin mr-2" />
+              加载中...
+            </div>
+          ) : Object.keys(fileTree).length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-neutral-500">
+              <FolderOpen size={32} className="opacity-50 mb-2" />
+              <span className="text-sm">项目目录为空</span>
+            </div>
+          ) : (
+            Object.values(fileTree).map((node: any) => (
+              <AttachmentTreeNode
+                key={node.path}
+                node={node}
+                selectedPaths={selectedPaths}
+                setSelectedPaths={setSelectedPaths}
+                expandedFolders={expandedFolders}
+                setExpandedFolders={setExpandedFolders}
+              />
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="shrink-0 border-t border-neutral-800 px-4 py-3 flex items-center justify-between">
+          <span className="text-xs text-neutral-500">已选择 {selectedPaths.size} 项（支持文件和文件夹）</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-400 hover:text-white transition-colors">取消</button>
+            <button
+              onClick={handleConfirm}
+              disabled={selectedPaths.size === 0}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white text-sm rounded-lg transition-colors"
+            >
+              添加
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const copyToClipboard = async (text: string) => {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
@@ -307,13 +510,16 @@ const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {
 };
 
 export function ChatStage() {
-  const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId, pendingChatAttachments, clearPendingChatAttachments } = useWorkspaceStore();
+  const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId, pendingChatAttachments, clearPendingChatAttachments, setPendingChatAttachments, removePendingChatAttachment } = useWorkspaceStore();
   const { messages, addMessage, setMessages, appendLastMessage, isTyping, setIsTyping } = useChatStore();
   const { updateCredits } = useAuthStore();
 
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isStreamingRef = useRef(false);
+
+  // ✨ 附件选择器状态
+  const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
 
   // ✨ 聊天区文件预览状态引擎
   const [previewData, setPreviewData] = useState<{url: string, filename: string} | null>(null);
@@ -647,6 +853,34 @@ export function ChatStage() {
 
   const renderInputBox = () => (
     <div className="w-full bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl p-2 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-sm dark:shadow-xl flex flex-col">
+      {/* ✨ 新增: 附件按钮行 */}
+      <div className="flex items-center gap-2 px-2 pt-1 mb-1 flex-wrap">
+        <button
+          onClick={() => setIsAttachmentPickerOpen(true)}
+          className="p-2 text-neutral-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+          title="添加文件/文件夹附件"
+        >
+          <Paperclip size={18} />
+        </button>
+        {/* 显示已附加的项目标签 */}
+        {pendingChatAttachments.map((path, idx) => {
+          const isFolder = !path.includes('.') || path.split('/').pop()?.includes('.') === false;
+          return (
+            <div key={idx} className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-md text-xs text-blue-300 max-w-[150px]">
+              {isFolder ? <Folder size={10} className="text-purple-400 shrink-0" /> : <FileText size={10} className="shrink-0" />}
+              <span className="truncate">{path.split('/').pop()}</span>
+              <button
+                onClick={() => removePendingChatAttachment(path)}
+                className="hover:text-white text-neutral-400 transition-colors shrink-0"
+                title="移除"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
       <textarea
         id="chat-input-box"
         value={inputValue}
@@ -661,15 +895,15 @@ export function ChatStage() {
         className="w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm"
       />
       <div className="flex justify-between items-center px-2 pb-1">
-        {/* 左侧: 附件显示 */}
+        {/* 左侧: 附件数量提示 */}
         {pendingChatAttachments.length > 0 && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
             <Paperclip size={14} className="text-blue-400" />
-            <span className="text-xs text-blue-300">{pendingChatAttachments.length} 个文件已附加</span>
+            <span className="text-xs text-blue-300">{pendingChatAttachments.length} 个项目已附加</span>
             <button
               onClick={clearPendingChatAttachments}
               className="ml-1 hover:text-white text-neutral-400 transition-colors"
-              title="清除附件"
+              title="清除全部附件"
             >
               <X size={12} />
             </button>
@@ -679,7 +913,7 @@ export function ChatStage() {
         <button
           onClick={() => handleSend()}
           disabled={isTyping || (!inputValue.trim() && pendingChatAttachments.length === 0)}
-          className="p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors"
+          className="p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors ml-auto"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
         </button>
@@ -941,6 +1175,17 @@ export function ChatStage() {
           </div>
         </div>
       )}
+
+      {/* ✨ 附件选择器弹窗 */}
+      <AttachmentPicker
+        isOpen={isAttachmentPickerOpen}
+        onClose={() => setIsAttachmentPickerOpen(false)}
+        projectId={currentProjectId}
+        onAddFiles={(paths) => {
+          const newPaths = [...new Set([...pendingChatAttachments, ...paths])];
+          setPendingChatAttachments(newPaths);
+        }}
+      />
 
     </div>
   );
