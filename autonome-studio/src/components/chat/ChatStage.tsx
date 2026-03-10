@@ -1069,33 +1069,27 @@ export function ChatStage() {
 
   const renderInputBox = () => (
     <div className="w-full bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl p-2 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-sm dark:shadow-xl flex flex-col">
-      {/* ✨ 新增: 附件按钮行 */}
-      <div className="flex items-center gap-2 px-2 pt-1 mb-1 flex-wrap">
-        <button
-          onClick={() => setIsAttachmentPickerOpen(true)}
-          className="p-2 text-neutral-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
-          title="添加文件/文件夹附件"
-        >
-          <Paperclip size={18} />
-        </button>
-        {/* 显示已附加的项目标签 */}
-        {pendingChatAttachments.map((path, idx) => {
-          const isFolder = !path.includes('.') || path.split('/').pop()?.includes('.') === false;
-          return (
-            <div key={idx} className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-md text-xs text-blue-300 max-w-[150px]">
-              {isFolder ? <Folder size={10} className="text-purple-400 shrink-0" /> : <FileText size={10} className="shrink-0" />}
-              <span className="truncate">{path.split('/').pop()}</span>
-              <button
-                onClick={() => removePendingChatAttachment(path)}
-                className="hover:text-white text-neutral-400 transition-colors shrink-0"
-                title="移除"
-              >
-                <X size={10} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      {/* 已附加的项目标签 - 显示在 textarea 上方 */}
+      {pendingChatAttachments.length > 0 && (
+        <div className="flex items-center gap-2 px-2 pt-1 pb-1 flex-wrap border-b border-gray-100 dark:border-neutral-800/50 mb-1">
+          {pendingChatAttachments.map((path, idx) => {
+            const isFolder = !path.includes('.') || path.split('/').pop()?.includes('.') === false;
+            return (
+              <div key={idx} className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-md text-xs text-blue-300 max-w-[150px]">
+                {isFolder ? <Folder size={10} className="text-purple-400 shrink-0" /> : <FileText size={10} className="shrink-0" />}
+                <span className="truncate">{path.split('/').pop()}</span>
+                <button
+                  onClick={() => removePendingChatAttachment(path)}
+                  className="hover:text-white text-neutral-400 transition-colors shrink-0"
+                  title="移除"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <textarea
         id="chat-input-box"
@@ -1110,26 +1104,26 @@ export function ChatStage() {
         placeholder="Ask anything or generate an analysis script..."
         className="w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm"
       />
-      <div className="flex justify-between items-center px-2 pb-1">
-        {/* 左侧: 附件数量提示 */}
-        {pendingChatAttachments.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-            <Paperclip size={14} className="text-blue-400" />
-            <span className="text-xs text-blue-300">{pendingChatAttachments.length} 个项目已附加</span>
-            <button
-              onClick={clearPendingChatAttachments}
-              className="ml-1 hover:text-white text-neutral-400 transition-colors"
-              title="清除全部附件"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        )}
+
+      {/* 底部操作栏：左侧附件按钮，右侧发送按钮 */}
+      <div className="flex justify-between items-center px-2 pb-1 pt-1">
+        {/* 左侧: 添加附件按钮 (Plus 图标) */}
+        <button
+          onClick={() => setIsAttachmentPickerOpen(true)}
+          className="p-2 text-neutral-500 hover:text-blue-500 hover:bg-blue-500/10 rounded-full transition-all"
+          title="添加附件"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+
         {/* 右侧: 发送按钮 */}
         <button
           onClick={() => handleSend()}
           disabled={isTyping || (!inputValue.trim() && pendingChatAttachments.length === 0)}
-          className="p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors ml-auto"
+          className="p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
         </button>
