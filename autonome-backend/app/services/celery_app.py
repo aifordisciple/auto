@@ -691,12 +691,26 @@ def execute_nextflow_compiler(
 
     # 提取 Nextflow 参数（从 skill_parameters 或 payload 中获取）
     params_source = skill_parameters or payload.get("params", {}).get("pipeline_topology", [{}])[0].get("params", {})
+
+    # ✨ 将相对路径转换为绝对路径（相对于项目根目录）
+    project_root = f"/app/uploads/project_{project_id}"
+
+    # 处理 fastq_dir
+    fastq_dir = params_source.get("fastq_dir", "./fastq")
+    if not fastq_dir.startswith("/"):
+        fastq_dir = os.path.join(project_root, fastq_dir)
+
+    # 处理 output_dir
+    output_dir = params_source.get("output_dir", "./qc_reports")
+    if not output_dir.startswith("/"):
+        output_dir = os.path.join(task_work_dir, output_dir)
+
     nf_params = {
-        "fastq_dir": params_source.get("fastq_dir", "./fastq"),
+        "fastq_dir": fastq_dir,
         "is_paired_end": params_source.get("is_paired_end", True),
         "file_pattern": params_source.get("file_pattern", "*_{1,2}.fastq.gz"),
         "threads_per_sample": params_source.get("threads_per_sample", 4),
-        "outdir": params_source.get("output_dir", "./qc_reports")
+        "outdir": output_dir
     }
 
     log_msg(f"📋 Nextflow 参数: {json.dumps(nf_params, ensure_ascii=False)}")
