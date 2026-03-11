@@ -146,6 +146,60 @@ def create_skill(
 
 
 # ==========================================
+# GET /api/skills/catalog - 获取 SKILL 目录
+# ==========================================
+@router.get("/catalog")
+async def get_skill_catalog(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取所有可用 SKILL 的目录信息（包含文件系统和数据库）
+
+    返回所有 SKILL 的元数据、参数 Schema 和专家知识库
+    """
+    try:
+        # 合并文件系统和数据库的技能
+        all_skills = get_combined_skills(current_user.id)
+
+        # 精简返回信息
+        catalog = []
+        for skill in all_skills:
+            meta = skill.get("metadata", {})
+            catalog.append({
+                "skill_id": meta.get("skill_id"),
+                "name": meta.get("name"),
+                "version": meta.get("version"),
+                "author": meta.get("author"),
+                "executor_type": meta.get("executor_type"),
+                "timeout_seconds": meta.get("timeout_seconds"),
+                "parameters_schema": skill.get("parameters_schema", {}),
+                "bundle_name": skill.get("bundle_name"),
+                "category": meta.get("category"),
+                "category_name": meta.get("category_name"),
+                "subcategory": meta.get("subcategory"),
+                "subcategory_name": meta.get("subcategory_name"),
+                "tags": meta.get("tags", []),
+                "source": skill.get("source", "filesystem"),
+                "status": meta.get("status", "PUBLISHED")
+            })
+
+        return {
+            "status": "success",
+            "total": len(catalog),
+            "data": catalog
+        }
+
+    except Exception as e:
+        log.error(f"[Skills API] 获取 SKILL 目录失败: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "total": 0,
+            "data": []
+        }
+
+
+# ==========================================
 # GET /api/skills/{skill_id} - 获取单个 SKILL 详情
 # ==========================================
 @router.get("/{skill_id}")
@@ -566,60 +620,6 @@ async def test_skill_draft_api(
     except Exception as e:
         log.error(f"自动化测试接口报错: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==========================================
-# GET /api/skills/catalog - 获取 SKILL 目录
-# ==========================================
-@router.get("/catalog")
-async def get_skill_catalog(
-    current_user: User = Depends(get_current_user)
-):
-    """
-    获取所有可用 SKILL 的目录信息（包含文件系统和数据库）
-
-    返回所有 SKILL 的元数据、参数 Schema 和专家知识库
-    """
-    try:
-        # 合并文件系统和数据库的技能
-        all_skills = get_combined_skills(current_user.id)
-
-        # 精简返回信息
-        catalog = []
-        for skill in all_skills:
-            meta = skill.get("metadata", {})
-            catalog.append({
-                "skill_id": meta.get("skill_id"),
-                "name": meta.get("name"),
-                "version": meta.get("version"),
-                "author": meta.get("author"),
-                "executor_type": meta.get("executor_type"),
-                "timeout_seconds": meta.get("timeout_seconds"),
-                "parameters_schema": skill.get("parameters_schema", {}),
-                "bundle_name": skill.get("bundle_name"),
-                "category": meta.get("category"),
-                "category_name": meta.get("category_name"),
-                "subcategory": meta.get("subcategory"),
-                "subcategory_name": meta.get("subcategory_name"),
-                "tags": meta.get("tags", []),
-                "source": skill.get("source", "filesystem"),
-                "status": meta.get("status", "PUBLISHED")
-            })
-
-        return {
-            "status": "success",
-            "total": len(catalog),
-            "data": catalog
-        }
-
-    except Exception as e:
-        log.error(f"[Skills API] 获取 SKILL 目录失败: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "total": 0,
-            "data": []
-        }
 
 
 # ==========================================
