@@ -61,6 +61,7 @@ class SkillTestRequest(BaseModel):
     parameters_schema: Optional[Dict[str, Any]] = Field(default=None, description="参数 Schema，用于自动生成测试数据")
     auto_generate_data: bool = Field(default=True, description="是否自动生成测试数据")
     max_test_rounds: int = Field(default=3, description="最大测试轮数")
+    executor_type: str = Field(default="Python_env", description="执行器类型: Python_env/R_env")
 
 
 # ==========================================
@@ -633,7 +634,8 @@ async def test_skill_draft_api(
             model_name=model_name,
             parameters_schema=req.parameters_schema,
             auto_generate_data=req.auto_generate_data,
-            max_test_rounds=req.max_test_rounds
+            max_test_rounds=req.max_test_rounds,
+            executor_type=req.executor_type
         )
 
         return {"status": "success", "data": test_result}
@@ -700,7 +702,8 @@ async def test_skill_draft_stream_api(
                 model_name=model_name,
                 parameters_schema=req.parameters_schema,
                 auto_generate_data=req.auto_generate_data,
-                max_test_rounds=req.max_test_rounds
+                max_test_rounds=req.max_test_rounds,
+                executor_type=req.executor_type
             ):
                 yield event
 

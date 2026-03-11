@@ -22,28 +22,28 @@ from app.core.logger import log
 
 # 尝试导入沙箱执行工具
 try:
-    from app.tools.bio_tools import execute_python_code
+    from app.tools.bio_tools import run_container
     SANDBOX_AVAILABLE = True
 except ImportError:
     SANDBOX_AVAILABLE = False
     log.warning("[Skill Tester] bio_tools 未找到，沙箱测试功能将受限")
 
 
-def _run_sandbox_code(code: str) -> str:
+def _run_sandbox_code(code: str, language: str = "python") -> str:
     """
     执行沙箱代码的封装函数
-    处理 @tool 装饰器返回的 StructuredTool 对象
+
+    Args:
+        code: 要执行的代码
+        language: 语言类型 "python" 或 "r"
     """
     try:
-        # 如果是 StructuredTool 对象，使用 invoke 方法
-        if hasattr(execute_python_code, 'invoke'):
-            return execute_python_code.invoke({"code": code})
-        # 如果有 func 属性，直接调用底层函数
-        elif hasattr(execute_python_code, 'func'):
-            return execute_python_code.func(code)
-        # 否则尝试直接调用
-        else:
-            return execute_python_code(code)
+        result_output, exit_code = run_container(
+            image='autonome-tool-env',
+            command=code,
+            language=language
+        )
+        return result_output
     except Exception as e:
         log.error(f"[Sandbox] 执行失败: {e}")
         raise
@@ -271,7 +271,8 @@ async def auto_test_and_heal_skill(
     model_name: str,
     parameters_schema: Dict[str, Any] = None,
     auto_generate_data: bool = True,
-    max_test_rounds: int = 3
+    max_test_rounds: int = 3,
+    executor_type: str = "Python_env"
 ) -> Dict[str, Any]:
     """
     沙箱自动化测试引擎（增强版）
@@ -290,11 +291,15 @@ async def auto_test_and_heal_skill(
         parameters_schema: 参数 Schema（用于生成测试数据）
         auto_generate_data: 是否自动生成测试数据
         max_test_rounds: 最大测试轮数
+        executor_type: 执行器类型 (Python_env / R_env)
 
     Returns:
         测试结果字典
     """
-    log.info("🧪 [Skill Tester] 启动自动化测试引擎...")
+    log.info(f"🧪 [Skill Tester] 启动自动化测试引擎... 执行器类型: {executor_type}")
+
+    # 确定语言类型
+    language = "r" if executor_type == "R_env" else "python"
 
     if not SANDBOX_AVAILABLE:
         log.warning("[Skill Tester] 沙箱不可用")
@@ -342,7 +347,7 @@ async def auto_test_and_heal_skill(
     if auto_generate_data and parameters_schema:
         log.info("[Skill Tester] 正在生成测试数据...")
         test_data = generate_test_data(
-            parameters_schema, "Python_env", api_key, base_url, model_name
+            parameters_schema, executor_type, api_key, base_url, model_name
         )
 
         # 创建测试文件
@@ -388,12 +393,12 @@ async def auto_test_and_heal_skill(
             execution_logs += f"\n▶️ 尝试 {attempts}/{max_retries}\n"
 
             # 构建测试代码
-            test_setup = _build_test_setup(scenario_params, work_dir, test_data.get("test_files", {}))
+            test_setup = _build_test_setup(scenario_params, work_dir, test_data.get("test_files", {}), language=language)
             full_test_code = f"{test_setup}\n\n{current_code}"
 
             # 执行沙箱
             try:
-                output = _run_sandbox_code(full_test_code)
+                output = _run_sandbox_code(full_test_code, language=language)
             except Exception as e:
                 output = f"❌ 沙箱执行异常: {str(e)}"
 
@@ -463,46 +468,93 @@ async def auto_test_and_heal_skill(
 def _build_test_setup(
     scenario_params: Dict[str, Any],
     work_dir: str,
-    test_files: Dict[str, str]
+    test_files: Dict[str, str],
+    language: str = "python"
 ) -> str:
     """
     构建测试前置代码
+
+    Args:
+        scenario_params: 测试场景参数
+        work_dir: 工作目录
+        test_files: 测试文件映射
+        language: 语言类型 "python" 或 "r"
     """
-    setup_lines = [
-        "# ===== 自动注入的测试环境 =====",
-        "import sys",
-        "import os",
-        f"os.chdir('{work_dir}')",  # 切换到工作目录
-    ]
+    if language.lower() == "r":
+        # R 语言的测试环境设置
+        setup_lines = [
+            "# ===== 自动注入的测试环境 (R) =====",
+            f"setwd('{work_dir}')",  # 切换到工作目录
+        ]
 
-    # 处理用户指定的测试指令
-    user_instruction = scenario_params.get("_user_instruction", "")
-    if user_instruction:
-        setup_lines.append(f"# 用户测试指令\n{user_instruction}")
-        del scenario_params["_user_instruction"]
+        # 处理用户指定的测试指令
+        user_instruction = scenario_params.get("_user_instruction", "")
+        if user_instruction:
+            setup_lines.append(f"# 用户测试指令\n{user_instruction}")
+            del scenario_params["_user_instruction"]
 
-    # 构建命令行参数
-    if scenario_params:
-        args = ["script.py"]
-        for key, value in scenario_params.items():
-            if isinstance(value, bool):
-                if value:
+        # 对于 R，我们需要模拟命令行参数
+        # 使用 optparse 或 commandArgs 的脚本会在运行时解析参数
+        # 这里我们设置环境变量或直接修改脚本逻辑比较复杂
+        # 简化处理：将参数作为 R 变量注入
+        if scenario_params:
+            setup_lines.append("# 测试参数注入")
+            for key, value in scenario_params.items():
+                if isinstance(value, bool):
+                    r_value = "TRUE" if value else "FALSE"
+                elif isinstance(value, (int, float)):
+                    r_value = str(value)
+                elif isinstance(value, str):
+                    r_value = f'"{value}"'
+                else:
+                    r_value = f'"{json.dumps(value)}"'
+                setup_lines.append(f"{key} <- {r_value}")
+
+        # 添加测试文件路径
+        if test_files:
+            for filename in test_files:
+                var_name = filename.upper().replace('.', '_')
+                setup_lines.append(f"TEST_FILE_{var_name} <- '{work_dir}/{filename}'")
+
+        setup_lines.append("# ===== 测试环境准备完成 =====\n")
+
+    else:
+        # Python 语言的测试环境设置
+        setup_lines = [
+            "# ===== 自动注入的测试环境 (Python) =====",
+            "import sys",
+            "import os",
+            f"os.chdir('{work_dir}')",  # 切换到工作目录
+        ]
+
+        # 处理用户指定的测试指令
+        user_instruction = scenario_params.get("_user_instruction", "")
+        if user_instruction:
+            setup_lines.append(f"# 用户测试指令\n{user_instruction}")
+            del scenario_params["_user_instruction"]
+
+        # 构建命令行参数
+        if scenario_params:
+            args = ["script.py"]
+            for key, value in scenario_params.items():
+                if isinstance(value, bool):
+                    if value:
+                        args.append(f"--{key}")
+                elif isinstance(value, (list, dict)):
                     args.append(f"--{key}")
-            elif isinstance(value, (list, dict)):
-                args.append(f"--{key}")
-                args.append(json.dumps(value))
-            else:
-                args.append(f"--{key}")
-                args.append(str(value))
+                    args.append(json.dumps(value))
+                else:
+                    args.append(f"--{key}")
+                    args.append(str(value))
 
-        setup_lines.append(f"sys.argv = {args}")
+            setup_lines.append(f"sys.argv = {args}")
 
-    # 添加测试文件路径到环境变量
-    if test_files:
-        for filename in test_files:
-            setup_lines.append(f"TEST_FILE_{filename.upper().replace('.', '_')} = '{work_dir}/{filename}'")
+        # 添加测试文件路径到环境变量
+        if test_files:
+            for filename in test_files:
+                setup_lines.append(f"TEST_FILE_{filename.upper().replace('.', '_')} = '{work_dir}/{filename}'")
 
-    setup_lines.append("# ===== 测试环境准备完成 =====\n")
+        setup_lines.append("# ===== 测试环境准备完成 =====\n")
 
     return "\n".join(setup_lines)
 
@@ -604,7 +656,8 @@ async def auto_test_and_heal_skill_stream(
     model_name: str,
     parameters_schema: Dict[str, Any] = None,
     auto_generate_data: bool = True,
-    max_test_rounds: int = 3
+    max_test_rounds: int = 3,
+    executor_type: str = "Python_env"
 ) -> AsyncGenerator[str, None]:
     """
     沙箱自动化测试引擎（流式日志版本）
@@ -617,7 +670,10 @@ async def auto_test_and_heal_skill_stream(
     def emit(event: TestLogEvent) -> str:
         return f"data: {event.to_json()}\n\n"
 
-    log.info("🧪 [Skill Tester] 启动自动化测试引擎 (流式模式)...")
+    log.info(f"🧪 [Skill Tester] 启动自动化测试引擎 (流式模式)... 执行器类型: {executor_type}")
+
+    # 确定语言类型
+    language = "r" if executor_type == "R_env" else "python"
 
     # 检查沙箱可用性
     if not SANDBOX_AVAILABLE:
@@ -672,7 +728,7 @@ async def auto_test_and_heal_skill_stream(
     if auto_generate_data and parameters_schema:
         yield emit(TestLogEvent(type="log", message="🔄 正在生成测试数据..."))
         test_data = generate_test_data(
-            parameters_schema, "Python_env", api_key, base_url, model_name
+            parameters_schema, executor_type, api_key, base_url, model_name
         )
 
         # 创建测试文件
@@ -719,7 +775,7 @@ async def auto_test_and_heal_skill_stream(
             yield emit(TestLogEvent(type="log", message=f"\n▶️ 尝试 {attempts}/{max_retries}"))
 
             # 构建测试代码
-            test_setup = _build_test_setup(scenario_params.copy(), work_dir, test_data.get("test_files", {}))
+            test_setup = _build_test_setup(scenario_params.copy(), work_dir, test_data.get("test_files", {}), language=language)
             full_test_code = f"{test_setup}\n\n{current_code}"
 
             # 执行沙箱
