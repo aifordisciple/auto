@@ -152,14 +152,76 @@ async def _craft_script_skill(
     # 根据执行器类型设置默认值提示
     if executor_type == "R_env":
         default_executor = "R_env"
-        param_example = '''"input_file": { "type": "string", "description": "输入文件路径", "default": "" }'''
-        dep_example = '["ggplot2", "dplyr", "tidyr"]'
         arg_parser_note = "使用 commandArgs(trailingOnly=TRUE) 或 optparse 包接收参数"
     else:
         default_executor = "Python_env"
-        param_example = '''"input_file": { "type": "string", "description": "输入文件路径", "default": "" }'''
-        dep_example = '["pandas", "numpy"]'
         arg_parser_note = "使用 argparse 接收参数"
+
+    # 参数类型识别规范（关键！）
+    param_type_guide = """
+【参数类型识别规范 - 必须严格遵守】
+
+根据参数的语义和用途，设置正确的 type 和 format 字段：
+
+1. **文件路径参数** (type: string, format: filepath)
+   - 参数名包含: file, input, output, path, filename, 数据文件
+   - 示例: input_file, output_path, bam_file, vcf_file, fastq_file
+   - 值为具体的文件路径，如 "/data/sample.bam"
+
+2. **目录路径参数** (type: string, format: directorypath)
+   - 参数名包含: dir, directory, folder, 目录, 文件夹
+   - 示例: input_dir, output_dir, work_dir, data_directory
+   - 值为目录路径，如 "/data/results/"
+
+3. **数值参数** (type: number 或 integer)
+   - 参数名包含: threshold, value, count, size, length, num, ratio, score
+   - 示例: p_value (number), min_length (integer), threads (integer)
+   - 整数用 integer，浮点数用 number
+
+4. **布尔参数** (type: boolean)
+   - 参数名以 is_, has_, use_, enable_ 开头
+   - 示例: is_paired, has_header, use_cache, enable_filter
+   - 值为 true 或 false
+
+5. **枚举参数** (type: string, enum: [...])
+   - 参数值只能是预定义的几个选项
+   - 示例: mode 可选 ["fast", "standard", "strict"]
+
+6. **普通字符串参数** (type: string)
+   - 不符合以上任何特征的普通文本参数
+   - 示例: sample_name, gene_id, pattern
+
+【JSON Schema 示例】
+{
+  "input_file": {
+    "type": "string",
+    "format": "filepath",
+    "description": "输入 BAM 文件路径",
+    "default": ""
+  },
+  "output_dir": {
+    "type": "string",
+    "format": "directorypath",
+    "description": "输出结果目录",
+    "default": "./results"
+  },
+  "p_value": {
+    "type": "number",
+    "description": "显著性 P 值阈值",
+    "default": 0.05
+  },
+  "threads": {
+    "type": "integer",
+    "description": "并行线程数",
+    "default": 4
+  },
+  "is_paired": {
+    "type": "boolean",
+    "description": "是否为双端测序",
+    "default": true
+  }
+}
+"""
 
     crafter_prompt = f"""你是 Autonome 系统的首席技能锻造师 (Skill Architect)。
 你的任务是接收用户提供的【原始生信分析素材】，将其逆向提炼、重构为一个符合 Autonome 标准的【工业级可复用技能包】。
@@ -177,6 +239,8 @@ async def _craft_script_skill(
 
 3. **强制 TSV 格式输出**：如果该技能有表格数据落地，生成 Tab 分割的 `.tsv` 格式。
 
+{param_type_guide}
+
 【输出格式】
 请严格按照以下 JSON 格式输出，不要添加任何额外文字：
 
@@ -188,13 +252,14 @@ async def _craft_script_skill(
   "parameters_schema": {{
     "type": "object",
     "properties": {{
-      {param_example}
+      "input_file": {{ "type": "string", "format": "filepath", "description": "输入文件路径", "default": "" }},
+      "output_dir": {{ "type": "string", "format": "directorypath", "description": "输出目录", "default": "./output" }}
     }},
     "required": ["input_file"]
   }},
   "expert_knowledge": "专家指导内容",
   "script_code": "重构后的完整代码",
-  "dependencies": {dep_example}
+  "dependencies": ["pandas", "numpy"]
 }}
 ```
 
@@ -255,6 +320,31 @@ async def _craft_blueprint_skill(
         max_tokens=6000  # Nextflow 工作流可能需要更多 tokens
     )
 
+    # 参数类型识别规范
+    param_type_guide = """
+【参数类型识别规范 - 必须严格遵守】
+
+根据参数的语义和用途，设置正确的 type 和 format 字段：
+
+1. **文件路径参数** (type: string, format: filepath)
+   - 参数名包含: file, input, output, path, filename
+   - 示例: input_file, output_path, bam_file, fastq_file
+
+2. **目录路径参数** (type: string, format: directorypath)
+   - 参数名包含: dir, directory, folder
+   - 示例: input_dir, output_dir, work_dir
+
+3. **数值参数** (type: number 或 integer)
+   - 参数名包含: threshold, value, count, size, threads
+   - 整数用 integer，浮点数用 number
+
+4. **布尔参数** (type: boolean)
+   - 参数名以 is_, has_, use_ 开头
+
+5. **普通字符串参数** (type: string)
+   - 不符合以上任何特征的普通文本参数
+"""
+
     blueprint_prompt = f"""你是 Autonome 系统的首席 Nextflow 工作流架构师 (Pipeline Architect)。
 你的任务是接收用户提供的【原始生信分析需求】，将其转换为符合 Nextflow DSL2 规范的【工业级并行工作流】。
 
@@ -267,6 +357,8 @@ async def _craft_blueprint_skill(
 3. **参数化**：所有配置项（路径、线程数、阈值等）必须通过 `params` 定义，每个参数必须有默认值
 4. **资源管理**：为每个 Process 设置合理的 `cpus` 和 `memory`，使用 `tag` 标记任务
 
+{param_type_guide}
+
 【输出格式】
 请严格按照以下 JSON 格式输出，不要添加任何额外文字：
 
@@ -278,7 +370,8 @@ async def _craft_blueprint_skill(
   "parameters_schema": {{
     "type": "object",
     "properties": {{
-      "input_dir": {{ "type": "string", "description": "输入数据目录", "default": "./data" }}
+      "input_dir": {{ "type": "string", "format": "directorypath", "description": "输入数据目录", "default": "./data" }},
+      "threads": {{ "type": "integer", "description": "并行线程数", "default": 4 }}
     }},
     "required": ["input_dir"]
   }},
