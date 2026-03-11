@@ -29,6 +29,26 @@ except ImportError:
     log.warning("[Skill Tester] bio_tools 未找到，沙箱测试功能将受限")
 
 
+def _run_sandbox_code(code: str) -> str:
+    """
+    执行沙箱代码的封装函数
+    处理 @tool 装饰器返回的 StructuredTool 对象
+    """
+    try:
+        # 如果是 StructuredTool 对象，使用 invoke 方法
+        if hasattr(execute_python_code, 'invoke'):
+            return execute_python_code.invoke({"code": code})
+        # 如果有 func 属性，直接调用底层函数
+        elif hasattr(execute_python_code, 'func'):
+            return execute_python_code.func(code)
+        # 否则尝试直接调用
+        else:
+            return execute_python_code(code)
+    except Exception as e:
+        log.error(f"[Sandbox] 执行失败: {e}")
+        raise
+
+
 # ==========================================
 # 测试数据生成器
 # ==========================================
@@ -373,7 +393,7 @@ async def auto_test_and_heal_skill(
 
             # 执行沙箱
             try:
-                output = execute_python_code(full_test_code)
+                output = _run_sandbox_code(full_test_code)
             except Exception as e:
                 output = f"❌ 沙箱执行异常: {str(e)}"
 
@@ -705,7 +725,7 @@ async def auto_test_and_heal_skill_stream(
             # 执行沙箱
             yield emit(TestLogEvent(type="status", message=f"executing_scenario_{scenario_idx + 1}"))
             try:
-                output = execute_python_code(full_test_code)
+                output = _run_sandbox_code(full_test_code)
             except Exception as e:
                 output = f"❌ 沙箱执行异常: {str(e)}"
 
