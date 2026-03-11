@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { X, Box, Search, Play, Loader2, CheckCircle, XCircle, ChevronRight, ChevronDown, Terminal } from "lucide-react";
-import { BASE_URL } from "@/lib/api";
+import { fetchAPI, BASE_URL } from "@/lib/api";
 import { toast } from 'sonner';
 import { FilePickerButton } from "@/components/FilePicker";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
@@ -161,16 +161,13 @@ export function SkillCenter() {
   const fetchSkills = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('autonome_access_token');
-      const res = await fetch(`${BASE_URL}/api/skills/catalog`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      const data = await res.json();
+      const data = await fetchAPI('/api/skills/catalog');
       if (data.status === 'success') {
         setSkills(data.data || []);
       }
     } catch (e) {
       console.error('Failed to fetch skills:', e);
+      toast.error('加载技能列表失败');
     } finally {
       setIsLoading(false);
     }
