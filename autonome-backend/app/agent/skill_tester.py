@@ -53,6 +53,88 @@ def _run_sandbox_code(code: str, language: str = "python") -> str:
 # 测试数据生成器
 # ==========================================
 
+def generate_test_data_fast(
+    parameters_schema: Dict[str, Any],
+    executor_type: str
+) -> Dict[str, Any]:
+    """
+    根据参数 Schema 快速生成测试数据（无需 LLM）
+
+    根据参数类型自动推断并生成最小化测试数据
+    """
+    properties = parameters_schema.get("properties", {})
+    test_files = {}
+    test_params = {}
+    test_scenarios = []
+
+    for param_name, param_def in properties.items():
+        param_type = param_def.get("type", "string")
+        param_format = param_def.get("format", "")
+        param_default = param_def.get("default")
+
+        # 文件路径参数 - 生成简单的测试文件
+        if param_type == "string" and param_format == "filepath":
+            # 根据参数名推断文件类型
+            if "csv" in param_name.lower() or "csv" in str(param_default).lower():
+                test_files[f"{param_name}.csv"] = "id,value,name\n1,100,test1\n2,200,test2\n"
+            elif "tsv" in param_name.lower() or "tsv" in str(param_default).lower():
+                test_files[f"{param_name}.tsv"] = "id\tvalue\tname\n1\t100\ttest1\n2\t200\ttest2\n"
+            elif "matrix" in param_name.lower() or "expression" in param_name.lower():
+                test_files[f"{param_name}.tsv"] = "gene\tsample1\tsample2\nGENE1\t10.5\t12.3\nGENE2\t8.2\t9.1\n"
+            elif "bam" in param_name.lower():
+                # BAM 文件无法简单创建，跳过
+                test_params[param_name] = f"/tmp/test_{param_name}.bam"
+                continue
+            elif "fasta" in param_name.lower() or "fa" in param_name.lower():
+                test_files[f"{param_name}.fa"] = ">seq1\nATCGATCG\n>seq2\nGCTAGCTA\n"
+            elif "fastq" in param_name.lower() or "fq" in param_name.lower():
+                test_files[f"{param_name}.fq"] = "@read1\nATCGATCG\n+\nIIIIIIII\n@read2\nGCTAGCTA\n+\nIIIIIIII\n"
+            else:
+                # 默认生成简单的 TSV 文件
+                test_files[f"{param_name}.tsv"] = "col1\tcol2\nval1\tval2\n"
+
+            test_params[param_name] = f"/tmp/skill_test_workdir/{param_name}.tsv"
+
+        # 目录路径参数
+        elif param_type == "string" and param_format == "directorypath":
+            test_params[param_name] = "/tmp/skill_test_workdir/output"
+
+        # 数值参数
+        elif param_type == "integer":
+            test_params[param_name] = param_default if param_default is not None else 4
+        elif param_type == "number":
+            test_params[param_name] = param_default if param_default is not None else 0.05
+
+        # 布尔参数
+        elif param_type == "boolean":
+            test_params[param_name] = param_default if param_default is not None else True
+
+        # 枚举参数
+        elif param_type == "string" and "enum" in param_def:
+            enum_values = param_def["enum"]
+            test_params[param_name] = enum_values[0] if enum_values else "default"
+
+        # 普通字符串参数
+        elif param_type == "string":
+            test_params[param_name] = param_default if param_default is not None else "test_value"
+
+    # 生成默认测试场景
+    if test_params:
+        test_scenarios.append({
+            "name": "默认参数测试",
+            "params": test_params.copy(),
+            "expected": "代码正常执行"
+        })
+
+    log.info(f"[TestDataGen] 快速生成测试数据: {len(test_files)} 个文件, {len(test_params)} 个参数")
+
+    return {
+        "test_files": test_files,
+        "test_params": test_params,
+        "test_scenarios": test_scenarios
+    }
+
+
 async def generate_test_data(
     parameters_schema: Dict[str, Any],
     executor_type: str,
@@ -61,20 +143,28 @@ async def generate_test_data(
     model_name: str
 ) -> Dict[str, Any]:
     """
-    根据参数 Schema 生成测试数据（异步版本）
+    根据参数 Schema 生成测试数据
 
-    Returns:
-        包含 test_data_files 和 test_params 的字典
+    优先使用快速规则生成，失败时回退到 LLM 生成
     """
+    # 优先使用快速生成（无需 LLM）
+    try:
+        fast_result = generate_test_data_fast(parameters_schema, executor_type)
+        if fast_result.get("test_params") or fast_result.get("test_files"):
+            return fast_result
+    except Exception as e:
+        log.warning(f"[TestDataGen] 快速生成失败: {e}，尝试 LLM 生成")
+
+    # 回退到 LLM 生成
     llm = ChatOpenAI(
         api_key=api_key,
         base_url=base_url,
         model=model_name,
-        temperature=0.3
+        temperature=0.3,
+        timeout=30  # 30秒超时
     )
 
     properties = parameters_schema.get("properties", {})
-    required = parameters_schema.get("required", [])
 
     prompt = f"""你是一个专业的生信测试数据生成器。请根据以下参数定义生成测试数据。
 
@@ -97,8 +187,7 @@ async def generate_test_data(
     "参数名": 测试值
   }},
   "test_scenarios": [
-    {{"name": "场景1", "params": {{}}, "expected": "预期结果描述"}},
-    {{"name": "场景2", "params": {{}}, "expected": "预期结果描述"}}
+    {{"name": "场景1", "params": {{}}, "expected": "预期结果描述"}}
   ]
 }}
 ```
@@ -121,7 +210,7 @@ async def generate_test_data(
             return json.loads(content[start:end])
 
     except Exception as e:
-        log.error(f"[TestDataGen] 生成测试数据失败: {e}")
+        log.error(f"[TestDataGen] LLM 生成测试数据失败: {e}")
 
     return {"test_files": {}, "test_params": {}, "test_scenarios": []}
 
