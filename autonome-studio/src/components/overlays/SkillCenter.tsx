@@ -10,50 +10,79 @@ import { FilePickerButton } from "@/components/FilePicker";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 // ==========================================
-// 系统内置分类
+// 系统内置分类 - 扩展版
 // ==========================================
 interface Category {
   id: string;
   name: string;
   icon: string;
+  description?: string;
   subcategories?: Category[];
 }
 
 const BUILT_IN_CATEGORIES: Category[] = [
-  { id: 'all', name: '全部', icon: '📦' },
+  { id: 'all', name: '全部', icon: '📦', description: '所有可用技能' },
   {
     id: 'quality_control',
     name: '质量控制',
     icon: '🔬',
+    description: '数据质量评估与控制',
     subcategories: [
-      { id: 'fastq_qc', name: 'FastQ质控', icon: '' },
-      { id: 'bam_qc', name: 'BAM质控', icon: '' },
-      { id: 'vcf_qc', name: 'VCF质控', icon: '' }
+      { id: 'fastq_qc', name: 'FastQ质控', icon: '🧬', description: '原始测序数据质量检测' },
+      { id: 'bam_qc', name: 'BAM质控', icon: '📊', description: '比对文件质量评估' },
+      { id: 'vcf_qc', name: 'VCF质控', icon: '🧪', description: '变异检测结果质控' }
     ]
   },
   {
     id: 'alignment',
     name: '序列比对',
     icon: '🧬',
+    description: '序列比对与映射',
     subcategories: [
-      { id: 'dna_align', name: 'DNA比对', icon: '' },
-      { id: 'rna_align', name: 'RNA比对', icon: '' }
+      { id: 'dna_align', name: 'DNA比对', icon: '🔗', description: 'DNA序列比对' },
+      { id: 'rna_align', name: 'RNA比对', icon: '🔗', description: 'RNA序列比对' }
     ]
   },
   {
     id: 'quantification',
     name: '定量分析',
-    icon: '📊'
+    icon: '📊',
+    description: '表达定量与计数',
+    subcategories: [
+      { id: 'rnaseq_quant', name: 'RNA-Seq定量', icon: '📈', description: '转录组表达定量' },
+      { id: 'scrna_quant', name: '单细胞定量', icon: '🔬', description: '单细胞表达分析' }
+    ]
+  },
+  {
+    id: 'differential_analysis',
+    name: '差异分析',
+    icon: '📉',
+    description: '差异表达与统计分析',
+    subcategories: [
+      { id: 'degs', name: '差异基因', icon: '🧬', description: '差异表达基因分析' },
+      { id: 'pathway', name: '通路富集', icon: '🗺️', description: '功能通路富集分析' }
+    ]
   },
   {
     id: 'visualization',
     name: '可视化',
-    icon: '📈'
+    icon: '📈',
+    description: '数据可视化与图表生成',
+    subcategories: [
+      { id: 'heatmap', name: '热图', icon: '🔥', description: '表达热图绑定' },
+      { id: 'volcano', name: '火山图', icon: '🌋', description: '差异分析火山图' },
+      { id: 'pca', name: 'PCA分析', icon: '📐', description: '主成分分析可视化' }
+    ]
   },
   {
     id: 'pipeline',
     name: '流程编排',
-    icon: '⚙️'
+    icon: '⚙️',
+    description: '多步骤分析流程',
+    subcategories: [
+      { id: 'nextflow', name: 'Nextflow', icon: '🔄', description: 'Nextflow工作流' },
+      { id: 'snakemake', name: 'Snakemake', icon: '🐍', description: 'Snakemake工作流' }
+    ]
   }
 ];
 
@@ -204,6 +233,20 @@ export function SkillCenter() {
       (s.tags && s.tags.some(tag => tag.toLowerCase().includes(query)))
     );
   }, [filteredByCategory, searchQuery]);
+
+  // 计算各分类的技能数量
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: skills.length };
+    skills.forEach(skill => {
+      if (skill.category) {
+        counts[skill.category] = (counts[skill.category] || 0) + 1;
+      }
+      if (skill.subcategory) {
+        counts[skill.subcategory] = (counts[skill.subcategory] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [skills]);
 
   // 切换分类展开状态
   const toggleCategoryExpand = (categoryId: string) => {
@@ -413,6 +456,7 @@ export function SkillCenter() {
                 const isExpanded = expandedCategories.has(category.id);
                 const isSelected = selectedCategory === category.id;
                 const hasSubcategories = category.subcategories && category.subcategories.length > 0;
+                const count = categoryCounts[category.id] || 0;
 
                 return (
                   <div key={category.id}>
@@ -431,6 +475,9 @@ export function SkillCenter() {
                     >
                       <span className="text-sm">{category.icon}</span>
                       <span className="text-xs font-medium flex-1">{category.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-500">
+                        {count}
+                      </span>
                       {hasSubcategories && (
                         <span className="text-neutral-500">
                           {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -441,20 +488,26 @@ export function SkillCenter() {
                     {/* 子分类 */}
                     {hasSubcategories && isExpanded && (
                       <div className="ml-4 mt-1 space-y-0.5">
-                        {category.subcategories!.map((sub) => (
-                          <button
-                            key={sub.id}
-                            onClick={() => setSelectedCategory(sub.id)}
-                            className={`w-full text-left px-3 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
-                              selectedCategory === sub.id
-                                ? 'bg-blue-500/10 text-blue-300'
-                                : 'hover:bg-neutral-800/50 text-neutral-500'
-                            }`}
-                          >
-                            <span className="text-[10px]">{sub.icon || '•'}</span>
-                            <span className="text-xs">{sub.name}</span>
-                          </button>
-                        ))}
+                        {category.subcategories!.map((sub) => {
+                          const subCount = categoryCounts[sub.id] || 0;
+                          return (
+                            <button
+                              key={sub.id}
+                              onClick={() => setSelectedCategory(sub.id)}
+                              className={`w-full text-left px-3 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
+                                selectedCategory === sub.id
+                                  ? 'bg-blue-500/10 text-blue-300'
+                                  : 'hover:bg-neutral-800/50 text-neutral-500'
+                              }`}
+                            >
+                              <span className="text-[10px]">{sub.icon || '•'}</span>
+                              <span className="text-xs flex-1">{sub.name}</span>
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-neutral-800/50 text-neutral-600">
+                                {subCount}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

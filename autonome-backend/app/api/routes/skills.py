@@ -17,7 +17,8 @@ from app.core.logger import log
 from app.api.deps import get_current_user
 from app.models.domain import (
     User, Project, SystemConfig,
-    SkillAsset, SkillAssetCreate, SkillAssetUpdate, SkillAssetPublic, SkillStatus
+    SkillAsset, SkillAssetCreate, SkillAssetUpdate, SkillAssetPublic, SkillStatus,
+    get_utc_now
 )
 from app.core.database import Session, get_session
 from app.services.skill_bundle_writer import generate_skill_md
@@ -932,6 +933,365 @@ async def list_skills():
         "status": "success",
         "total": len(skills),
         "data": sorted(skills, key=lambda x: x["modified"], reverse=True)
+    }
+
+
+# ==========================================
+# 版本管理 API
+# ==========================================
+@router.get("/{skill_id}/versions")
+def get_skill_versions(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取技能的所有版本历史"""
+    from app.models.domain import SkillVersion
+
+    versions = session.exec(
+        select(SkillVersion).where(SkillVersion.skill_id == skill_id).order_by(SkillVersion.created_at.desc())
+    ).all()
+
+    return {
+        "status": "success",
+        "total": len(versions),
+        "data": [
+            {
+                "id": v.id,
+                "version": v.version,
+                "change_log": v.change_log,
+                "created_at": v.created_at.isoformat(),
+                "created_by": v.created_by
+            }
+            for v in versions
+        ]
+    }
+
+
+@router.post("/{skill_id}/versions")
+def create_skill_version(
+    skill_id: str,
+    version: str,
+    change_log: str = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """创建新版本"""
+    from app.models.domain import SkillVersion
+
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    if skill.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只能为自己创建版本")
+
+    new_version = SkillVersion(
+        skill_id=skill_id,
+        version=version,
+        script_code=skill.script_code,
+        parameters_schema=skill.parameters_schema,
+        expert_knowledge=skill.expert_knowledge,
+        created_by=current_user.id,
+        change_log=change_log
+    )
+
+    session.add(new_version)
+    session.commit()
+    session.refresh(new_version)
+
+    log.info(f"📜 [Skills API] 用户 {current_user.id} 创建了版本: {skill_id}@{version}")
+    return {"status": "success", "version_id": new_version.id}
+
+
+@router.post("/{skill_id}/rollback/{version_id}")
+def rollback_skill_version(
+    skill_id: str,
+    version_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """回滚到指定版本"""
+    from app.models.domain import SkillVersion
+
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    if skill.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只能回滚自己的技能")
+
+    version = session.exec(
+        select(SkillVersion).where(
+            SkillVersion.skill_id == skill_id,
+            SkillVersion.id == version_id
+        )
+    ).first()
+
+    if not version:
+        raise HTTPException(status_code=404, detail="版本不存在")
+
+    # 回滚
+    skill.script_code = version.script_code
+    skill.parameters_schema = version.parameters_schema
+    skill.expert_knowledge = version.expert_knowledge
+    skill.updated_at = get_utc_now()
+
+    session.add(skill)
+    session.commit()
+
+    log.info(f"🔄 [Skills API] 用户 {current_user.id} 回滚到版本: {skill_id}@{version.version}")
+    return {"status": "success", "message": f"已回滚到版本 {version.version}"}
+
+
+# ==========================================
+# 执行历史 API
+# ==========================================
+@router.get("/history")
+def get_execution_history(
+    limit: int = 20,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取当前用户的执行历史"""
+    from app.models.domain import SkillExecutionHistory
+
+    history = session.exec(
+        select(SkillExecutionHistory)
+        .where(SkillExecutionHistory.user_id == current_user.id)
+        .order_by(SkillExecutionHistory.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+    total = session.exec(
+        select(SkillExecutionHistory)
+        .where(SkillExecutionHistory.user_id == current_user.id)
+    ).all().__len__()
+
+    return {
+        "status": "success",
+        "total": total,
+        "data": [
+            {
+                "id": h.id,
+                "skill_id": h.skill_id,
+                "skill_name": h.skill_name,
+                "project_id": h.project_id,
+                "status": h.status,
+                "execution_time": h.execution_time,
+                "created_at": h.created_at.isoformat()
+            }
+            for h in history
+        ]
+    }
+
+
+# ==========================================
+# 收藏 API
+# ==========================================
+@router.get("/favorites")
+def get_favorites(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取当前用户的收藏列表"""
+    from app.models.domain import SkillFavorite
+
+    favorites = session.exec(
+        select(SkillFavorite).where(SkillFavorite.user_id == current_user.id)
+    ).all()
+
+    # 获取收藏的技能详情
+    skill_ids = [f.skill_id for f in favorites]
+    skills = session.exec(
+        select(SkillAsset).where(SkillAsset.skill_id.in_(skill_ids))
+    ).all()
+
+    return {
+        "status": "success",
+        "total": len(skills),
+        "data": [
+            {
+                "skill_id": s.skill_id,
+                "name": s.name,
+                "description": s.description,
+                "executor_type": s.executor_type,
+                "status": s.status.value
+            }
+            for s in skills
+        ]
+    }
+
+
+@router.post("/{skill_id}/favorite")
+def add_favorite(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """添加收藏"""
+    from app.models.domain import SkillFavorite
+
+    # 检查是否已收藏
+    existing = session.exec(
+        select(SkillFavorite).where(
+            SkillFavorite.skill_id == skill_id,
+            SkillFavorite.user_id == current_user.id
+        )
+    ).first()
+
+    if existing:
+        return {"status": "success", "message": "已经收藏过了"}
+
+    favorite = SkillFavorite(skill_id=skill_id, user_id=current_user.id)
+    session.add(favorite)
+    session.commit()
+
+    log.info(f"⭐ [Skills API] 用户 {current_user.id} 收藏了技能: {skill_id}")
+    return {"status": "success", "message": "收藏成功"}
+
+
+@router.delete("/{skill_id}/favorite")
+def remove_favorite(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """取消收藏"""
+    from app.models.domain import SkillFavorite
+
+    favorite = session.exec(
+        select(SkillFavorite).where(
+            SkillFavorite.skill_id == skill_id,
+            SkillFavorite.user_id == current_user.id
+        )
+    ).first()
+
+    if not favorite:
+        return {"status": "success", "message": "未收藏"}
+
+    session.delete(favorite)
+    session.commit()
+
+    log.info(f"💔 [Skills API] 用户 {current_user.id} 取消收藏: {skill_id}")
+    return {"status": "success", "message": "已取消收藏"}
+
+
+# ==========================================
+# 评价 API
+# ==========================================
+@router.get("/{skill_id}/reviews")
+def get_skill_reviews(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取技能的评价列表"""
+    from app.models.domain import SkillReview
+
+    reviews = session.exec(
+        select(SkillReview).where(SkillReview.skill_id == skill_id).order_by(SkillReview.created_at.desc())
+    ).all()
+
+    # 计算平均分
+    avg_rating = sum(r.rating for r in reviews) / len(reviews) if reviews else 0
+
+    return {
+        "status": "success",
+        "total": len(reviews),
+        "average_rating": round(avg_rating, 1),
+        "data": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "rating": r.rating,
+                "comment": r.comment,
+                "created_at": r.created_at.isoformat()
+            }
+            for r in reviews
+        ]
+    }
+
+
+@router.post("/{skill_id}/reviews")
+def create_review(
+    skill_id: str,
+    rating: int,
+    comment: str = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """提交评价"""
+    from app.models.domain import SkillReview
+
+    if rating < 1 or rating > 5:
+        raise HTTPException(status_code=400, detail="评分必须在 1-5 之间")
+
+    # 检查是否已评价
+    existing = session.exec(
+        select(SkillReview).where(
+            SkillReview.skill_id == skill_id,
+            SkillReview.user_id == current_user.id
+        )
+    ).first()
+
+    if existing:
+        # 更新评价
+        existing.rating = rating
+        existing.comment = comment
+        existing.updated_at = get_utc_now()
+        session.add(existing)
+        session.commit()
+        log.info(f"📝 [Skills API] 用户 {current_user.id} 更新了评价: {skill_id}")
+        return {"status": "success", "message": "评价已更新"}
+
+    review = SkillReview(
+        skill_id=skill_id,
+        user_id=current_user.id,
+        rating=rating,
+        comment=comment
+    )
+    session.add(review)
+    session.commit()
+
+    log.info(f"⭐ [Skills API] 用户 {current_user.id} 提交了评价: {skill_id} - {rating}星")
+    return {"status": "success", "message": "评价已提交"}
+
+
+# ==========================================
+# 结果分享 API
+# ==========================================
+@router.post("/{skill_id}/share")
+def create_share_link(
+    skill_id: str,
+    task_id: str,
+    expires_in_days: int = 7,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """创建结果分享链接"""
+    from app.models.domain import ResultShare
+
+    expires_at = None
+    if expires_in_days > 0:
+        from datetime import timedelta
+        expires_at = get_utc_now() + timedelta(days=expires_in_days)
+
+    share = ResultShare(
+        task_id=task_id,
+        created_by=current_user.id,
+        expires_at=expires_at
+    )
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+
+    log.info(f"🔗 [Skills API] 用户 {current_user.id} 创建了分享链接: {share.share_token}")
+    return {
+        "status": "success",
+        "share_token": share.share_token,
+        "share_url": f"/shared/{share.share_token}",
+        "expires_at": expires_at.isoformat() if expires_at else None
     }
 
 

@@ -6,6 +6,9 @@ from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
 import uuid
 
+# 导入其他模型以确保数据库表被创建
+from app.models.skill_template import SkillTemplate  # noqa: F401
+
 # ✨ 引入 pgvector 的 Vector 类型
 try:
     from pgvector.sqlalchemy import Vector
@@ -284,3 +287,87 @@ class SkillAssetPublic(SkillAssetBase):
     owner_id: int
     created_at: datetime
     updated_at: datetime
+
+
+# ==========================================
+# 9. SKILL 版本管理模型 (SkillVersion)
+# ==========================================
+class SkillVersion(SQLModel, table=True):
+    """SKILL 版本历史表"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: str = Field(index=True, description="关联的技能 ID")
+    version: str = Field(max_length=50, description="版本号")
+    script_code: Optional[str] = Field(default=None, description="该版本的代码")
+    parameters_schema: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    expert_knowledge: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=get_utc_now)
+    created_by: int = Field(foreign_key="user.id", index=True)
+    change_log: Optional[str] = Field(default=None, description="版本变更说明")
+
+
+# ==========================================
+# 10. SKILL 执行历史模型 (SkillExecutionHistory)
+# ==========================================
+class SkillExecutionHistory(SQLModel, table=True):
+    """SKILL 执行历史记录表"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: str = Field(index=True, description="执行的技能 ID")
+    skill_name: Optional[str] = Field(default=None, description="技能名称快照")
+    user_id: int = Field(index=True, foreign_key="user.id")
+    project_id: str = Field(index=True, foreign_key="project.id")
+    session_id: Optional[str] = Field(default=None, description="聊天会话 ID")
+    parameters: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    status: str = Field(default="PENDING", index=True, description="执行状态: PENDING/SUCCESS/FAILURE")
+    result_summary: Optional[str] = Field(default=None, description="结果摘要")
+    execution_time: Optional[float] = Field(default=None, description="执行耗时（秒）")
+    output_dir: Optional[str] = Field(default=None, description="输出目录路径")
+    created_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 11. SKILL 收藏模型 (SkillFavorite)
+# ==========================================
+class SkillFavorite(SQLModel, table=True):
+    """SKILL 收藏表"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: str = Field(index=True, description="收藏的技能 ID")
+    user_id: int = Field(index=True, foreign_key="user.id")
+    created_at: datetime = Field(default_factory=get_utc_now)
+
+    class Config:
+        # 联合唯一约束：同一用户不能重复收藏同一技能
+        # 注：实际约束需要在数据库层面通过 migration 实现
+        pass
+
+
+# ==========================================
+# 12. SKILL 评价模型 (SkillReview)
+# ==========================================
+class SkillReview(SQLModel, table=True):
+    """SKILL 评价表"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: str = Field(index=True, description="评价的技能 ID")
+    user_id: int = Field(index=True, foreign_key="user.id")
+    rating: int = Field(ge=1, le=5, description="评分 1-5 星")
+    comment: Optional[str] = Field(default=None, description="评价内容")
+    created_at: datetime = Field(default_factory=get_utc_now)
+    updated_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 13. 结果分享模型 (ResultShare)
+# ==========================================
+def generate_share_token():
+    """生成分享令牌"""
+    return f"share_{uuid.uuid4().hex[:12]}"
+
+
+class ResultShare(SQLModel, table=True):
+    """结果分享表"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: str = Field(index=True, description="关联的任务 ID")
+    share_token: str = Field(default_factory=generate_share_token, unique=True, index=True)
+    created_by: int = Field(foreign_key="user.id", index=True)
+    expires_at: Optional[datetime] = Field(default=None, description="过期时间")
+    access_count: int = Field(default=0, description="访问次数")
+    created_at: datetime = Field(default_factory=get_utc_now)

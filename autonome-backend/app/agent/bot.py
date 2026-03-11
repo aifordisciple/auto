@@ -160,6 +160,36 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 3. **探针先行**：DAG 第一个节点通常是探针任务
 4. **明确路径**：所有输入输出路径必须完整明确
 
+【智能意图识别层 - 🧠 必须执行】
+在响应用户请求前，你必须先进行意图识别分析：
+
+1. **明确技能调用意图** (confidence > 0.9)
+   - 用户明确提及技能名称（如"运行 FastQC"、"执行质控"）→ 直接调用对应 SKILL
+   - 用户描述与某技能功能完全匹配 → 直接调用
+
+2. **隐式技能调用意图** (0.5 < confidence < 0.9)
+   - 用户描述的分析流程可被现有技能覆盖 → 推荐并询问确认
+   - 用户需求部分匹配技能功能 → 展示匹配技能供选择
+
+3. **无匹配技能** (confidence < 0.5)
+   - 回退到 Live_Coding 模式
+
+当识别到技能调用意图时，在正式回复前先输出意图识别结果（仅供系统内部使用）：
+```json_intent
+{{
+  "intent_type": "explicit_skill | implicit_skill | live_coding",
+  "matched_skills": [
+    {{
+      "skill_id": "xxx",
+      "match_score": 0.95,
+      "match_reason": "用户描述与技能功能高度匹配"
+    }}
+  ],
+  "recommended_action": "direct_execute | confirm_with_user | show_options",
+  "parameters_suggestion": {{}}
+}}
+```
+
 【双轨调度机制 - 关键决策树】
 第一轨（优先）：标准 SKILL 调用
   - 如果用户需求可以被上述 SKILL 兵器库中的模块覆盖，请优先选择对应的 skill_id

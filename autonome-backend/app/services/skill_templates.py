@@ -1,0 +1,718 @@
+"""
+SKILL Templates Service - 技能模板管理服务
+
+提供模板的 CRUD 操作、模板实例化、从现有技能提取模板等功能
+"""
+
+import os
+import uuid
+import re
+from typing import List, Dict, Any, Optional
+from sqlmodel import Session, select
+
+from app.models.skill_template import (
+    SkillTemplate, SkillTemplateCreate, SkillTemplatePublic,
+    TemplateType, TemplateInstantiateRequest, TemplateInstantiateResult
+)
+from app.core.logger import log
+from app.core.skill_parser import get_skill_parser
+
+
+# ==========================================
+# 内置官方模板定义
+# ==========================================
+BUILTIN_TEMPLATES = [
+    {
+        "template_id": "fastqc_qc_template",
+        "name": "FastQC 质控流程模板",
+        "description": "标准化的 FastQ 质量控制流程，支持单端/双端数据，自动生成 MultiQC 报告",
+        "template_type": TemplateType.BLUEPRINT,
+        "category": "quality_control",
+        "category_name": "质量控制",
+        "subcategory": "fastq_qc",
+        "subcategory_name": "FastQ质控",
+        "tags": ["fastqc", "multiqc", "quality", "rnaseq"],
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "fastq_dir": {
+                    "type": "string",
+                    "format": "directorypath",
+                    "description": "存放原始测序数据的目录路径"
+                },
+                "is_paired_end": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "是否为双端测序数据"
+                },
+                "file_pattern": {
+                    "type": "string",
+                    "default": "*_{1,2}.fastq.gz",
+                    "description": "文件匹配模式"
+                },
+                "threads_per_sample": {
+                    "type": "integer",
+                    "default": 4,
+                    "description": "每个样本分配的线程数"
+                },
+                "output_dir": {
+                    "type": "string",
+                    "format": "directorypath",
+                    "default": "./qc_reports",
+                    "description": "输出目录"
+                }
+            },
+            "required": ["fastq_dir", "is_paired_end"]
+        },
+        "expert_knowledge": """- **精确触发条件**：当用户提出"检查测序质量"、"FastQC分析"等需求时调用
+- **参数推断逻辑**：扫描目录文件命名特征，自动判断是否双端测序
+- **结果解读指导**：
+  1. Per base sequence quality: 关注尾部 Q20/Q30 下降趋势
+  2. Adapter Content: 高比例接头污染提示需要 Trimming
+  3. GC Content: 双峰异常可能提示物种污染""",
+        "script_template": None,
+        "source_skill_id": "fastqc_multiqc_pipeline_01",
+        "is_official": True
+    },
+    {
+        "template_id": "nextflow_pipeline_template",
+        "name": "Nextflow 流水线生成模板",
+        "description": "工业级分布式流水线生成模板，支持复杂多步骤分析流程的编排",
+        "template_type": TemplateType.PYTHON_ENV,
+        "category": "pipeline",
+        "category_name": "流程编排",
+        "tags": ["nextflow", "pipeline", "workflow", "distributed"],
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "pipeline_topology": {
+                    "type": "array",
+                    "description": "流程拓扑定义，包含步骤名称、工具ID、输入输出映射"
+                },
+                "compute_environment": {
+                    "type": "string",
+                    "enum": ["local", "slurm", "k8s"],
+                    "default": "local",
+                    "description": "计算环境类型"
+                },
+                "resume_execution": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "是否启用断点续跑"
+                },
+                "max_cpus": {
+                    "type": "integer",
+                    "default": 16,
+                    "description": "最大并行 CPU 数"
+                },
+                "max_memory": {
+                    "type": "string",
+                    "default": "64.GB",
+                    "description": "最大内存限制"
+                },
+                "outdir": {
+                    "type": "string",
+                    "format": "directorypath",
+                    "description": "输出目录"
+                }
+            },
+            "required": ["pipeline_topology", "outdir"]
+        },
+        "expert_knowledge": """- **触发机制**：识别用户需要执行"流程"而非单一动作时调用
+- **数据流转设计**：保证上下游步骤的逻辑严密性
+- **资源推断**：WGS 数据推荐 slurm 环境，小样本可使用 local
+- **用户沟通策略**：展示完整流程拓扑图和资源消耗预估""",
+        "script_template": '''#!/usr/bin/env python3
+"""
+Nextflow Pipeline Generator - 自动生成 Nextflow DSL2 流水线
+
+参数说明:
+    --pipeline_topology: JSON 格式的流程拓扑定义
+    --compute_environment: 计算环境 (local/slurm/k8s)
+    --outdir: 输出目录
+"""
+
+import argparse
+import json
+import os
+import sys
+
+def generate_nextflow_pipeline(pipeline_topology: list, compute_env: str) -> str:
+    """
+    根据流程拓扑生成 Nextflow DSL2 代码
+
+    Args:
+        pipeline_topology: 流程步骤列表
+        compute_env: 计算环境类型
+
+    Returns:
+        生成的 Nextflow 代码
+    """
+    nf_code = \'\'\'#!/usr/bin/env nextflow
+// Auto-generated Nextflow Pipeline
+// Generated by Autonome Pipeline Generator
+
+nextflow.enable.dsl=2
+
+process PROCESS_0 {
+    // TODO: 根据流程拓扑自动生成进程定义
+    input:
+    output:
+
+    script:
+    """
+    # 在此添加执行命令
+    """
+}
+\'\'\'
+    return nf_code
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Nextflow Pipeline Generator")
+    parser.add_argument("--pipeline_topology", required=True, help="Pipeline topology JSON")
+    parser.add_argument("--compute_environment", default="local", help="Compute environment")
+    parser.add_argument("--resume_execution", default="true", help="Enable resume")
+    parser.add_argument("--max_cpus", type=int, default=16, help="Max CPUs")
+    parser.add_argument("--max_memory", default="64.GB", help="Max memory")
+    parser.add_argument("--outdir", required=True, help="Output directory")
+
+    args = parser.parse_args()
+
+    # 解析流程拓扑
+    try:
+        topology = json.loads(args.pipeline_topology)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing pipeline topology: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 创建输出目录
+    os.makedirs(args.outdir, exist_ok=True)
+
+    # 生成 Nextflow 代码
+    nf_code = generate_nextflow_pipeline(topology, args.compute_environment)
+
+    # 写入文件
+    output_file = os.path.join(args.outdir, "main.nf")
+    with open(output_file, "w") as f:
+        f.write(nf_code)
+
+    print(f"✅ Nextflow pipeline generated: {output_file}")
+
+
+if __name__ == "__main__":
+    main()
+''',
+        "source_skill_id": "meta_nextflow_generator_01",
+        "is_official": True
+    },
+    {
+        "template_id": "python_analysis_template",
+        "name": "Python 数据分析模板",
+        "description": "通用的 Python 数据分析脚本模板，支持参数化输入输出、TSV 格式输出",
+        "template_type": TemplateType.PYTHON_ENV,
+        "category": "general",
+        "category_name": "通用",
+        "tags": ["python", "analysis", "pandas", "data"],
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "input_file": {
+                    "type": "string",
+                    "format": "filepath",
+                    "description": "输入数据文件路径"
+                },
+                "output_dir": {
+                    "type": "string",
+                    "format": "directorypath",
+                    "description": "输出目录"
+                },
+                "filter_threshold": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "过滤阈值"
+                }
+            },
+            "required": ["input_file", "output_dir"]
+        },
+        "expert_knowledge": """- **代码规范**：必须包含 argparse 参数解析系统
+- **输出格式**：表格数据使用 TSV 格式 (sep='\\t')
+- **路径处理**：使用 TASK_OUT_DIR 环境变量作为输出目录
+- **图表规范**：标题、标签使用纯英文，避免中文字符""",
+        "script_template": '''#!/usr/bin/env python3
+"""
+数据分析脚本模板
+
+功能说明:
+    [在此描述脚本的主要功能]
+
+参数说明:
+    --input_file: 输入数据文件路径
+    --output_dir: 输出目录
+    --filter_threshold: 过滤阈值
+"""
+
+import argparse
+import os
+import sys
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ============================================================
+# 参数解析系统
+# ============================================================
+def parse_args():
+    parser = argparse.ArgumentParser(description="数据分析脚本")
+    parser.add_argument("--input_file", required=True, help="输入文件路径")
+    parser.add_argument("--output_dir", required=True, help="输出目录")
+    parser.add_argument("--filter_threshold", type=float, default=0.05, help="过滤阈值")
+
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    # ============================================================
+    # 环境初始化
+    # ============================================================
+    # 优先使用 TASK_OUT_DIR，兼容命令行参数
+    output_dir = os.environ.get("TASK_OUT_DIR", args.output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"📁 输入文件: {args.input_file}")
+    print(f"📁 输出目录: {output_dir}")
+
+    # ============================================================
+    # 数据读取
+    # ============================================================
+    try:
+        df = pd.read_csv(args.input_file, sep=\'\\t\')
+        print(f"✅ 数据加载成功: {df.shape[0]} 行 x {df.shape[1]} 列")
+    except Exception as e:
+        print(f"❌ 数据加载失败: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # ============================================================
+    # 数据处理
+    # ============================================================
+    # TODO: 在此添加数据处理逻辑
+    filtered_df = df  # 示例：实际应根据 filter_threshold 进行过滤
+
+    # ============================================================
+    # 结果输出
+    # ============================================================
+    # 保存表格结果 (TSV 格式)
+    output_file = os.path.join(output_dir, "results.tsv")
+    filtered_df.to_csv(output_file, sep=\'\\t\', index=False)
+    print(f"✅ 结果已保存: {output_file}")
+
+    # ============================================================
+    # 可视化输出 (纯英文)
+    # ============================================================
+    fig, ax = plt.subplots(figsize=(10, 6))
+    # TODO: 添加绑图逻辑
+    ax.set_title("Data Analysis Results")
+    ax.set_xlabel("X Axis Label")
+    ax.set_ylabel("Y Axis Label")
+
+    fig_path = os.path.join(output_dir, "figure.png")
+    plt.savefig(fig_path, dpi=150, bbox_inches=\'tight\')
+    print(f"✅ 图表已保存: {fig_path}")
+
+    print("🎉 分析完成！")
+
+
+if __name__ == "__main__":
+    main()
+''',
+        "is_official": True
+    },
+    {
+        "template_id": "r_visualization_template",
+        "name": "R 可视化分析模板",
+        "description": "R 语言数据可视化模板，支持 ggplot2 高质量图表生成",
+        "template_type": TemplateType.R_ENV,
+        "category": "visualization",
+        "category_name": "可视化",
+        "tags": ["r", "ggplot2", "visualization", "plot"],
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "input_file": {
+                    "type": "string",
+                    "format": "filepath",
+                    "description": "输入数据文件路径"
+                },
+                "output_dir": {
+                    "type": "string",
+                    "format": "directorypath",
+                    "description": "输出目录"
+                },
+                "plot_type": {
+                    "type": "string",
+                    "enum": ["scatter", "bar", "line", "heatmap", "volcano"],
+                    "default": "scatter",
+                    "description": "图表类型"
+                }
+            },
+            "required": ["input_file", "output_dir"]
+        },
+        "expert_knowledge": """- **包依赖**：自动安装 ggplot2, pheatmap 等可视化包
+- **中文支持**：使用 showtext 包处理中文字体
+- **图表导出**：支持 PDF 和 PNG 双格式输出
+- **火山图专用**：自动标注显著基因点""",
+        "script_template": '''#!/usr/bin/env Rscript
+# ============================================================
+# R 可视化分析脚本模板
+#
+# 功能说明:
+#     [在此描述脚本的主要功能]
+#
+# 参数说明:
+#     --input_file: 输入数据文件路径
+#     --output_dir: 输出目录
+#     --plot_type: 图表类型
+# ============================================================
+
+# 加载必要的包
+suppressPackageStartupMessages({
+    library(ggplot2)
+    library(optparse)
+})
+
+# ============================================================
+# 参数解析系统
+# ============================================================
+option_list <- list(
+    make_option(c("-i", "--input_file"), type="character",
+                help="Input file path"),
+    make_option(c("-o", "--output_dir"), type="character",
+                help="Output directory"),
+    make_option(c("-p", "--plot_type"), type="character", default="scatter",
+                help="Plot type (scatter/bar/line/heatmap/volcano)")
+)
+
+opt_parser <- OptionParser(option_list=option_list)
+opt <- parse_args(opt_parser)
+
+# ============================================================
+# 环境初始化
+# ============================================================
+# 优先使用 TASK_OUT_DIR 环境变量
+output_dir <- Sys.getenv("TASK_OUT_DIR", opt$output_dir)
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+cat("📁 Input file:", opt$input_file, "\\n")
+cat("📁 Output directory:", output_dir, "\\n")
+
+# ============================================================
+# 数据读取
+# ============================================================
+df <- read.table(opt$input_file, header = TRUE, sep = "\\t", row.names = 1)
+cat("✅ Data loaded:", nrow(df), "rows x", ncol(df), "columns\\n")
+
+# ============================================================
+# 可视化
+# ============================================================
+plot_type <- opt$plot_type
+
+if (plot_type == "scatter") {
+    # 散点图
+    p <- ggplot(df, aes(x = x, y = y)) +
+        geom_point(alpha = 0.6, size = 2) +
+        theme_minimal() +
+        labs(title = "Scatter Plot", x = "X Axis", y = "Y Axis")
+
+} else if (plot_type == "bar") {
+    # 条形图
+    p <- ggplot(df, aes(x = category, y = value)) +
+        geom_bar(stat = "identity", fill = "steelblue") +
+        theme_minimal() +
+        labs(title = "Bar Plot", x = "Category", y = "Value")
+
+} else if (plot_type == "volcano") {
+    # 火山图
+    df$significance <- ifelse(df$padj < 0.05 & abs(df$log2FoldChange) > 1,
+                              "Significant", "Not Significant")
+    p <- ggplot(df, aes(x = log2FoldChange, y = -log10(padj), color = significance)) +
+        geom_point(alpha = 0.6, size = 1.5) +
+        scale_color_manual(values = c("gray", "red")) +
+        theme_minimal() +
+        labs(title = "Volcano Plot", x = "log2 Fold Change", y = "-log10(padj)")
+
+} else {
+    stop("Unsupported plot type: ", plot_type)
+}
+
+# ============================================================
+# 保存结果
+# ============================================================
+# 保存 PDF
+pdf_path <- file.path(output_dir, "figure.pdf")
+ggsave(pdf_path, p, width = 10, height = 8)
+cat("✅ PDF saved:", pdf_path, "\\n")
+
+# 保存 PNG
+png_path <- file.path(output_dir, "figure.png")
+ggsave(png_path, p, width = 10, height = 8, dpi = 150)
+cat("✅ PNG saved:", png_path, "\\n")
+
+cat("🎉 Analysis completed!\\n")
+''',
+        "is_official": True
+    }
+]
+
+
+class SkillTemplateService:
+    """技能模板管理服务"""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_all_templates(self) -> List[SkillTemplatePublic]:
+        """
+        获取所有模板（数据库 + 内置）
+
+        Returns:
+            模板列表
+        """
+        templates = []
+
+        # 1. 从数据库加载
+        try:
+            db_templates = self.session.exec(
+                select(SkillTemplate).order_by(SkillTemplate.usage_count.desc())
+            ).all()
+
+            for t in db_templates:
+                templates.append(SkillTemplatePublic.model_validate(t))
+
+            log.info(f"[TemplateService] 从数据库加载 {len(db_templates)} 个模板")
+        except Exception as e:
+            log.warning(f"[TemplateService] 数据库模板加载失败: {e}")
+
+        # 2. 添加内置模板（如果数据库中没有）
+        db_template_ids = {t.template_id for t in templates}
+        for builtin in BUILTIN_TEMPLATES:
+            if builtin["template_id"] not in db_template_ids:
+                templates.append(SkillTemplatePublic(
+                    id=-1,  # 占位符，表示内置模板
+                    created_at=None,
+                    updated_at=None,
+                    usage_count=0,
+                    **builtin
+                ))
+
+        return templates
+
+    def get_template_by_id(self, template_id: str) -> Optional[SkillTemplate]:
+        """
+        根据 template_id 获取模板详情
+
+        Args:
+            template_id: 模板唯一标识
+
+        Returns:
+            模板对象，不存在则返回 None
+        """
+        # 先查数据库
+        db_template = self.session.exec(
+            select(SkillTemplate).where(SkillTemplate.template_id == template_id)
+        ).first()
+
+        if db_template:
+            return db_template
+
+        # 再查内置模板
+        for builtin in BUILTIN_TEMPLATES:
+            if builtin["template_id"] == template_id:
+                return SkillTemplate(
+                    id=-1,
+                    created_at=None,
+                    updated_at=None,
+                    usage_count=0,
+                    **builtin
+                )
+
+        return None
+
+    def instantiate_template(
+        self,
+        template_id: str,
+        request: TemplateInstantiateRequest
+    ) -> TemplateInstantiateResult:
+        """
+        从模板实例化一个新技能
+
+        Args:
+            template_id: 模板 ID
+            request: 实例化请求参数
+
+        Returns:
+            实例化后的技能数据
+        """
+        template = self.get_template_by_id(template_id)
+        if not template:
+            raise ValueError(f"Template not found: {template_id}")
+
+        # 更新使用计数
+        if template.id and template.id > 0:
+            template.usage_count += 1
+            self.session.add(template)
+            self.session.commit()
+
+        # 生成新的 skill_id
+        skill_id = f"skill_{uuid.uuid4().hex[:8]}"
+
+        # 合并自定义参数
+        customizations = request.customizations or {}
+        parameters_schema = template.parameters_schema.copy()
+
+        # 覆盖自定义的 schema
+        if "parameters_schema" in customizations:
+            parameters_schema.update(customizations["parameters_schema"])
+
+        # 处理脚本模板中的占位符
+        script_code = template.script_template
+        if script_code:
+            # 替换常见占位符
+            script_code = script_code.replace("{SKILL_NAME}", request.skill_name or template.name)
+            script_code = script_code.replace("{SKILL_ID}", skill_id)
+
+        # 构建专家知识
+        expert_knowledge = template.expert_knowledge
+        if "expert_knowledge" in customizations:
+            expert_knowledge = customizations["expert_knowledge"]
+
+        result = TemplateInstantiateResult(
+            skill_id=skill_id,
+            name=request.skill_name or template.name,
+            description=template.description or "",
+            executor_type=template.template_type.value,
+            script_code=script_code,
+            parameters_schema=parameters_schema,
+            expert_knowledge=expert_knowledge,
+            dependencies=[]
+        )
+
+        log.info(f"[TemplateService] 模板实例化成功: {template_id} -> {skill_id}")
+        return result
+
+    def create_template(self, template_in: SkillTemplateCreate) -> SkillTemplate:
+        """
+        创建新模板
+
+        Args:
+            template_in: 模板创建数据
+
+        Returns:
+            创建的模板对象
+        """
+        # 检查 template_id 是否已存在
+        existing = self.session.exec(
+            select(SkillTemplate).where(SkillTemplate.template_id == template_in.template_id)
+        ).first()
+
+        if existing:
+            raise ValueError(f"Template ID already exists: {template_in.template_id}")
+
+        template = SkillTemplate.model_validate(template_in)
+        self.session.add(template)
+        self.session.commit()
+        self.session.refresh(template)
+
+        log.info(f"[TemplateService] 模板创建成功: {template.template_id}")
+        return template
+
+    def extract_template_from_skill(
+        self,
+        skill_id: str,
+        template_name: str,
+        template_id: Optional[str] = None
+    ) -> SkillTemplateCreate:
+        """
+        从现有技能提取模板
+
+        Args:
+            skill_id: 源技能 ID
+            template_name: 模板名称
+            template_id: 自定义模板 ID（可选）
+
+        Returns:
+            提取的模板数据
+        """
+        # 从文件系统或数据库获取技能
+        parser = get_skill_parser()
+        skill = parser.get_skill_by_id(skill_id)
+
+        if not skill:
+            raise ValueError(f"Skill not found: {skill_id}")
+
+        meta = skill.get("metadata", {})
+
+        # 生成模板 ID
+        if not template_id:
+            # 从 skill_id 生成模板 ID
+            template_id = re.sub(r'_\d+$', '_template', skill_id)
+
+        # 提取参数 schema
+        parameters_schema = skill.get("parameters_schema", {})
+
+        # 提取脚本代码（如果有）
+        script_code = skill.get("script_code")
+
+        # 如果是 bundle，尝试读取脚本文件
+        bundle_path = skill.get("bundle_path")
+        if bundle_path and not script_code:
+            scripts_dir = os.path.join(bundle_path, "scripts")
+            if os.path.exists(scripts_dir):
+                for f in os.listdir(scripts_dir):
+                    if f.endswith(('.py', '.r')):
+                        with open(os.path.join(scripts_dir, f), 'r', encoding='utf-8') as sf:
+                            script_code = sf.read()
+                        break
+
+        # 构建模板数据
+        template_data = SkillTemplateCreate(
+            name=template_name,
+            template_id=template_id,
+            description=f"从技能 {skill_id} 提取的模板",
+            template_type=TemplateType(meta.get("executor_type", "Python_env")),
+            script_template=script_code,
+            parameters_schema=parameters_schema,
+            expert_knowledge=skill.get("expert_knowledge"),
+            category=meta.get("category", "general"),
+            category_name=meta.get("category_name", "通用"),
+            subcategory=meta.get("subcategory"),
+            subcategory_name=meta.get("subcategory_name"),
+            tags=meta.get("tags", []),
+            source_skill_id=skill_id
+        )
+
+        log.info(f"[TemplateService] 从技能提取模板: {skill_id} -> {template_id}")
+        return template_data
+
+    def delete_template(self, template_id: str) -> bool:
+        """
+        删除模板（仅限数据库中的模板，不能删除内置模板）
+
+        Args:
+            template_id: 模板 ID
+
+        Returns:
+            是否删除成功
+        """
+        template = self.session.exec(
+            select(SkillTemplate).where(SkillTemplate.template_id == template_id)
+        ).first()
+
+        if not template:
+            return False
+
+        self.session.delete(template)
+        self.session.commit()
+
+        log.info(f"[TemplateService] 模板已删除: {template_id}")
+        return True
