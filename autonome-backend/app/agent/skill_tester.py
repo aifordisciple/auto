@@ -53,7 +53,7 @@ def _run_sandbox_code(code: str, language: str = "python") -> str:
 # 测试数据生成器
 # ==========================================
 
-def generate_test_data(
+async def generate_test_data(
     parameters_schema: Dict[str, Any],
     executor_type: str,
     api_key: str,
@@ -61,7 +61,7 @@ def generate_test_data(
     model_name: str
 ) -> Dict[str, Any]:
     """
-    根据参数 Schema 生成测试数据
+    根据参数 Schema 生成测试数据（异步版本）
 
     Returns:
         包含 test_data_files 和 test_params 的字典
@@ -106,7 +106,7 @@ def generate_test_data(
 只输出 JSON，不要其他文字。"""
 
     try:
-        response = llm.invoke(prompt)
+        response = await llm.ainvoke(prompt)
         content = response.content
 
         # 提取 JSON
@@ -346,7 +346,7 @@ async def auto_test_and_heal_skill(
 
     if auto_generate_data and parameters_schema:
         log.info("[Skill Tester] 正在生成测试数据...")
-        test_data = generate_test_data(
+        test_data = await generate_test_data(
             parameters_schema, executor_type, api_key, base_url, model_name
         )
 
@@ -727,7 +727,7 @@ async def auto_test_and_heal_skill_stream(
 
     if auto_generate_data and parameters_schema:
         yield emit(TestLogEvent(type="log", message="🔄 正在生成测试数据..."))
-        test_data = generate_test_data(
+        test_data = await generate_test_data(
             parameters_schema, executor_type, api_key, base_url, model_name
         )
 
