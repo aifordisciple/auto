@@ -57,7 +57,7 @@ export default function SkillForgePage() {
   const [bundlePath, setBundlePath] = useState<string | null>(null);
   const [filesCreated, setFilesCreated] = useState<string[]>([]);
 
-  const [testInstruction, setTestInstruction] = useState('# 测试参数模拟\nimport sys\nsys.argv = ["script.py", "--input", "test.tsv"]');
+  const [testInstruction, setTestInstruction] = useState('sys.argv = ["script.py", "--input", "/data/test.tsv"]');
   const [isTesting, setIsTesting] = useState(false);
   const [testLogs, setTestLogs] = useState('');
 
@@ -126,7 +126,7 @@ export default function SkillForgePage() {
   // 触发沙箱测试
   const handleTest = async () => {
     if (!scriptCode) {
-      alert("没有代码可测试");
+      alert("没有代码可测试，请先锻造技能");
       return;
     }
 
@@ -153,6 +153,9 @@ export default function SkillForgePage() {
       setIsTesting(false);
     }
   };
+
+  // 是否显示沙箱测试（仅单脚本类型）
+  const showSandboxTest = executorType === 'Python_env' || executorType === 'R_env';
 
   // 固化入库与提审
   const handleSaveAndSubmit = async () => {
@@ -259,21 +262,26 @@ export default function SkillForgePage() {
 
           {/* 左栏：输入与测试日志 */}
           <div className="w-1/2 flex flex-col border-r border-gray-800 bg-gray-900/50">
-            {/* 素材喂入区 */}
-            <div className="h-[35%] p-4 flex flex-col border-b border-gray-800">
-              <label className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wider flex items-center gap-2">
+            {/* 素材喂入区 - 主要区域 */}
+            <div className="flex-1 p-4 flex flex-col border-b border-gray-800 overflow-hidden">
+              <label className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wider flex items-center gap-2 shrink-0">
                 <FileJson size={14} />
                 1. 喂入原始素材 (代码/指令/文献段落)
               </label>
               <textarea
                 value={rawMaterial}
                 onChange={e => setRawMaterial(e.target.value)}
-                placeholder="在此粘贴您写死的 R/Python 代码，或者直接输入：'帮我写一个用 scanpy 过滤单细胞矩阵的脚本，需要可调节线粒体比例阈值'..."
-                className="flex-1 bg-[#090b10] border border-gray-700 rounded p-3 text-sm text-gray-300 focus:border-blue-500 focus:outline-none resize-none"
+                placeholder="在此粘贴您写死的 R/Python 代码，或者直接输入自然语言指令...
+
+示例：
+• '帮我写一个用 scanpy 过滤单细胞矩阵的脚本，需要可调节线粒体比例阈值'
+• '写一个 FastQC + MultiQC 质控工作流'
+• 粘贴一段需要参数化的代码..."
+                className="flex-1 min-h-[120px] bg-[#090b10] border border-gray-700 rounded p-3 text-sm text-gray-300 focus:border-blue-500 focus:outline-none resize-none"
               />
 
               {/* 执行器类型选择器 */}
-              <div className="mt-3 mb-2">
+              <div className="mt-3 mb-2 shrink-0">
                 <label className="text-xs text-gray-400 mb-2 block">执行器类型</label>
                 <div className="grid grid-cols-4 gap-2">
                   {EXECUTOR_TYPES.map(type => (
@@ -295,7 +303,7 @@ export default function SkillForgePage() {
               </div>
 
               {/* 选项区域 */}
-              <div className="flex gap-4 mt-2">
+              <div className="flex gap-4 mt-2 shrink-0">
                 <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
                   <input
                     type="checkbox"
@@ -320,42 +328,64 @@ export default function SkillForgePage() {
               <button
                 onClick={handleCraft}
                 disabled={isCrafting}
-                className="mt-3 w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-medium flex justify-center items-center gap-2 disabled:opacity-50"
+                className="mt-3 w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-medium flex justify-center items-center gap-2 disabled:opacity-50 shrink-0"
               >
                 <Hammer size={16} />
                 {isCrafting ? "AI 架构师正在锻造..." : "一键提炼标准技能包"}
               </button>
             </div>
 
-            {/* 沙箱测试区 */}
-            <div className="h-[65%] p-4 flex flex-col">
-              <label className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wider flex items-center gap-2">
-                <Terminal size={14} />
-                2. 沙箱自动化测试 (Sandbox Console)
-              </label>
-              <div className="flex gap-2 mb-2">
+            {/* 沙箱测试区 - 紧凑模式，仅对单脚本类型显示 */}
+            {showSandboxTest && (
+              <div className="h-[180px] p-3 flex flex-col shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-gray-400 font-medium uppercase tracking-wider flex items-center gap-2">
+                    <Terminal size={14} />
+                    2. 沙箱测试
+                  </label>
+                  <button
+                    onClick={handleTest}
+                    disabled={isTesting || !scriptCode}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-xs rounded font-medium flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <Play size={12} />
+                    {isTesting ? "运行中..." : "运行"}
+                  </button>
+                </div>
+                {/* 测试参数说明 */}
+                <div className="text-[10px] text-gray-500 mb-1">
+                  💡 填入测试数据路径，如：<code className="text-gray-400">sys.argv = ["script.py", "--input", "/data/test.tsv"]</code>
+                </div>
                 <input
                   type="text"
                   value={testInstruction}
                   onChange={e => setTestInstruction(e.target.value)}
-                  placeholder="输入测试环境变量或传参模拟代码..."
-                  className="flex-1 bg-[#090b10] border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
+                  placeholder="测试参数..."
+                  className="bg-[#090b10] border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:border-purple-500 focus:outline-none mb-2"
                 />
-                <button
-                  onClick={handleTest}
-                  disabled={isTesting || !scriptCode}
-                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs rounded font-medium flex items-center gap-2 disabled:opacity-50"
-                >
-                  <Play size={14} />
-                  {isTesting ? "试炼中..." : "启动沙箱"}
-                </button>
+                <textarea
+                  readOnly
+                  value={testLogs}
+                  placeholder="执行日志将显示在这里..."
+                  className="flex-1 bg-black border border-gray-800 rounded p-2 text-[10px] text-emerald-400 font-mono focus:outline-none resize-none"
+                />
               </div>
-              <textarea
-                readOnly
-                value={testLogs}
-                className="flex-1 bg-black border border-gray-800 rounded p-3 text-xs text-emerald-400 font-mono focus:outline-none resize-none"
-              />
-            </div>
+            )}
+
+            {/* 非单脚本类型显示锻造日志 */}
+            {!showSandboxTest && testLogs && (
+              <div className="h-[120px] p-3 flex flex-col shrink-0 border-t border-gray-800">
+                <label className="text-xs text-gray-400 font-medium mb-1 uppercase tracking-wider flex items-center gap-2">
+                  <Terminal size={14} />
+                  锻造日志
+                </label>
+                <textarea
+                  readOnly
+                  value={testLogs}
+                  className="flex-1 bg-black border border-gray-800 rounded p-2 text-[10px] text-emerald-400 font-mono focus:outline-none resize-none"
+                />
+              </div>
+            )}
           </div>
 
           {/* 右栏：AI 生成的代码编辑器 */}
