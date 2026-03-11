@@ -781,7 +781,7 @@ async def auto_test_and_heal_skill_stream(
             # 执行沙箱
             yield emit(TestLogEvent(type="status", message=f"executing_scenario_{scenario_idx + 1}"))
             try:
-                output = _run_sandbox_code(full_test_code)
+                output = _run_sandbox_code(full_test_code, language=language)
             except Exception as e:
                 output = f"❌ 沙箱执行异常: {str(e)}"
 
