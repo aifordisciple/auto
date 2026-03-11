@@ -158,7 +158,10 @@ export default function SkillForgePage() {
 
   return (
     <div className="flex h-screen bg-[#0E1117] text-gray-300 font-sans overflow-hidden">
-      <Sidebar />
+      {/* 左侧边栏 */}
+      <div className="w-56 shrink-0 border-r border-gray-800 bg-gray-900 flex flex-col">
+        <Sidebar />
+      </div>
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <TopHeader />
 
