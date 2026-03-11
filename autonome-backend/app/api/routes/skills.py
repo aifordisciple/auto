@@ -5,6 +5,7 @@ SKILL API 路由 - 提供 SKILL 目录查询、知识固化、SKILL 工厂接口
 import os
 import json
 import re
+import uuid
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -399,7 +400,7 @@ async def craft_skill_api(
         files_created = []
 
         if req.generate_full_bundle:
-            from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
+            from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name, generate_skill_md
             from app.models.skill_bundle import (
                 SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
             )
@@ -440,6 +441,24 @@ async def craft_skill_api(
             files_created = result.get("files_created", [])
 
             log.info(f"📁 [Skills API] 生成完整技能包: {skill_id}, 文件: {files_created}")
+
+        # 生成 SKILL.md 内容
+        # 使用已生成的 skill_id 或生成临时 ID
+        md_skill_id = skill_id if req.generate_full_bundle else f"draft_{uuid.uuid4().hex[:8]}"
+        skill_md = generate_skill_md(
+            skill_id=md_skill_id,
+            name=crafted_result.get("name", "未命名技能"),
+            executor_type=req.executor_type,
+            description=crafted_result.get("description", ""),
+            parameters_schema=crafted_result.get("parameters_schema", {"type": "object", "properties": {}, "required": []}),
+            expert_knowledge=crafted_result.get("expert_knowledge", ""),
+            category=req.category or "general",
+            category_name="通用",
+            tags=req.tags or []
+        )
+
+        # 将 skill_md 添加到 crafted_result
+        crafted_result["skill_md"] = skill_md
 
         return {
             "status": "success",
@@ -493,7 +512,7 @@ async def create_skill_bundle(
 
     try:
         from app.agent.crafter import craft_skill_from_material
-        from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
+        from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name, generate_skill_md
         from app.models.skill_bundle import (
             SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
         )

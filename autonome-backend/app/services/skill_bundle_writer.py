@@ -157,6 +157,36 @@ def _generate_skill_md(content: SkillBundleContent) -> str:
     Returns:
         完整的 SKILL.md 文件内容
     """
+    return _generate_skill_md_content(content.metadata, content.description, content.parameters_schema, content.expert_knowledge)
+
+
+def _generate_skill_md_content(
+    metadata: SkillBundleMetadata,
+    description: str = "",
+    parameters_schema: Dict[str, Any] = None,
+    expert_knowledge: str = ""
+) -> str:
+    """
+    生成符合规范的 SKILL.md 文件内容（支持独立调用）
+
+    格式：
+    1. YAML Frontmatter (---包裹)
+    2. 技能意图与功能边界
+    3. 动态参数定义规范 (参数表格)
+    4. 操作指令与专家级知识库
+
+    Args:
+        metadata: 技能元数据
+        description: 功能描述
+        parameters_schema: 参数 Schema
+        expert_knowledge: 专家知识
+
+    Returns:
+        完整的 SKILL.md 文件内容
+    """
+    if parameters_schema is None:
+        parameters_schema = {"type": "object", "properties": {}, "required": []}
+
     lines = []
 
     # ==========================================
@@ -170,7 +200,7 @@ def _generate_skill_md(content: SkillBundleContent) -> str:
     lines.append("# ==========================================")
     lines.append("")
 
-    meta = content.metadata
+    meta = metadata
     lines.append(f'skill_id: "{meta.skill_id}"')
     lines.append(f'name: "{meta.name}"')
     lines.append(f'version: "{meta.version}"')
@@ -211,7 +241,7 @@ def _generate_skill_md(content: SkillBundleContent) -> str:
     lines.append("")
     lines.append("*面向 AI 的核心描述，帮助其判断在何种场景下应该召唤此工具。*")
     lines.append("")
-    lines.append(content.description or f"{meta.name} - 由 SKILL Forge 自动生成的标准化技能包。")
+    lines.append(description or f"{meta.name} - 由 SKILL Forge 自动生成的标准化技能包。")
     lines.append("")
 
     # ==========================================
@@ -226,13 +256,12 @@ def _generate_skill_md(content: SkillBundleContent) -> str:
     lines.append("| 参数键名 (Key) | 数据类型 (Type) | 必填 (Required) | 默认值 (Default) | 详细描述说明 (Detailed Description) |")
     lines.append("|---|---|---|---|---|")
 
-    params_schema = content.parameters_schema
-    properties = params_schema.get("properties", {})
-    required_fields = params_schema.get("required", [])
+    properties = parameters_schema.get("properties", {})
+    required_fields = parameters_schema.get("required", [])
 
     for param_name, param_info in properties.items():
         param_type = param_info.get("type", "string")
-        description = param_info.get("description", "")
+        param_desc = param_info.get("description", "")
         default_value = param_info.get("default", "")
         is_required = param_name in required_fields
 
@@ -251,7 +280,7 @@ def _generate_skill_md(content: SkillBundleContent) -> str:
         # 处理默认值显示
         default_display = str(default_value) if default_value != "" else ""
 
-        lines.append(f"| `{param_name}` | {type_display} | {required_str} | {default_display} | {description} |")
+        lines.append(f"| `{param_name}` | {type_display} | {required_str} | {default_display} | {param_desc} |")
 
     lines.append("")
 
@@ -263,8 +292,8 @@ def _generate_skill_md(content: SkillBundleContent) -> str:
     lines.append("*这里包含了系统赋予大模型的"锦囊妙计"，塑造其资深生信架构师的专业表现。*")
     lines.append("")
 
-    if content.expert_knowledge:
-        lines.append(content.expert_knowledge)
+    if expert_knowledge:
+        lines.append(expert_knowledge)
     else:
         lines.append("- **触发条件**：当用户需要进行相关分析时调用此技能。")
         lines.append("- **参数配置**：请根据实际数据情况配置必要的参数。")
@@ -436,6 +465,54 @@ def write_script_skill(
     )
 
     return write_skill_bundle(content, skills_dir)
+
+
+def generate_skill_md(
+    skill_id: str,
+    name: str,
+    executor_type: str,
+    description: str = "",
+    parameters_schema: Dict[str, Any] = None,
+    expert_knowledge: str = "",
+    category: str = "general",
+    category_name: str = "通用",
+    tags: List[str] = None
+) -> str:
+    """
+    生成 SKILL.md 内容（对外暴露的便捷函数）
+
+    Args:
+        skill_id: 技能 ID
+        name: 技能名称
+        executor_type: 执行器类型
+        description: 功能描述
+        parameters_schema: 参数 Schema
+        expert_knowledge: 专家知识
+        category: 一级分类
+        category_name: 分类显示名
+        tags: 标签列表
+
+    Returns:
+        SKILL.md 文件内容
+    """
+    if tags is None:
+        tags = []
+
+    metadata = SkillBundleMetadata(
+        skill_id=skill_id,
+        name=name,
+        executor_type=ExecutorType(executor_type),
+        category=category,
+        category_name=category_name,
+        tags=tags
+    )
+
+    return _generate_skill_md_content(
+        metadata=metadata,
+        description=description,
+        parameters_schema=parameters_schema,
+        expert_knowledge=expert_knowledge
+    )
 
 
 log.info("📦 SKILL Bundle Writer 已加载")
