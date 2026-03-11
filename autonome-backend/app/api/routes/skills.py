@@ -19,6 +19,7 @@ from app.models.domain import (
     SkillAsset, SkillAssetCreate, SkillAssetUpdate, SkillAssetPublic, SkillStatus
 )
 from app.core.database import Session, get_session
+from app.services.skill_bundle_writer import generate_skill_md
 
 router = APIRouter()
 
