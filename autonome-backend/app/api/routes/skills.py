@@ -401,7 +401,7 @@ async def craft_skill_api(
         files_created = []
 
         if req.generate_full_bundle:
-            from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name, generate_skill_md
+            from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
             from app.models.skill_bundle import (
                 SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
             )
@@ -513,7 +513,7 @@ async def create_skill_bundle(
 
     try:
         from app.agent.crafter import craft_skill_from_material
-        from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name, generate_skill_md
+        from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
         from app.models.skill_bundle import (
             SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
         )
