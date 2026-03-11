@@ -52,9 +52,12 @@ class CraftRequest(BaseModel):
 
 
 class SkillTestRequest(BaseModel):
-    """SKILL 测试请求"""
+    """SKILL 测试请求（增强版）"""
     script_code: str = Field(..., description="需要测试的代码")
     test_instruction: str = Field(default="", description="测试环境变量或传参模拟代码")
+    parameters_schema: Optional[Dict[str, Any]] = Field(default=None, description="参数 Schema，用于自动生成测试数据")
+    auto_generate_data: bool = Field(default=True, description="是否自动生成测试数据")
+    max_test_rounds: int = Field(default=3, description="最大测试轮数")
 
 
 # ==========================================
@@ -511,9 +514,15 @@ async def test_skill_draft_api(
     current_user: User = Depends(get_current_user)
 ):
     """
-    【SKILL Forge】自动化沙箱测试接口。
-    前端传入生成的草稿代码和测试参数，后端扔进沙箱跑。如果失败自动触发 AI 修复。
-    返回最终是否跑通，以及最终修复好的代码。
+    【SKILL Forge】自动化沙箱测试接口（增强版）
+
+    功能：
+    1. 自动生成测试数据（基于参数 Schema）
+    2. 多场景测试（不同参数组合）
+    3. 测试失败自动修复
+
+    前端传入生成的草稿代码和测试参数，后端扔进沙箱跑。
+    如果失败自动触发 AI 修复，返回最终是否跑通，以及最终修复好的代码。
     """
     if not req.script_code:
         raise HTTPException(status_code=400, detail="缺少需要测试的代码")
@@ -539,13 +548,17 @@ async def test_skill_draft_api(
     try:
         from app.agent.skill_tester import auto_test_and_heal_skill
 
-        log.info(f"🧪 [Skills API] 用户 {current_user.id} 开始沙箱测试...")
+        log.info(f"🧪 [Skills API] 用户 {current_user.id} 开始沙箱测试... 自动生成数据: {req.auto_generate_data}")
+
         test_result = await auto_test_and_heal_skill(
             script_code=req.script_code,
             test_instruction=req.test_instruction,
             api_key=api_key,
             base_url=base_url,
-            model_name=model_name
+            model_name=model_name,
+            parameters_schema=req.parameters_schema,
+            auto_generate_data=req.auto_generate_data,
+            max_test_rounds=req.max_test_rounds
         )
 
         return {"status": "success", "data": test_result}
