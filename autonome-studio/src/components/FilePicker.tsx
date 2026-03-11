@@ -306,12 +306,24 @@ export function FilePickerButton({
 }: FilePickerButtonProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
+  const handleClick = () => {
+    if (!projectId) {
+      alert('请先选择一个项目');
+      return;
+    }
+    setIsPickerOpen(true);
+  };
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setIsPickerOpen(true)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-sm bg-neutral-800 border border-neutral-700 rounded-lg text-left hover:border-neutral-600 transition-colors"
+        onClick={handleClick}
+        className={`w-full flex items-center gap-2 px-3 py-2 text-sm border rounded-lg text-left transition-colors ${
+          projectId
+            ? 'bg-neutral-800 border-neutral-700 hover:border-neutral-600'
+            : 'bg-neutral-900 border-neutral-800 text-neutral-500 cursor-not-allowed'
+        }`}
       >
         {type === 'directory' ? (
           <Folder size={14} className={value ? 'text-purple-400' : 'text-neutral-500'} />
@@ -319,20 +331,22 @@ export function FilePickerButton({
           <FileText size={14} className={value ? 'text-blue-400' : 'text-neutral-500'} />
         )}
         <span className={value ? 'text-neutral-200' : 'text-neutral-500'}>
-          {value || placeholder}
+          {!projectId ? '请先选择项目' : value || placeholder}
         </span>
       </button>
 
-      <FilePicker
-        isOpen={isPickerOpen}
-        onClose={() => setIsPickerOpen(false)}
-        projectId={projectId}
-        value={value}
-        onChange={onChange}
-        type={type}
-        accept={accept}
-        title={type === 'directory' ? '选择目录' : '选择文件'}
-      />
+      {projectId && (
+        <FilePicker
+          isOpen={isPickerOpen}
+          onClose={() => setIsPickerOpen(false)}
+          projectId={projectId}
+          value={value}
+          onChange={onChange}
+          type={type}
+          accept={accept}
+          title={type === 'directory' ? '选择目录' : '选择文件'}
+        />
+      )}
     </>
   );
 }

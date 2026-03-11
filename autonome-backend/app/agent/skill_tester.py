@@ -12,8 +12,9 @@ import re
 import json
 import os
 import tempfile
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, AsyncGenerator
 from datetime import datetime
+from dataclasses import dataclass, asdict
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
@@ -556,4 +557,236 @@ async def quick_test_skill(
     )
 
 
-log.info("🧪 SKILL Tester (增强版) 已加载")
+# ==========================================
+# 流式日志事件类型
+# ==========================================
+
+@dataclass
+class TestLogEvent:
+    """测试日志事件"""
+    type: str  # 'log', 'status', 'result', 'error'
+    message: str = ""
+    data: Optional[Dict[str, Any]] = None
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False)
+
+
+# ==========================================
+# 流式日志版本 - 用于 SSE 实时推送
+# ==========================================
+
+async def auto_test_and_heal_skill_stream(
+    script_code: str,
+    test_instruction: str,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    parameters_schema: Dict[str, Any] = None,
+    auto_generate_data: bool = True,
+    max_test_rounds: int = 3
+) -> AsyncGenerator[str, None]:
+    """
+    沙箱自动化测试引擎（流式日志版本）
+
+    使用生成器实时 yield 日志事件，支持 SSE 流式响应
+
+    Yields:
+        JSON 格式的日志事件字符串
+    """
+    def emit(event: TestLogEvent) -> str:
+        return f"data: {event.to_json()}\n\n"
+
+    log.info("🧪 [Skill Tester] 启动自动化测试引擎 (流式模式)...")
+
+    # 检查沙箱可用性
+    if not SANDBOX_AVAILABLE:
+        yield emit(TestLogEvent(type="log", message="⚠️ 沙箱执行环境不可用"))
+        yield emit(TestLogEvent(type="result", data={
+            "status": "skipped",
+            "final_code": script_code,
+            "logs": "沙箱执行环境不可用",
+            "attempts": 0,
+            "test_scenarios": []
+        }))
+        return
+
+    # 安全检查
+    is_safe, security_msg = security_check(script_code)
+    if not is_safe:
+        yield emit(TestLogEvent(type="log", message=f"🚫 {security_msg}"))
+        yield emit(TestLogEvent(type="result", data={
+            "status": "rejected",
+            "final_code": script_code,
+            "logs": security_msg,
+            "attempts": 0,
+            "test_scenarios": []
+        }))
+        return
+
+    yield emit(TestLogEvent(type="status", message="initializing"))
+    yield emit(TestLogEvent(type="log", message="🧪 启动自动化测试引擎..."))
+
+    # 初始化 LLM
+    llm = ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        model=model_name,
+        temperature=0.1
+    )
+
+    # 准备工作目录
+    work_dir = tempfile.mkdtemp(prefix="skill_test_")
+    yield emit(TestLogEvent(type="log", message=f"📁 工作目录: {work_dir}"))
+
+    current_code = script_code
+    test_results = []
+    overall_success = True
+
+    # ==========================================
+    # 步骤1：生成测试数据和测试场景
+    # ==========================================
+    yield emit(TestLogEvent(type="status", message="generating_test_data"))
+    test_data = {"test_files": {}, "test_params": {}, "test_scenarios": []}
+
+    if auto_generate_data and parameters_schema:
+        yield emit(TestLogEvent(type="log", message="🔄 正在生成测试数据..."))
+        test_data = generate_test_data(
+            parameters_schema, "Python_env", api_key, base_url, model_name
+        )
+
+        # 创建测试文件
+        if test_data.get("test_files"):
+            file_paths = create_test_files(test_data["test_files"], work_dir)
+            yield emit(TestLogEvent(type="log", message=f"✅ 已创建测试文件: {list(file_paths.keys())}"))
+
+    # 如果没有自动生成场景，使用默认场景
+    scenarios = test_data.get("test_scenarios", [])
+    if not scenarios:
+        scenarios = [{"name": "默认测试", "params": {}, "expected": "代码正常执行"}]
+
+    # 合并用户提供的测试参数
+    if test_instruction:
+        scenarios.insert(0, {
+            "name": "用户指定参数测试",
+            "params": {"_user_instruction": test_instruction},
+            "expected": "使用用户指定参数执行"
+        })
+
+    yield emit(TestLogEvent(type="log", message=f"\n📋 计划执行 {len(scenarios)} 个测试场景"))
+
+    # ==========================================
+    # 步骤2：执行多轮测试
+    # ==========================================
+    yield emit(TestLogEvent(type="status", message="running_tests"))
+
+    for scenario_idx, scenario in enumerate(scenarios):
+        scenario_name = scenario.get("name", f"场景{scenario_idx + 1}")
+        scenario_params = scenario.get("params", {})
+
+        yield emit(TestLogEvent(type="log", message=f"\n{'─' * 40}"))
+        yield emit(TestLogEvent(type="log", message=f"🔍 测试场景: {scenario_name}"))
+        yield emit(TestLogEvent(type="log", message=f"   参数: {json.dumps(scenario_params, ensure_ascii=False)}"))
+
+        scenario_success = False
+        attempts = 0
+        max_retries = 3
+        error_msg = ""
+
+        # 测试-修复循环
+        while attempts < max_retries and not scenario_success:
+            attempts += 1
+            yield emit(TestLogEvent(type="log", message=f"\n▶️ 尝试 {attempts}/{max_retries}"))
+
+            # 构建测试代码
+            test_setup = _build_test_setup(scenario_params.copy(), work_dir, test_data.get("test_files", {}))
+            full_test_code = f"{test_setup}\n\n{current_code}"
+
+            # 执行沙箱
+            yield emit(TestLogEvent(type="status", message=f"executing_scenario_{scenario_idx + 1}"))
+            try:
+                output = execute_python_code(full_test_code)
+            except Exception as e:
+                output = f"❌ 沙箱执行异常: {str(e)}"
+
+            # 检查结果
+            is_success, error_msg = check_execution_success(output)
+
+            # 输出执行结果（截断过长的输出）
+            if len(output) > 500:
+                yield emit(TestLogEvent(type="log", message=f"\n📤 执行输出:\n{output[:500]}..."))
+            else:
+                yield emit(TestLogEvent(type="log", message=f"\n📤 执行输出:\n{output}"))
+
+            if is_success:
+                scenario_success = True
+                yield emit(TestLogEvent(type="log", message=f"✅ 场景 [{scenario_name}] 测试通过！"))
+            else:
+                yield emit(TestLogEvent(type="log", message=f"❌ 场景 [{scenario_name}] 测试失败"))
+                yield emit(TestLogEvent(type="log", message=f"   错误: {error_msg[:200] if len(error_msg) > 200 else error_msg}"))
+
+                if attempts < max_retries:
+                    # 调用 AI 修复
+                    yield emit(TestLogEvent(type="status", message="fixing_code"))
+                    yield emit(TestLogEvent(type="log", message="🔧 正在调用 Debugger 修复代码..."))
+
+                    fix_result = await _fix_code_with_llm(
+                        llm, current_code, error_msg, scenario_params
+                    )
+
+                    if fix_result:
+                        current_code = fix_result
+                        yield emit(TestLogEvent(type="log", message="✅ Debugger 已生成修复代码"))
+                    else:
+                        yield emit(TestLogEvent(type="log", message="❌ Debugger 修复失败，跳过此场景"))
+                        break
+
+        # 记录场景结果
+        test_results.append({
+            "scenario": scenario_name,
+            "success": scenario_success,
+            "attempts": attempts,
+            "error": error_msg if not scenario_success else None
+        })
+
+        if not scenario_success:
+            overall_success = False
+
+    # ==========================================
+    # 步骤3：汇总结果
+    # ==========================================
+    yield emit(TestLogEvent(type="status", message="summarizing"))
+    yield emit(TestLogEvent(type="log", message=f"\n{'═' * 40}"))
+    yield emit(TestLogEvent(type="log", message="📊 测试汇总"))
+    yield emit(TestLogEvent(type="log", message=f"{'═' * 40}"))
+
+    passed = sum(1 for r in test_results if r["success"])
+    total = len(test_results)
+
+    for r in test_results:
+        status = "✅ 通过" if r["success"] else "❌ 失败"
+        yield emit(TestLogEvent(type="log", message=f"  {r['scenario']}: {status} (尝试 {r['attempts']} 次)"))
+
+    yield emit(TestLogEvent(type="log", message=f"\n📈 总计: {passed}/{total} 场景通过"))
+
+    # 构建最终日志
+    final_logs = f"\n🧪 测试完成: {passed}/{total} 场景通过"
+    if overall_success:
+        yield emit(TestLogEvent(type="log", message="\n🎉 自动测试全部通过！"))
+    elif passed > 0:
+        yield emit(TestLogEvent(type="log", message="\n⚠️ 部分测试场景通过"))
+    else:
+        yield emit(TestLogEvent(type="log", message="\n❌ 自动测试失败"))
+
+    # 返回最终结果
+    yield emit(TestLogEvent(type="result", data={
+        "status": "success" if overall_success else "partial" if passed > 0 else "failed",
+        "final_code": current_code,
+        "logs": final_logs,
+        "attempts": sum(r["attempts"] for r in test_results),
+        "test_scenarios": test_results,
+        "work_dir": work_dir
+    }))
+
+
+log.info("🧪 SKILL Tester (增强版 + 流式日志) 已加载")
