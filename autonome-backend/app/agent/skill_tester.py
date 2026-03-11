@@ -12,6 +12,8 @@ import re
 import json
 import os
 import tempfile
+import asyncio
+import time
 from typing import Dict, Any, List, Optional, Tuple, AsyncGenerator
 from datetime import datetime
 from dataclasses import dataclass, asdict
@@ -29,23 +31,50 @@ except ImportError:
     log.warning("[Skill Tester] bio_tools 未找到，沙箱测试功能将受限")
 
 
-def _run_sandbox_code(code: str, language: str = "python") -> str:
+def _run_sandbox_code(code: str, language: str = "python", timeout: int = 120) -> str:
     """
-    执行沙箱代码的封装函数
+    执行沙箱代码的封装函数（同步版本）
 
     Args:
         code: 要执行的代码
         language: 语言类型 "python" 或 "r"
+        timeout: 执行超时时间（秒）
+
+    Returns:
+        执行输出
     """
     try:
         result_output, exit_code = run_container(
             image='autonome-tool-env',
             command=code,
-            language=language
+            language=language,
+            timeout=timeout
         )
         return result_output
     except Exception as e:
         log.error(f"[Sandbox] 执行失败: {e}")
+        raise
+
+
+async def _run_sandbox_code_async(code: str, language: str = "python", timeout: int = 120) -> str:
+    """
+    异步执行沙箱代码（使用 asyncio.to_thread 避免阻塞事件循环）
+
+    Args:
+        code: 要执行的代码
+        language: 语言类型 "python" 或 "r"
+        timeout: 执行超时时间（秒）
+
+    Returns:
+        执行输出
+    """
+    try:
+        result = await asyncio.to_thread(
+            _run_sandbox_code, code, language, timeout
+        )
+        return result
+    except Exception as e:
+        log.error(f"[Sandbox] 异步执行失败: {e}")
         raise
 
 
@@ -485,9 +514,9 @@ async def auto_test_and_heal_skill(
             test_setup = _build_test_setup(scenario_params, work_dir, test_data.get("test_files", {}), language=language)
             full_test_code = f"{test_setup}\n\n{current_code}"
 
-            # 执行沙箱
+            # 执行沙箱（异步调用，避免阻塞事件循环）
             try:
-                output = _run_sandbox_code(full_test_code, language=language)
+                output = await _run_sandbox_code_async(full_test_code, language=language)
             except Exception as e:
                 output = f"❌ 沙箱执行异常: {str(e)}"
 
@@ -867,10 +896,10 @@ async def auto_test_and_heal_skill_stream(
             test_setup = _build_test_setup(scenario_params.copy(), work_dir, test_data.get("test_files", {}), language=language)
             full_test_code = f"{test_setup}\n\n{current_code}"
 
-            # 执行沙箱
+            # 执行沙箱（异步调用，避免阻塞事件循环）
             yield emit(TestLogEvent(type="status", message=f"executing_scenario_{scenario_idx + 1}"))
             try:
-                output = _run_sandbox_code(full_test_code, language=language)
+                output = await _run_sandbox_code_async(full_test_code, language=language)
             except Exception as e:
                 output = f"❌ 沙箱执行异常: {str(e)}"
 

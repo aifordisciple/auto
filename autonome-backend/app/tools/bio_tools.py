@@ -2,6 +2,7 @@ import os
 import json
 import socket
 import re
+import time
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
@@ -13,9 +14,18 @@ CONDA_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome_conda"
 CONDA_CONTAINER_PATH = "/opt/conda"
 
 # ✨ 新增 return_raw 参数，专门用于读取纯文本日志，防止把报错日志强行解析为 JSON
-def docker_api_request(method: str, path: str, data: str = None, return_raw: bool = False):
-    """直接通过 Unix socket 调用 Docker API (完美版)"""
+def docker_api_request(method: str, path: str, data: str = None, return_raw: bool = False, timeout: int = 30):
+    """直接通过 Unix socket 调用 Docker API (完美版)
+
+    Args:
+        method: HTTP 方法
+        path: API 路径
+        data: 请求体
+        return_raw: 是否返回原始文本
+        timeout: socket 超时时间（秒）
+    """
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)  # ✨ 设置 socket 超时，防止阻塞
     sock.connect(DOCKER_SOCKET)
 
     body = data.encode('utf-8') if data else None
@@ -79,8 +89,19 @@ def docker_api_request(method: str, path: str, data: str = None, return_raw: boo
         return {"body": body_str}
 
 
-def run_container(image: str, command: str, language: str = "python", environment: dict = None) -> tuple[str, int]:
-    """通过 Docker API 运行容器（基础沙箱，无网络，有 conda）"""
+def run_container(image: str, command: str, language: str = "python", environment: dict = None, timeout: int = 300) -> tuple[str, int]:
+    """通过 Docker API 运行容器（基础沙箱，无网络，有 conda）
+
+    Args:
+        image: Docker 镜像名称
+        command: 要执行的命令
+        language: 语言类型 "python" 或 "r"
+        environment: 环境变量字典
+        timeout: 容器执行超时时间（秒），默认 300 秒
+
+    Returns:
+        (输出日志, 退出码) 元组
+    """
     try:
         # 根据语言选择执行命令
         if language.lower() == "r":
@@ -123,7 +144,7 @@ def run_container(image: str, command: str, language: str = "python", environmen
             "WorkingDir": "/app"
         })
 
-        resp = docker_api_request("POST", "/containers/create", create_data)
+        resp = docker_api_request("POST", "/containers/create", create_data, timeout=30)
 
         if 'Id' not in resp:
             return f"❌ 创建容器失败: {resp}", 1
@@ -131,16 +152,30 @@ def run_container(image: str, command: str, language: str = "python", environmen
         container_id = resp['Id']
 
         # 启动容器
-        docker_api_request("POST", f"/containers/{container_id}/start")
+        docker_api_request("POST", f"/containers/{container_id}/start", timeout=30)
 
-        # 等待容器完成
+        # ✨ 等待容器完成（带超时和 sleep，避免忙等待）
+        start_time = time.time()
         while True:
-            info = docker_api_request("GET", f"/containers/{container_id}/json")
-            if info.get('State', {}).get('Status') == 'exited':
+            info = docker_api_request("GET", f"/containers/{container_id}/json", timeout=30)
+            status = info.get('State', {}).get('Status')
+
+            # ✨ 超时检查
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                docker_api_request("POST", f"/containers/{container_id}/stop?t=10", timeout=30)
+                log.warning(f"[run_container] 容器执行超时 ({timeout}s)，已强制停止")
+                # 清理容器
+                docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=30)
+                return f"❌ 执行超时 (超过 {timeout} 秒)", 1
+
+            if status == 'exited':
                 break
 
+            time.sleep(0.5)  # ✨ 避免 CPU 忙等待
+
         # 使用 return_raw=True 提取纯文本日志
-        log_output = docker_api_request("GET", f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100", return_raw=True)
+        log_output = docker_api_request("GET", f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100", return_raw=True, timeout=30)
 
         # 防御性清理：剔除无法显示的特殊控制符
         if isinstance(log_output, str):
@@ -150,10 +185,13 @@ def run_container(image: str, command: str, language: str = "python", environmen
         exit_code = info.get('State', {}).get('ExitCode', 0)
 
         # 清理容器
-        docker_api_request("DELETE", f"/containers/{container_id}?force=true")
+        docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=30)
 
         return str(log_output), exit_code
 
+    except socket.timeout:
+        log.error("[run_container] Docker API 请求超时")
+        return "❌ Docker API 请求超时", 1
     except Exception as e:
         return f"❌ Docker API 错误: {str(e)}", 1
 

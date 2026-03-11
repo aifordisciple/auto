@@ -70,6 +70,9 @@ export function SkillForgeOverlay() {
   const { isSkillForgeOpen, closeAllOverlays } = useUIStore();
   const { currentProjectId, currentSessionId } = useWorkspaceStore();
 
+  // 测试取消控制器
+  const testAbortControllerRef = useRef<AbortController | null>(null);
+
   // 状态管理
   const [rawMaterial, setRawMaterial] = useState('');
   const [isCrafting, setIsCrafting] = useState(false);
@@ -156,6 +159,16 @@ export function SkillForgeOverlay() {
     connectToLogStream();
     return () => controller.abort();
   }, [taskId]);
+
+  // 组件卸载时清理所有进行中的测试
+  useEffect(() => {
+    return () => {
+      if (testAbortControllerRef.current) {
+        testAbortControllerRef.current.abort();
+        testAbortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   // 加载技能列表
   useEffect(() => {
@@ -331,6 +344,9 @@ export function SkillForgeOverlay() {
         setCraftLogs(prev => prev + "\n🚀 启动自动测试...\n");
         setIsAutoTesting(true);
 
+        // 创建新的 AbortController 用于取消测试
+        testAbortControllerRef.current = new AbortController();
+
         try {
           // 使用流式 API 实时显示测试进度
           let finalResult: any = null;
@@ -353,7 +369,9 @@ export function SkillForgeOverlay() {
             // onResult - 最终结果回调
             (testResult) => {
               finalResult = testResult;
-            }
+            },
+            // signal - 外部取消信号
+            testAbortControllerRef.current.signal
           );
 
           // 处理最终结果
@@ -377,6 +395,7 @@ export function SkillForgeOverlay() {
           setCraftLogs(prev => prev + `\n⚠️ 自动测试失败: ${testErr.message}\n`);
         } finally {
           setIsAutoTesting(false);
+          testAbortControllerRef.current = null;
         }
       }
 
