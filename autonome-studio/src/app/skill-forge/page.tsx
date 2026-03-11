@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { skillForgeApi, ExecutorType, CraftRequest } from '@/lib/api';
 import { TopHeader } from '@/components/layout/TopHeader';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { Play, Hammer, Save, Send, Code, Terminal, FileJson, AlertTriangle, CheckCircle, FolderTree, Zap, GitBranch, Package } from 'lucide-react';
+import { Play, Hammer, Save, Send, Code, Terminal, FileJson, AlertTriangle, CheckCircle, FolderTree, GitBranch, Package, ArrowLeft, Box, Sparkles } from 'lucide-react';
 
 // 执行器类型配置
 const EXECUTOR_TYPES: { value: ExecutorType; label: string; icon: React.ReactNode; description: string }[] = [
@@ -35,6 +34,14 @@ const EXECUTOR_TYPES: { value: ExecutorType; label: string; icon: React.ReactNod
   }
 ];
 
+// 技能列表项接口
+interface SkillListItem {
+  skill_id: string;
+  name: string;
+  executor_type: string;
+  category_name?: string;
+}
+
 export default function SkillForgePage() {
   const router = useRouter();
 
@@ -42,7 +49,7 @@ export default function SkillForgePage() {
   const [rawMaterial, setRawMaterial] = useState('');
   const [isCrafting, setIsCrafting] = useState(false);
 
-  // 新增：执行器类型和文件系统生成选项
+  // 执行器类型和文件系统生成选项
   const [executorType, setExecutorType] = useState<ExecutorType>('Python_env');
   const [generateFullBundle, setGenerateFullBundle] = useState(false);
   const [skillNameHint, setSkillNameHint] = useState('');
@@ -53,7 +60,7 @@ export default function SkillForgePage() {
   const [skillName, setSkillName] = useState('');
   const [skillDescription, setSkillDescription] = useState('');
 
-  // 新增：生成的文件系统信息
+  // 生成的文件系统信息
   const [bundlePath, setBundlePath] = useState<string | null>(null);
   const [filesCreated, setFilesCreated] = useState<string[]>([]);
 
@@ -63,6 +70,29 @@ export default function SkillForgePage() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [validationWarning, setValidationWarning] = useState('');
+
+  // 技能列表
+  const [skills, setSkills] = useState<SkillListItem[]>([]);
+  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+
+  // 加载技能列表
+  useEffect(() => {
+    fetchSkills();
+  }, []);
+
+  const fetchSkills = async () => {
+    setIsLoadingSkills(true);
+    try {
+      const data = await skillForgeApi.getCatalog();
+      if (data.status === 'success') {
+        setSkills(data.data || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch skills:', e);
+    } finally {
+      setIsLoadingSkills(false);
+    }
+  };
 
   // 触发 AI 锻造
   const handleCraft = async () => {
@@ -188,7 +218,6 @@ export default function SkillForgePage() {
     setIsSaving(true);
 
     try {
-      // 1. 组装入库数据
       const payload = {
         name: skillName || craftedSkill.name || "未命名技能",
         description: skillDescription || craftedSkill.description || "",
@@ -199,10 +228,7 @@ export default function SkillForgePage() {
         dependencies: craftedSkill.dependencies || []
       };
 
-      // 2. 保存为私有
       const savedSkill = await skillForgeApi.savePrivateSkill(payload);
-
-      // 3. 提交审核
       await skillForgeApi.submitForReview(savedSkill.skill_id);
 
       alert("✅ 技能已成功固化入库，并提交管理员审核！");
@@ -214,7 +240,7 @@ export default function SkillForgePage() {
     }
   };
 
-  // 仅保存为私有（不提交审核）
+  // 仅保存为私有
   const handleSaveOnly = async () => {
     if (!craftedSkill) {
       alert("请先锻造一个技能");
@@ -236,6 +262,7 @@ export default function SkillForgePage() {
 
       const savedSkill = await skillForgeApi.savePrivateSkill(payload);
       alert(`✅ 技能已保存为私有！ID: ${savedSkill.skill_id}`);
+      fetchSkills(); // 刷新列表
     } catch (e: any) {
       alert(`保存失败: ${e.message}`);
     } finally {
@@ -244,25 +271,82 @@ export default function SkillForgePage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0E1117] text-gray-300 font-sans overflow-hidden">
-      {/* 左侧边栏 */}
-      <div className="w-56 shrink-0 border-r border-gray-800 bg-gray-900 flex flex-col">
-        <Sidebar />
+    <main className="h-screen w-full bg-white dark:bg-[#131314] flex overflow-hidden font-sans transition-colors">
+      {/* 左侧边栏 - 技能列表 */}
+      <div className="w-56 shrink-0 border-r border-gray-200 dark:border-[#2d2d30] bg-gray-50 dark:bg-[#1e1e20] flex flex-col z-20">
+        {/* Logo + 返回按钮 */}
+        <div
+          className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-gray-200 dark:border-neutral-800"
+        >
+          <button
+            onClick={() => router.push('/')}
+            className="flex items-center gap-2 text-gray-600 dark:text-white font-bold tracking-wider hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+          >
+            <ArrowLeft size={18} />
+            <span className="text-blue-500">🧬</span> AUTONOME
+          </button>
+        </div>
+
+        {/* 技能工厂标题 */}
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-neutral-800">
+          <div className="flex items-center gap-2 text-gray-900 dark:text-white font-semibold">
+            <Hammer size={16} className="text-blue-500" />
+            <span>技能工厂</span>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-neutral-500 mt-1">锻造标准化分析模块</p>
+        </div>
+
+        {/* 技能列表 */}
+        <div className="flex-1 overflow-y-auto p-2">
+          <div className="text-xs text-gray-500 dark:text-neutral-500 px-2 py-2 font-medium">
+            已有技能 ({skills.length})
+          </div>
+          {isLoadingSkills ? (
+            <div className="flex items-center justify-center py-4 text-gray-400 dark:text-neutral-500">
+              <Sparkles size={16} className="animate-pulse" />
+            </div>
+          ) : skills.length === 0 ? (
+            <div className="text-center py-4 text-xs text-gray-400 dark:text-neutral-600">
+              暂无技能
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {skills.map((skill) => (
+                <div
+                  key={skill.skill_id}
+                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
+                >
+                  <Box size={14} className="text-blue-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 dark:text-neutral-300 truncate">
+                      {skill.name}
+                    </p>
+                    <p className="text-[10px] text-gray-400 dark:text-neutral-600 font-mono truncate">
+                      {skill.skill_id}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 主工作区 */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <TopHeader />
 
         {/* 顶部工具栏 */}
-        <div className="h-14 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6 shrink-0">
+        <div className="h-14 bg-gray-100 dark:bg-[#1e1e1f] border-b border-gray-200 dark:border-neutral-800 flex items-center justify-between px-6 shrink-0">
           <div className="flex items-center gap-2">
             <Hammer className="text-blue-500" size={20} />
-            <h1 className="font-semibold text-gray-100">SKILL Forge 技能锻造工厂</h1>
+            <h1 className="font-semibold text-gray-900 dark:text-white">SKILL Forge 技能锻造工厂</h1>
           </div>
           <div className="flex gap-3">
             <button
               onClick={handleSaveOnly}
               disabled={!craftedSkill || isSaving}
-              className="flex items-center gap-2 px-4 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm rounded transition-colors"
+              className="flex items-center gap-2 px-4 py-1.5 bg-gray-200 dark:bg-neutral-700 hover:bg-gray-300 dark:hover:bg-neutral-600 disabled:opacity-50 text-gray-700 dark:text-white text-sm rounded-lg transition-colors"
             >
               <Save size={16} />
               保存为私有
@@ -270,7 +354,7 @@ export default function SkillForgePage() {
             <button
               onClick={handleSaveAndSubmit}
               disabled={!craftedSkill || isSaving}
-              className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
+              className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
             >
               <Send size={16} />
               {isSaving ? "正在提交..." : "保存并提交审核"}
@@ -282,10 +366,10 @@ export default function SkillForgePage() {
         <div className="flex-1 flex overflow-hidden">
 
           {/* 左栏：输入与测试日志 */}
-          <div className="w-1/2 flex flex-col border-r border-gray-800 bg-gray-900/50">
+          <div className="w-1/2 flex flex-col border-r border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-[#1e1e1f]/50">
             {/* 素材喂入区 - 主要区域 */}
-            <div className="flex-1 p-4 flex flex-col border-b border-gray-800 overflow-hidden">
-              <label className="text-xs text-gray-400 font-medium mb-2 uppercase tracking-wider flex items-center gap-2 shrink-0">
+            <div className="flex-1 p-4 flex flex-col border-b border-gray-200 dark:border-neutral-800 overflow-hidden">
+              <label className="text-xs text-gray-500 dark:text-neutral-500 font-medium mb-2 uppercase tracking-wider flex items-center gap-2 shrink-0">
                 <FileJson size={14} />
                 1. 喂入原始素材 (代码/指令/文献段落)
               </label>
@@ -298,21 +382,21 @@ export default function SkillForgePage() {
 • '帮我写一个用 scanpy 过滤单细胞矩阵的脚本，需要可调节线粒体比例阈值'
 • '写一个 FastQC + MultiQC 质控工作流'
 • 粘贴一段需要参数化的代码..."
-                className="flex-1 min-h-[120px] bg-[#090b10] border border-gray-700 rounded p-3 text-sm text-gray-300 focus:border-blue-500 focus:outline-none resize-none"
+                className="flex-1 min-h-[120px] bg-white dark:bg-[#0d0d0e] border border-gray-300 dark:border-neutral-700 rounded-lg p-3 text-sm text-gray-700 dark:text-neutral-300 focus:border-blue-500 focus:outline-none resize-none"
               />
 
               {/* 执行器类型选择器 */}
               <div className="mt-3 mb-2 shrink-0">
-                <label className="text-xs text-gray-400 mb-2 block">执行器类型</label>
+                <label className="text-xs text-gray-500 dark:text-neutral-500 mb-2 block">执行器类型</label>
                 <div className="grid grid-cols-4 gap-2">
                   {EXECUTOR_TYPES.map(type => (
                     <button
                       key={type.value}
                       onClick={() => setExecutorType(type.value)}
-                      className={`flex flex-col items-center justify-center p-2 rounded border text-xs transition-all ${
+                      className={`flex flex-col items-center justify-center p-2 rounded-lg border text-xs transition-all ${
                         executorType === type.value
-                          ? 'border-blue-500 bg-blue-500/20 text-blue-400'
-                          : 'border-gray-700 bg-gray-800/50 text-gray-400 hover:border-gray-600'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                          : 'border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800/50 text-gray-600 dark:text-neutral-400 hover:border-gray-400 dark:hover:border-neutral-600'
                       }`}
                       title={type.description}
                     >
@@ -325,12 +409,12 @@ export default function SkillForgePage() {
 
               {/* 选项区域 */}
               <div className="flex gap-4 mt-2 shrink-0">
-                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-neutral-500 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={generateFullBundle}
                     onChange={e => setGenerateFullBundle(e.target.checked)}
-                    className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                    className="rounded border-gray-400 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-blue-500 focus:ring-blue-500"
                   />
                   <FolderTree size={14} />
                   生成完整文件系统目录
@@ -341,7 +425,7 @@ export default function SkillForgePage() {
                     value={skillNameHint}
                     onChange={e => setSkillNameHint(e.target.value)}
                     placeholder="技能名称提示（可选）"
-                    className="flex-1 bg-[#090b10] border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
+                    className="flex-1 bg-white dark:bg-[#0d0d0e] border border-gray-300 dark:border-neutral-700 rounded px-2 py-1 text-xs text-gray-700 dark:text-neutral-300 focus:border-blue-500 focus:outline-none"
                   />
                 )}
               </div>
@@ -349,7 +433,7 @@ export default function SkillForgePage() {
               <button
                 onClick={handleCraft}
                 disabled={isCrafting}
-                className="mt-3 w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-medium flex justify-center items-center gap-2 disabled:opacity-50 shrink-0"
+                className="mt-3 w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg font-medium flex justify-center items-center gap-2 disabled:opacity-50 shrink-0"
               >
                 <Hammer size={16} />
                 {isCrafting ? "AI 架构师正在锻造..." : "一键提炼标准技能包"}
@@ -360,76 +444,76 @@ export default function SkillForgePage() {
             {showSandboxTest && (
               <div className="h-[180px] p-3 flex flex-col shrink-0">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-gray-400 font-medium uppercase tracking-wider flex items-center gap-2">
+                  <label className="text-xs text-gray-500 dark:text-neutral-500 font-medium uppercase tracking-wider flex items-center gap-2">
                     <Terminal size={14} />
                     2. 沙箱测试
                   </label>
                   <button
                     onClick={handleTest}
                     disabled={isTesting || !scriptCode}
-                    className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-xs rounded font-medium flex items-center gap-1 disabled:opacity-50"
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-xs rounded-lg font-medium flex items-center gap-1 disabled:opacity-50"
                   >
                     <Play size={12} />
                     {isTesting ? "运行中..." : "运行"}
                   </button>
                 </div>
                 {/* 测试参数说明 */}
-                <div className="text-[10px] text-gray-500 mb-1">
-                  💡 填入测试数据路径，如：<code className="text-gray-400">sys.argv = ["script.py", "--input", "/data/test.tsv"]</code>
+                <div className="text-[10px] text-gray-400 dark:text-neutral-600 mb-1">
+                  💡 填入测试数据路径，如：<code className="text-gray-500 dark:text-neutral-500">sys.argv = ["script.py", "--input", "/data/test.tsv"]</code>
                 </div>
                 <input
                   type="text"
                   value={testInstruction}
                   onChange={e => setTestInstruction(e.target.value)}
                   placeholder="测试参数..."
-                  className="bg-[#090b10] border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:border-purple-500 focus:outline-none mb-2"
+                  className="bg-white dark:bg-[#0d0d0e] border border-gray-300 dark:border-neutral-700 rounded px-2 py-1 text-xs text-gray-700 dark:text-neutral-300 focus:border-purple-500 focus:outline-none mb-2"
                 />
                 <textarea
                   readOnly
                   value={testLogs}
                   placeholder="执行日志将显示在这里..."
-                  className="flex-1 bg-black border border-gray-800 rounded p-2 text-[10px] text-emerald-400 font-mono focus:outline-none resize-none"
+                  className="flex-1 bg-black border border-gray-700 dark:border-neutral-800 rounded p-2 text-[10px] text-emerald-400 font-mono focus:outline-none resize-none"
                 />
               </div>
             )}
 
             {/* 非单脚本类型显示锻造日志 */}
             {!showSandboxTest && testLogs && (
-              <div className="h-[120px] p-3 flex flex-col shrink-0 border-t border-gray-800">
-                <label className="text-xs text-gray-400 font-medium mb-1 uppercase tracking-wider flex items-center gap-2">
+              <div className="h-[120px] p-3 flex flex-col shrink-0 border-t border-gray-200 dark:border-neutral-800">
+                <label className="text-xs text-gray-500 dark:text-neutral-500 font-medium mb-1 uppercase tracking-wider flex items-center gap-2">
                   <Terminal size={14} />
                   锻造日志
                 </label>
                 <textarea
                   readOnly
                   value={testLogs}
-                  className="flex-1 bg-black border border-gray-800 rounded p-2 text-[10px] text-emerald-400 font-mono focus:outline-none resize-none"
+                  className="flex-1 bg-black border border-gray-700 dark:border-neutral-800 rounded p-2 text-[10px] text-emerald-400 font-mono focus:outline-none resize-none"
                 />
               </div>
             )}
           </div>
 
           {/* 右栏：AI 生成的代码编辑器 */}
-          <div className="w-1/2 flex flex-col bg-[#1e1e1e]">
+          <div className="w-1/2 flex flex-col bg-white dark:bg-[#1e1e1f]">
             {/* 基本信息编辑 */}
-            <div className="p-4 border-b border-gray-800 bg-gray-900/30">
+            <div className="p-4 border-b border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-900/30">
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="text-xs text-gray-400 mb-1 block">技能名称</label>
+                  <label className="text-xs text-gray-500 dark:text-neutral-500 mb-1 block">技能名称</label>
                   <input
                     type="text"
                     value={skillName}
                     onChange={e => setSkillName(e.target.value)}
                     placeholder="输入技能名称..."
-                    className="w-full bg-[#090b10] border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-300 focus:border-blue-500 focus:outline-none"
+                    className="w-full bg-white dark:bg-[#0d0d0e] border border-gray-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-gray-700 dark:text-neutral-300 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs text-gray-400 mb-1 block">执行器类型</label>
+                  <label className="text-xs text-gray-500 dark:text-neutral-500 mb-1 block">执行器类型</label>
                   <select
                     value={craftedSkill?.executor_type || executorType}
                     onChange={e => setCraftedSkill({ ...craftedSkill, executor_type: e.target.value } as any)}
-                    className="w-full bg-[#090b10] border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-300 focus:border-blue-500 focus:outline-none"
+                    className="w-full bg-white dark:bg-[#0d0d0e] border border-gray-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-gray-700 dark:text-neutral-300 focus:border-blue-500 focus:outline-none"
                   >
                     <option value="Python_env">Python_env</option>
                     <option value="R_env">R_env</option>
@@ -439,30 +523,30 @@ export default function SkillForgePage() {
                 </div>
               </div>
               <div className="mt-2">
-                <label className="text-xs text-gray-400 mb-1 block">简介描述</label>
+                <label className="text-xs text-gray-500 dark:text-neutral-500 mb-1 block">简介描述</label>
                 <input
                   type="text"
                   value={skillDescription}
                   onChange={e => setSkillDescription(e.target.value)}
                   placeholder="一句话描述这个技能的功能..."
-                  className="w-full bg-[#090b10] border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-300 focus:border-blue-500 focus:outline-none"
+                  className="w-full bg-white dark:bg-[#0d0d0e] border border-gray-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-gray-700 dark:text-neutral-300 focus:border-blue-500 focus:outline-none"
                 />
               </div>
             </div>
 
             {/* 生成的文件系统信息 */}
             {bundlePath && filesCreated.length > 0 && (
-              <div className="px-4 py-2 bg-emerald-900/30 border-b border-emerald-800">
-                <div className="flex items-center gap-2 text-emerald-400 text-xs">
+              <div className="px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 border-b border-emerald-200 dark:border-emerald-800">
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs">
                   <CheckCircle size={14} />
                   <span className="font-medium">已生成文件系统技能包</span>
                 </div>
-                <div className="mt-1 text-xs text-gray-400">
-                  路径: <code className="text-emerald-300">{bundlePath}</code>
+                <div className="mt-1 text-xs text-gray-500 dark:text-neutral-400">
+                  路径: <code className="text-emerald-600 dark:text-emerald-300">{bundlePath}</code>
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {filesCreated.map((file, idx) => (
-                    <span key={idx} className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300">
+                    <span key={idx} className="px-2 py-0.5 bg-white dark:bg-neutral-800 rounded text-xs text-gray-600 dark:text-neutral-300">
                       {file}
                     </span>
                   ))}
@@ -472,15 +556,15 @@ export default function SkillForgePage() {
 
             {/* 校验警告 */}
             {validationWarning && (
-              <div className="px-4 py-2 bg-yellow-900/30 border-b border-yellow-800 flex items-center gap-2">
+              <div className="px-4 py-2 bg-yellow-50 dark:bg-yellow-900/30 border-b border-yellow-200 dark:border-yellow-800 flex items-center gap-2">
                 <AlertTriangle size={16} className="text-yellow-500" />
-                <span className="text-xs text-yellow-300">{validationWarning}</span>
+                <span className="text-xs text-yellow-700 dark:text-yellow-300">{validationWarning}</span>
               </div>
             )}
 
             {/* 代码编辑器 - 根据类型显示不同内容 */}
-            <div className="h-10 bg-[#2d2d2d] flex items-center px-4 border-b border-gray-800">
-              <span className="text-xs text-gray-300 font-mono flex items-center gap-2">
+            <div className="h-10 bg-gray-100 dark:bg-[#2d2d2d] flex items-center px-4 border-b border-gray-200 dark:border-neutral-800">
+              <span className="text-xs text-gray-600 dark:text-neutral-300 font-mono flex items-center gap-2">
                 {executorType === 'Logical_Blueprint' ? (
                   <>
                     <GitBranch size={14} className="text-purple-500" />
@@ -500,7 +584,7 @@ export default function SkillForgePage() {
                 value={nextflowCode}
                 onChange={e => setNextflowCode(e.target.value)}
                 placeholder="AI 锻造后的 Nextflow 工作流代码将显示在这里..."
-                className="flex-1 bg-transparent text-gray-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
+                className="flex-1 bg-transparent text-gray-700 dark:text-neutral-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
                 spellCheck={false}
               />
             ) : (
@@ -508,19 +592,19 @@ export default function SkillForgePage() {
                 value={scriptCode}
                 onChange={e => setScriptCode(e.target.value)}
                 placeholder="AI 锻造后的标准化代码将显示在这里..."
-                className="flex-1 bg-transparent text-gray-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
+                className="flex-1 bg-transparent text-gray-700 dark:text-neutral-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
                 spellCheck={false}
               />
             )}
 
             {/* 参数 Schema 预览 */}
             {craftedSkill?.parameters_schema && Object.keys(craftedSkill.parameters_schema.properties || {}).length > 0 && (
-              <div className="border-t border-gray-800 p-4 bg-gray-900/30 max-h-48 overflow-y-auto">
-                <label className="text-xs text-gray-400 font-medium mb-2 block flex items-center gap-2">
+              <div className="border-t border-gray-200 dark:border-neutral-800 p-4 bg-gray-50/50 dark:bg-neutral-900/30 max-h-48 overflow-y-auto">
+                <label className="text-xs text-gray-500 dark:text-neutral-500 font-medium mb-2 block flex items-center gap-2">
                   <FileJson size={14} />
                   参数 Schema (JSON)
                 </label>
-                <pre className="text-xs text-emerald-400 font-mono whitespace-pre-wrap">
+                <pre className="text-xs text-emerald-600 dark:text-emerald-400 font-mono whitespace-pre-wrap">
                   {JSON.stringify(craftedSkill.parameters_schema, null, 2)}
                 </pre>
               </div>
@@ -529,6 +613,6 @@ export default function SkillForgePage() {
 
         </div>
       </div>
-    </div>
+    </main>
   );
 }
