@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { adminApi, SkillAsset } from '@/lib/api';
-import TopHeader from '@/components/layout/TopHeader';
-import Sidebar from '@/components/layout/Sidebar';
+import { TopHeader } from '@/components/layout/TopHeader';
+import { Sidebar } from '@/components/layout/Sidebar';
 import { ShieldCheck, Check, X, FileJson, Code, Clock, User } from 'lucide-react';
 
 export default function AdminSkillReviewPage() {

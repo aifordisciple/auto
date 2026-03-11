@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { skillForgeApi } from '@/lib/api';
-import TopHeader from '@/components/layout/TopHeader';
-import Sidebar from '@/components/layout/Sidebar';
+import { TopHeader } from '@/components/layout/TopHeader';
+import { Sidebar } from '@/components/layout/Sidebar';
 import { Play, Hammer, Save, Send, Code, Terminal, FileJson, AlertTriangle, CheckCircle } from 'lucide-react';
 
 export default function SkillForgePage() {
