@@ -5,7 +5,7 @@ SKILL API 路由 - 提供 SKILL 目录查询、知识固化、SKILL 工厂接口
 import os
 import json
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select, or_
@@ -43,6 +43,12 @@ class ConsolidateRequest(BaseModel):
 class CraftRequest(BaseModel):
     """SKILL 锻造请求"""
     raw_material: str = Field(..., description="原始素材：代码/指令/文献段落")
+    executor_type: str = Field(default="Python_env", description="执行器类型: Python_env/R_env/Logical_Blueprint/Python_Package")
+    generate_full_bundle: bool = Field(default=False, description="是否生成完整文件系统目录")
+    skill_name_hint: Optional[str] = Field(default=None, description="技能名称提示")
+    category: Optional[str] = Field(default=None, description="一级分类ID")
+    subcategory: Optional[str] = Field(default=None, description="二级分类ID")
+    tags: List[str] = Field(default_factory=list, description="标签列表")
 
 
 class SkillTestRequest(BaseModel):
@@ -286,6 +292,12 @@ async def craft_skill_api(
 ):
     """
     【SKILL Forge】前端传入原始素材，后台调用大模型锻造并返回结构化的资产草稿。
+
+    支持参数：
+    - executor_type: 执行器类型 (Python_env/R_env/Logical_Blueprint/Python_Package)
+    - generate_full_bundle: 是否生成完整文件系统目录
+    - skill_name_hint: 技能名称提示
+
     (注意：此接口仅返回锻造结果供前端预览，并不直接写入数据库)
     """
     if not req.raw_material or len(req.raw_material.strip()) < 10:
@@ -308,26 +320,184 @@ async def craft_skill_api(
     try:
         from app.agent.crafter import craft_skill_from_material
 
-        log.info(f"🔨 [Skills API] 用户 {current_user.id} 开始锻造技能...")
+        log.info(f"🔨 [Skills API] 用户 {current_user.id} 开始锻造技能... 类型: {req.executor_type}")
         crafted_result = await craft_skill_from_material(
             raw_material=req.raw_material,
             api_key=api_key,
             base_url=base_url,
-            model_name=model_name
+            model_name=model_name,
+            executor_type=req.executor_type
         )
 
-        # 3. 校验铁律
-        if crafted_result.get("script_code"):
+        # 3. 校验铁律 (仅对单脚本类型)
+        if crafted_result.get("script_code") and req.executor_type in ["Python_env", "R_env"]:
             is_valid, error_msg = validate_iron_rules(crafted_result["script_code"])
             if not is_valid:
                 crafted_result["validation_warning"] = error_msg
             else:
                 crafted_result["validation_passed"] = True
 
-        return {"status": "success", "data": crafted_result}
+        # 4. 如果需要生成完整文件系统目录
+        bundle_path = None
+        files_created = []
+
+        if req.generate_full_bundle:
+            from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
+            from app.models.skill_bundle import (
+                SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
+            )
+
+            # 生成 skill_id
+            skill_id = generate_skill_id_from_name(
+                req.skill_name_hint or crafted_result.get("name", "custom_skill")
+            )
+
+            # 构建元数据
+            metadata = SkillBundleMetadata(
+                skill_id=skill_id,
+                name=crafted_result.get("name", "未命名技能"),
+                executor_type=ExecutorType(req.executor_type),
+                category=req.category or "general",
+                category_name="通用",
+                subcategory=req.subcategory,
+                tags=req.tags or []
+            )
+
+            # 构建内容
+            content = SkillBundleContent(
+                metadata=metadata,
+                description=crafted_result.get("description", ""),
+                parameters_schema=crafted_result.get("parameters_schema", {"type": "object", "properties": {}, "required": []}),
+                expert_knowledge=crafted_result.get("expert_knowledge", ""),
+                script_code=crafted_result.get("script_code"),
+                dependencies=crafted_result.get("dependencies", [])
+            )
+
+            # 如果是 Nextflow 类型，添加 nextflow_bundle
+            if req.executor_type == "Logical_Blueprint" and crafted_result.get("nextflow_code"):
+                content.nextflow_bundle = NextflowBundle(full_code=crafted_result["nextflow_code"])
+
+            # 写入文件系统
+            result = write_skill_bundle(content, skills_dir="/app/skills")
+            bundle_path = result.get("bundle_path")
+            files_created = result.get("files_created", [])
+
+            log.info(f"📁 [Skills API] 生成完整技能包: {skill_id}, 文件: {files_created}")
+
+        return {
+            "status": "success",
+            "data": crafted_result,
+            "bundle_path": bundle_path,
+            "files_created": files_created
+        }
 
     except Exception as e:
         log.error(f"Forge API 报错: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# POST /api/skills/bundle - 直接创建完整文件系统技能包
+# ==========================================
+@router.post("/bundle")
+async def create_skill_bundle(
+    req: CraftRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    【SKILL Forge Bundle】直接创建完整文件系统技能包
+
+    该接口会：
+    1. 调用 AI 锻造引擎生成技能内容
+    2. 自动生成 skill_id
+    3. 创建完整目录结构并写入文件
+
+    返回：
+    - skill_id: 生成的技能 ID
+    - bundle_path: 生成的目录路径
+    - files_created: 创建的文件列表
+    """
+    if not req.raw_material or len(req.raw_material.strip()) < 10:
+        raise HTTPException(status_code=400, detail="素材内容过短，无法锻造")
+
+    # 1. 动态获取 LLM 配置
+    config = session.get(SystemConfig, 1)
+    db_api_key = config.openai_api_key if config else None
+    db_base_url = config.openai_base_url if config else None
+    db_model = config.default_model if config else None
+
+    env_api_key = os.getenv("OPENAI_API_KEY")
+    is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
+
+    api_key = (db_api_key if db_api_key is not None else "") if is_local_model else (db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key)
+    base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
+    model_name = db_model if db_model else "gpt-3.5-turbo"
+
+    try:
+        from app.agent.crafter import craft_skill_from_material
+        from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
+        from app.models.skill_bundle import (
+            SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
+        )
+
+        # 2. 调用 AI 锻造
+        log.info(f"🔨 [Skills API] 用户 {current_user.id} 创建技能包... 类型: {req.executor_type}")
+        crafted_result = await craft_skill_from_material(
+            raw_material=req.raw_material,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            executor_type=req.executor_type
+        )
+
+        # 3. 生成 skill_id
+        skill_id = generate_skill_id_from_name(
+            req.skill_name_hint or crafted_result.get("name", "custom_skill")
+        )
+
+        # 4. 构建元数据
+        metadata = SkillBundleMetadata(
+            skill_id=skill_id,
+            name=crafted_result.get("name", "未命名技能"),
+            executor_type=ExecutorType(req.executor_type),
+            category=req.category or "general",
+            category_name="通用",
+            subcategory=req.subcategory,
+            tags=req.tags or []
+        )
+
+        # 5. 构建内容
+        content = SkillBundleContent(
+            metadata=metadata,
+            description=crafted_result.get("description", ""),
+            parameters_schema=crafted_result.get("parameters_schema", {"type": "object", "properties": {}, "required": []}),
+            expert_knowledge=crafted_result.get("expert_knowledge", ""),
+            script_code=crafted_result.get("script_code"),
+            dependencies=crafted_result.get("dependencies", [])
+        )
+
+        # 如果是 Nextflow 类型，添加 nextflow_bundle
+        if req.executor_type == "Logical_Blueprint" and crafted_result.get("nextflow_code"):
+            content.nextflow_bundle = NextflowBundle(full_code=crafted_result["nextflow_code"])
+
+        # 6. 写入文件系统
+        result = write_skill_bundle(content, skills_dir="/app/skills")
+
+        log.info(f"✅ [Skills API] 技能包创建成功: {skill_id}")
+
+        return {
+            "status": "success",
+            "skill_id": skill_id,
+            "name": crafted_result.get("name"),
+            "bundle_path": result.get("bundle_path"),
+            "files_created": result.get("files_created", []),
+            "executor_type": req.executor_type,
+            "message": f"技能包 {skill_id} 已成功创建"
+        }
+
+    except Exception as e:
+        log.error(f"创建技能包失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -112,6 +112,41 @@ export async function getFolderTree(projectId: string): Promise<{ status: string
 // SKILL Forge 技能工厂 API
 // ==========================================
 
+export type ExecutorType = 'Python_env' | 'R_env' | 'Logical_Blueprint' | 'Python_Package';
+
+export interface CraftRequest {
+  raw_material: string;
+  executor_type?: ExecutorType;
+  generate_full_bundle?: boolean;
+  skill_name_hint?: string;
+  category?: string;
+  subcategory?: string;
+  tags?: string[];
+}
+
+export interface CraftResponse {
+  name: string;
+  description: string;
+  executor_type: ExecutorType;
+  parameters_schema: Record<string, any>;
+  expert_knowledge: string;
+  script_code?: string;
+  nextflow_code?: string;
+  dependencies: string[];
+  validation_warning?: string;
+  validation_passed?: boolean;
+}
+
+export interface BundleResponse {
+  status: string;
+  skill_id: string;
+  name: string;
+  bundle_path: string;
+  files_created: string[];
+  executor_type: ExecutorType;
+  message: string;
+}
+
 export interface SkillAsset {
   id: number;
   skill_id: string;
@@ -142,12 +177,42 @@ export const skillForgeApi = {
   /**
    * 将非结构化素材发送给大脑进行锻造
    */
-  craftFromMaterial: async (rawMaterial: string): Promise<any> => {
+  craftFromMaterial: async (request: CraftRequest): Promise<{
+    data: CraftResponse;
+    bundle_path?: string;
+    files_created?: string[];
+  }> => {
     const response = await fetchAPI('/api/skills/craft_from_material', {
       method: 'POST',
-      body: JSON.stringify({ raw_material: rawMaterial }),
+      body: JSON.stringify({
+        raw_material: request.raw_material,
+        executor_type: request.executor_type || 'Python_env',
+        generate_full_bundle: request.generate_full_bundle || false,
+        skill_name_hint: request.skill_name_hint,
+        category: request.category,
+        subcategory: request.subcategory,
+        tags: request.tags || []
+      }),
     });
-    return response.data; // 返回包含 schema 和 code 的 JSON
+    return response;
+  },
+
+  /**
+   * 直接创建完整文件系统技能包
+   */
+  createSkillBundle: async (request: CraftRequest): Promise<BundleResponse> => {
+    const response = await fetchAPI('/api/skills/bundle', {
+      method: 'POST',
+      body: JSON.stringify({
+        raw_material: request.raw_material,
+        executor_type: request.executor_type || 'Python_env',
+        skill_name_hint: request.skill_name_hint,
+        category: request.category,
+        subcategory: request.subcategory,
+        tags: request.tags || []
+      }),
+    });
+    return response;
   },
 
   /**
