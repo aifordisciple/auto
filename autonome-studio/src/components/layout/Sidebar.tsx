@@ -8,7 +8,7 @@ import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { SessionSidebar } from "./SessionSidebar";
 
 export function Sidebar() {
-  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, toggleSkillCenter, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, theme, toggleTheme } = useUIStore();
+  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, toggleSkillCenter, toggleSkillForge, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, isSkillForgeOpen, theme, toggleTheme } = useUIStore();
   const { user, logout } = useAuthStore();
   const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
@@ -88,8 +88,8 @@ export function Sidebar() {
 
         {/* ✨ SKILL Forge - 技能锻造工厂 */}
         <div
-          onClick={() => window.location.href = '/skill-forge'}
-          className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white"
+          onClick={toggleSkillForge}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isSkillForgeOpen ? 'bg-amber-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
         >
           <Hammer size={18} /> <span>技能工厂</span>
         </div>
