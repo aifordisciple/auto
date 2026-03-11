@@ -289,7 +289,7 @@ def _generate_skill_md_content(
     # ==========================================
     lines.append("## 3. 操作指令与专家级知识库 (Operational Directives & Expert Knowledge)")
     lines.append("")
-    lines.append("*这里包含了系统赋予大模型的"锦囊妙计"，塑造其资深生信架构师的专业表现。*")
+    lines.append("*这里包含了系统赋予大模型的'锦囊妙计'，塑造其资深生信架构师的专业表现。*")
     lines.append("")
 
     if expert_knowledge:
