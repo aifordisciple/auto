@@ -7,6 +7,9 @@ export interface Task {
   project_id: string;
   status: string;
   progress: number | null;
+  progress_status?: string;  // ✨ 新增：用于区分 RETRY 状态
+  attempt?: number;          // ✨ 新增：重试次数
+  max_retries?: number;      // ✨ 新增：最大重试次数
   result: any;
   created_at: number;
 }

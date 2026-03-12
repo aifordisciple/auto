@@ -113,7 +113,8 @@ export function TaskCenter() {
   const columns = [
     { key: 'PENDING', title: '队列中', tasks: tasks.filter(t => t.status === 'PENDING') },
     { key: 'STARTED', title: '启动中', tasks: tasks.filter(t => t.status === 'STARTED') },
-    { key: 'PROGRESS', title: '分析中', tasks: tasks.filter(t => t.status === 'PROGRESS') },
+    { key: 'PROGRESS', title: '分析中', tasks: tasks.filter(t => t.status === 'PROGRESS' && t.progress_status !== 'RETRY') },
+    { key: 'RETRY', title: 'AI修复中', tasks: tasks.filter(t => t.status === 'PROGRESS' && t.progress_status === 'RETRY') },
     { key: 'SUCCESS', title: '已完成', tasks: tasks.filter(t => t.status === 'SUCCESS') },
     { key: 'FAILURE', title: '异常中止', tasks: tasks.filter(t => t.status === 'FAILURE') },
   ];
@@ -179,7 +180,15 @@ export function TaskCenter() {
                         </div>
                       </div>
                       <h4 className="text-xs text-neutral-200 font-medium leading-snug group-hover:text-blue-400 transition-colors line-clamp-2">{task.name}</h4>
-                      {task.status === 'PROGRESS' && task.progress !== null && (
+                      {task.status === 'PROGRESS' && task.progress_status === 'RETRY' && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <RefreshCw size={10} className="text-yellow-500 animate-spin" />
+                          <span className="text-[10px] text-yellow-500 font-medium">
+                            AI修复中 ({task.attempt}/{task.max_retries || 3})
+                          </span>
+                        </div>
+                      )}
+                      {task.status === 'PROGRESS' && task.progress !== null && task.progress_status !== 'RETRY' && (
                         <div className="mt-2">
                           <div className="w-full bg-neutral-800 rounded-full h-1">
                             <div className="bg-blue-500 h-1 rounded-full transition-all" style={{ width: `${task.progress}%` }}></div>

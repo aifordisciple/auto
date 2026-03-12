@@ -150,14 +150,20 @@ async def list_user_tasks(current_user: User = Depends(get_current_user)):
             status = "UNKNOWN"
             result = None
         
-        # 获取进度
+        # 获取进度和进度状态
         progress = None
+        progress_status = None
+        attempt = None
+        max_retries = None
         try:
             if hasattr(task_result, 'info') and isinstance(task_result.info, dict):
                 progress = task_result.info.get('progress')
+                progress_status = task_result.info.get('status')  # ✨ 获取 RETRY 状态
+                attempt = task_result.info.get('attempt')
+                max_retries = task_result.info.get('max_retries')
         except:
             pass
-        
+
         tasks.append({
             "task_id": task_id,
             "name": task_info.get("name", "Unknown Task"),
@@ -165,6 +171,9 @@ async def list_user_tasks(current_user: User = Depends(get_current_user)):
             "project_id": task_info.get("project_id", ""),
             "status": status,
             "progress": progress,
+            "progress_status": progress_status,  # ✨ 新增
+            "attempt": attempt,
+            "max_retries": max_retries,
             "result": result,
             "created_at": float(task_info.get("created_at", 0))
         })
@@ -176,11 +185,15 @@ async def list_user_tasks(current_user: User = Depends(get_current_user)):
 async def get_task_status(task_id: str):
     """轮询获取任务当前状态"""
     task_result = AsyncResult(task_id)
+    info = task_result.info if isinstance(task_result.info, dict) else {}
     return {
-        "task_id": task_id, 
+        "task_id": task_id,
         "status": task_result.status,
         "result": task_result.result if task_result.ready() else None,
-        "progress": task_result.info.get('progress') if isinstance(task_result.info, dict) else None
+        "progress": info.get('progress'),
+        "progress_status": info.get('status'),  # ✨ 新增：RETRY 状态
+        "attempt": info.get('attempt'),
+        "max_retries": info.get('max_retries')
     }
 
 
@@ -198,12 +211,16 @@ async def websocket_task_status(websocket: WebSocket, task_id: str):
             
             # 如果状态变化，发送更新
             if current_status != last_status:
+                info = task_result.info if isinstance(task_result.info, dict) else {}
                 message = {
                     "type": "status",
                     "task_id": task_id,
                     "status": current_status,
                     "result": task_result.result if task_result.ready() else None,
-                    "progress": task_result.info.get('progress') if isinstance(task_result.info, dict) else None
+                    "progress": info.get('progress'),
+                    "progress_status": info.get('status'),  # ✨ 新增：RETRY 状态
+                    "attempt": info.get('attempt'),
+                    "max_retries": info.get('max_retries')
                 }
                 await manager.send_message(task_id, message)
                 last_status = current_status
