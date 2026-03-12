@@ -43,6 +43,56 @@ celery_app.conf.update(
 
 
 # ==========================================
+# ✨ AI 代码修复助手
+# ==========================================
+CODE_FIXER_PROMPT = """你是一位资深的生信代码调试专家。用户的代码在沙箱中执行失败，请分析错误并修复代码。
+
+【原始代码】
+```python
+{code}
+```
+
+【错误信息】
+{error_msg}
+
+【修复要求】
+1. 仔细分析错误原因
+2. 生成修复后的完整代码
+3. 保持代码的参数系统和注释
+4. 只输出修复后的代码，用 ```python 包裹
+
+修复后的代码："""
+
+def fix_code_with_llm(code: str, error_msg: str, api_key: str, base_url: str, model_name: str) -> str:
+    """调用 LLM 修复代码"""
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url)
+
+        prompt = CODE_FIXER_PROMPT.format(code=code, error_msg=error_msg[:2000])
+
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=4000
+        )
+
+        fixed_code = response.choices[0].message.content
+
+        # 提取代码块
+        import re
+        code_match = re.search(r'```(?:python)?\s*\n([\s\S]*?)```', fixed_code)
+        if code_match:
+            return code_match.group(1).strip()
+
+        return fixed_code.strip()
+    except Exception as e:
+        log.error(f"[Code Fixer] LLM 修复失败: {e}")
+        return None
+
+
+# ==========================================
 # ✨ 新增：生信图表专家解读 Agent
 # ==========================================
 INTERPRETER_PROMPT = """你现在是一位顶尖的计算生物学家和高分 SCI 论文撰稿人。
@@ -410,7 +460,7 @@ def run_custom_python_task(self, params: dict):
                 for line in output_lines[:15]:
                     log_msg(f"   {line[:100]}")
 
-        # 核心防御 1：拦截执行失败的代码
+        # 核心防御 1：拦截执行失败的代码 - ✨ 增加自动重试修复
         if exit_code != 0:
             log_msg(f"💥 代码执行失败 (Exit Code {exit_code})", level="ERROR")
 
@@ -436,33 +486,88 @@ def run_custom_python_task(self, params: dict):
                         if 'Error' in line or 'Exception' in line or 'Traceback' in line or '❌' in line:
                             log_msg(f"   >>> {line}", level="ERROR")
 
-                    log_msg(f"💡 建议: 检查代码语法、文件路径或数据格式", level="WARNING")
+                # ✨ 自动修复重试逻辑
+                log_msg(f"🔧 启动 AI 自动修复引擎...", level="WARNING")
+                max_retries = 3
+                current_code = code
+                last_error = result_output
 
-            with Session(engine) as db:
-                if is_timeout:
-                    final_content = (
-                        f"⏰ **执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"代码在沙箱中运行超过了 1 小时的时间限制。\n\n"
-                        f"### 🔍 可能的原因\n"
-                        f"1. 代码中存在死循环或无限递归\n"
-                        f"2. 处理的数据量过大\n"
-                        f"3. 耗时操作未优化\n\n"
-                        f"### 💡 解决建议\n"
-                        f"- 检查循环逻辑，确保有正确的退出条件\n"
-                        f"- 对大数据进行采样或分批处理\n"
-                        f"- 使用向量化操作替代循环（如 numpy/pandas）\n"
-                        f"- 请求 AI 优化代码性能\n"
-                    )
+                for retry_attempt in range(1, max_retries + 1):
+                    log_msg(f"🔄 第 {retry_attempt}/{max_retries} 次尝试修复...")
+
+                    # 从数据库获取 LLM 配置
+                    with Session(engine) as config_db:
+                        from app.models.domain import SystemConfig
+                        config = config_db.get(SystemConfig, 1)
+                        if config:
+                            api_key = config.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+                            base_url = config.openai_base_url or "https://api.openai.com/v1"
+                            model_name = config.default_model or "gpt-3.5-turbo"
+                        else:
+                            api_key = os.getenv("OPENAI_API_KEY", "")
+                            base_url = "https://api.openai.com/v1"
+                            model_name = "gpt-3.5-turbo"
+
+                    # 调用 AI 修复代码
+                    fixed_code = fix_code_with_llm(current_code, last_error, api_key, base_url, model_name)
+
+                    if not fixed_code:
+                        log_msg(f"❌ AI 修复失败，无法生成新代码", level="ERROR")
+                        break
+
+                    log_msg(f"✅ AI 已生成修复代码，正在重新执行...")
+                    log_msg(f"📝 修复后的代码预览:")
+                    for line in fixed_code.split('\n')[:10]:
+                        log_msg(f"   {line}")
+                    if len(fixed_code.split('\n')) > 10:
+                        log_msg(f"   ... (共 {len(fixed_code.split(chr(10)))} 行)")
+
+                    # 重新执行修复后的代码
+                    start_time = time.time()
+                    result_output, exit_code = run_container("autonome-tool-env", fixed_code, language="python", environment=env)
+                    elapsed_time = time.time() - start_time
+
+                    log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
+                    log_msg(f"🔢 退出码: {exit_code}")
+
+                    if exit_code == 0:
+                        log_msg(f"🎉 AI 修复成功！代码已正确执行")
+                        code = fixed_code  # 更新代码用于后续报告
+                        break
+                    else:
+                        log_msg(f"❌ 修复后代码仍然失败", level="ERROR")
+                        current_code = fixed_code
+                        last_error = result_output
+
+                        # 记录新的错误
+                        error_lines = result_output.split('\n')
+                        log_msg(f"🔴 新的错误:", level="ERROR")
+                        for line in error_lines[-10:]:
+                            if 'Error' in line or 'Exception' in line:
+                                log_msg(f"   >>> {line}", level="ERROR")
+
+                # 检查是否修复成功
+                if exit_code == 0:
+                    # 修复成功，继续执行后续流程
+                    log_msg("✅ 代码执行成功！准备生成专家解读...")
                 else:
-                    final_content = (
-                        f"❌ **代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"### ⚠️ 错误终端日志\n"
-                        f"```text\n{result_output}\n```\n\n"
-                        f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
-                    )
-                db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
-                db.commit()
-            return {"status": "failure"}
+                    # 修复失败，返回错误信息
+                    log_msg(f"💥 AI 修复 {max_retries} 次后仍失败，返回错误报告", level="ERROR")
+
+                    with Session(engine) as db:
+                        final_content = (
+                            f"❌ **代码执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                            f"AI 已尝试自动修复 {max_retries} 次，但仍然失败。\n\n"
+                            f"### ⚠️ 最终错误日志\n"
+                            f"```text\n{last_error}\n```\n\n"
+                            f"### 💡 建议\n"
+                            f"- 检查数据文件是否存在且格式正确\n"
+                            f"- 尝试简化代码逻辑\n"
+                            f"- 在聊天中向 AI 描述具体问题，请求帮助\n"
+                        )
+                        db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
+                        db.commit()
+                    return {"status": "failure"}
 
         log_msg("🎉 代码执行成功！准备生成专家解读...")
 

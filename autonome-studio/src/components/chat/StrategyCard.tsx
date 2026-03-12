@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3 } from "lucide-react";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
+import { useUIStore } from "@/store/useUIStore";
 import { BASE_URL } from "@/lib/api";
 
 export interface StrategyCardData {
@@ -25,12 +26,14 @@ interface StrategyCardProps {
 
 export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const { currentProjectId, currentSessionId } = useWorkspaceStore();
+  const { autoExecuteStrategy } = useUIStore();
   const [isExecuting, setIsExecuting] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const hasAutoExecuted = useRef(false); // ✨ 防止重复自动执行
 
   // ✨ 新增：可编辑参数状态
   const [editableParams, setEditableParams] = useState<Record<string, unknown>>(data.parameters || {});
@@ -57,6 +60,25 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
       }
     }
   }, [cacheKey]);
+
+  // ✨ 自动执行逻辑
+  useEffect(() => {
+    // 只有当自动执行开关打开、且还没有执行过、且没有缓存状态时才自动执行
+    if (
+      autoExecuteStrategy &&
+      !hasAutoExecuted.current &&
+      !taskId &&
+      !taskStatus &&
+      !isExecuting
+    ) {
+      hasAutoExecuted.current = true;
+      // 稍微延迟一下，让用户看到卡片出现
+      const timer = setTimeout(() => {
+        handleExecute();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [autoExecuteStrategy, taskId, taskStatus, isExecuting]);
 
   // Cleanup WebSocket on unmount
   useEffect(() => {

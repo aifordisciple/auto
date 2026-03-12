@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Menu, ChevronRight, Share2, Zap } from "lucide-react";
+import { Menu, ChevronRight, Share2, Zap, Play, Pause } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useUIStore } from "../../store/useUIStore";
 
@@ -19,7 +19,7 @@ export function TopHeader({
   onShare
 }: TopHeaderProps) {
   const { user, fetchProfile } = useAuthStore();
-  const { toggleProjectCenter } = useUIStore();
+  const { toggleProjectCenter, autoExecuteStrategy, toggleAutoExecute } = useUIStore();
 
   // 定时轮询刷新用户信息（包括算力余额）
   useEffect(() => {
@@ -59,6 +59,29 @@ export function TopHeader({
 
       {/* 右侧：状态展示 */}
       <div className="flex items-center gap-3">
+        {/* ✨ 自动执行开关 - 在 credits 左边 */}
+        <button
+          onClick={toggleAutoExecute}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all ${
+            autoExecuteStrategy
+              ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400'
+              : 'bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400'
+          }`}
+          title={autoExecuteStrategy ? "Auto-execute is ON: Strategies will run automatically" : "Auto-execute is OFF: Click to enable automatic execution"}
+        >
+          {autoExecuteStrategy ? (
+            <>
+              <Play size={14} className="fill-current" />
+              <span>Auto</span>
+            </>
+          ) : (
+            <>
+              <Pause size={14} />
+              <span>Manual</span>
+            </>
+          )}
+        </button>
+
         {user && (
           <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-full text-xs text-gray-600 dark:text-neutral-300">
             <Zap size={14} className="text-yellow-500 fill-yellow-500" />
