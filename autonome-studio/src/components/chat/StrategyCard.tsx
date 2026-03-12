@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
-import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useUIStore } from "@/store/useUIStore";
 import { BASE_URL } from "@/lib/api";
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 export interface StrategyCardData {
   title: string;
@@ -33,9 +34,17 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const hasAutoExecuted = useRef(false); // ✨ 防止重复自动执行
+  const hasAutoExecuted = useRef(false); // 防止重复自动执行
 
-  // ✨ 新增：可编辑参数状态
+  // 实时日志状态
+  const [logs, setLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+  const [progressStatus, setProgressStatus] = useState<string | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState<number | null>(null);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+  const logAbortControllerRef = useRef<AbortController | null>(null);
+
+  // 可编辑参数状态
   const [editableParams, setEditableParams] = useState<Record<string, unknown>>(data.parameters || {});
   const [isEditingParams, setIsEditingParams] = useState(false);
 
@@ -86,8 +95,52 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
       if (wsRef.current) {
         wsRef.current.close();
       }
+      if (logAbortControllerRef.current) {
+        logAbortControllerRef.current.abort();
+      }
     };
   }, []);
+
+  // 自动滚动日志到底部
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  // 连接日志流
+  const connectLogStream = (id: string) => {
+    setLogs([]); // 清空旧日志
+    setShowLogs(true); // 自动展开日志窗口
+
+    const controller = new AbortController();
+    logAbortControllerRef.current = controller;
+
+    const connect = async () => {
+      try {
+        await fetchEventSource(`${BASE_URL}/api/tasks/${id}/logs/stream`, {
+          method: 'GET',
+          signal: controller.signal,
+          onmessage(event) {
+            if (event.event === 'log') {
+              try {
+                const data = JSON.parse(event.data);
+                setLogs(prev => [...prev, data.text]);
+              } catch (e) {
+                // 忽略解析错误
+              }
+            } else if (event.event === 'done') {
+              controller.abort();
+            }
+          },
+          onerror(err) {
+            console.error('Log stream error:', err);
+          }
+        });
+      } catch (e) {
+        // 忽略中止错误
+      }
+    };
+    connect();
+  };
 
   const connectWebSocket = (id: string) => {
     const token = localStorage.getItem('autonome_access_token');
@@ -96,15 +149,24 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 
     ws.onopen = () => {
       console.log('WebSocket connected for task:', id);
+      // 同时连接日志流
+      connectLogStream(id);
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        
+
         if (message.type === 'status') {
           setTaskStatus(message.status);
           setProgress(message.progress);
+          // 捕获重试状态
+          if (message.progress_status) {
+            setProgressStatus(message.progress_status);
+          }
+          if (message.attempt) {
+            setRetryAttempt(message.attempt);
+          }
 
           if (message.status === 'SUCCESS' || message.status === 'FAILURE') {
             setIsExecuting(false);
@@ -342,19 +404,25 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
 
       {/* Status */}
       {(isExecuting || taskStatus) && (
-        <div className="flex items-center gap-2 text-sm mb-4">
-          {getStatusIcon()}
+        <div className="flex items-center gap-2 text-sm mb-2">
+          {progressStatus === 'RETRY' ? (
+            <RefreshCw className="w-4 h-4 text-yellow-500 animate-spin" />
+          ) : (
+            getStatusIcon()
+          )}
           <span className="text-gray-700 dark:text-neutral-300">
-            {isExecuting 
-              ? progress !== null 
-                ? `Executing... ${progress}%` 
-                : 'Executing...' 
-              : `Status: ${taskStatus}`
+            {progressStatus === 'RETRY' ? (
+              `AI 修复中 (${retryAttempt || 1}/3)...`
+            ) : isExecuting
+              ? progress !== null
+                ? `执行中... ${progress}%`
+                : '启动中...'
+              : `状态: ${taskStatus}`
             }
           </span>
-          {progress !== null && (
+          {progress !== null && progressStatus !== 'RETRY' && (
             <div className="flex-1 h-1.5 bg-gray-200 dark:bg-neutral-700 rounded-full overflow-hidden ml-2">
-              <div 
+              <div
                 className="h-full bg-blue-500 transition-all duration-300"
                 style={{ width: `${progress}%` }}
               />
@@ -362,6 +430,71 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
           )}
         </div>
       )}
+
+      {/* 实时日志窗口 */}
+      <AnimatePresence>
+        {(isExecuting || logs.length > 0) && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-4 overflow-hidden"
+          >
+            <div
+              className="bg-gray-900 dark:bg-neutral-950 border border-gray-700 dark:border-neutral-800 rounded-lg overflow-hidden"
+            >
+              {/* 日志头部 */}
+              <div
+                className="flex items-center justify-between px-3 py-2 bg-gray-800/50 dark:bg-neutral-900/50 cursor-pointer"
+                onClick={() => setShowLogs(!showLogs)}
+              >
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-3.5 h-3.5 text-green-400" />
+                  <span className="text-xs font-mono text-gray-300">执行日志</span>
+                  {logs.length > 0 && (
+                    <span className="text-[10px] text-gray-500">({logs.length} 行)</span>
+                  )}
+                </div>
+                {showLogs ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                )}
+              </div>
+
+              {/* 日志内容 */}
+              {showLogs && (
+                <div className="max-h-48 overflow-y-auto p-2 font-mono text-[11px]">
+                  {logs.length === 0 ? (
+                    <div className="text-gray-500 text-center py-4">
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto mb-1" />
+                      等待日志输出...
+                    </div>
+                  ) : (
+                    logs.map((log, i) => (
+                      <div
+                        key={i}
+                        className={`py-0.5 px-1 hover:bg-white/5 rounded ${
+                          log.includes('ERROR') || log.includes('❌') || log.includes('💥')
+                            ? 'text-red-400'
+                            : log.includes('WARNING') || log.includes('⚠️')
+                            ? 'text-yellow-400'
+                            : log.includes('✅') || log.includes('🎉') || log.includes('SUCCESS')
+                            ? 'text-green-400'
+                            : 'text-green-300/80'
+                        }`}
+                      >
+                        {log}
+                      </div>
+                    ))
+                  )}
+                  <div ref={logEndRef} />
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Error */}
       {error && (
