@@ -1077,6 +1077,130 @@ def rollback_skill_version(
 
 
 # ==========================================
+# 技能统计 API
+# ==========================================
+@router.get("/{skill_id}/stats")
+def get_skill_stats(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取技能使用统计"""
+    from app.models.domain import SkillExecutionHistory, SkillReview
+    from sqlalchemy import func
+
+    # 验证技能存在
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+
+    # 权限检查：只有所有者可以查看统计
+    if skill.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只有技能所有者可以查看统计")
+
+    # 执行统计
+    executions = session.exec(
+        select(SkillExecutionHistory).where(SkillExecutionHistory.skill_id == skill_id)
+    ).all()
+
+    total_executions = len(executions)
+    success_count = sum(1 for e in executions if e.status == 'SUCCESS')
+    failure_count = sum(1 for e in executions if e.status == 'FAILURE')
+    success_rate = (success_count / total_executions * 100) if total_executions > 0 else 0
+
+    # 平均执行时间
+    execution_times = [e.execution_time for e in executions if e.execution_time]
+    avg_execution_time = sum(execution_times) / len(execution_times) if execution_times else 0
+
+    # 评分统计
+    reviews = session.exec(
+        select(SkillReview).where(SkillReview.skill_id == skill_id)
+    ).all()
+
+    rating_count = len(reviews)
+    avg_rating = sum(r.rating for r in reviews) / rating_count if rating_count else 0
+
+    # 最近30天趋势
+    from datetime import datetime, timedelta
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+
+    recent_executions = [
+        e for e in executions
+        if e.created_at and e.created_at >= thirty_days_ago
+    ]
+
+    # 按日期分组统计
+    trend_data = {}
+    for e in recent_executions:
+        if e.created_at:
+            date_str = e.created_at.strftime('%Y-%m-%d')
+            trend_data[date_str] = trend_data.get(date_str, 0) + 1
+
+    trend = [
+        {"date": date, "count": count}
+        for date, count in sorted(trend_data.items())
+    ]
+
+    return {
+        "status": "success",
+        "data": {
+            "total_executions": total_executions,
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "success_rate": round(success_rate, 1),
+            "avg_execution_time": round(avg_execution_time, 1),
+            "rating": {
+                "average": round(avg_rating, 1),
+                "count": rating_count
+            },
+            "trend": trend[-30:]  # 最近30天
+        }
+    }
+
+
+@router.get("/{skill_id}/history")
+def get_skill_execution_history(
+    skill_id: str,
+    limit: int = 20,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取指定技能的执行历史"""
+    from app.models.domain import SkillExecutionHistory
+
+    # 验证技能存在
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+
+    history = session.exec(
+        select(SkillExecutionHistory)
+        .where(SkillExecutionHistory.skill_id == skill_id)
+        .order_by(SkillExecutionHistory.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+    return {
+        "status": "success",
+        "total": len(history),
+        "data": [
+            {
+                "id": h.id,
+                "user_id": h.user_id,
+                "project_id": h.project_id,
+                "status": h.status,
+                "execution_time": h.execution_time,
+                "result_summary": h.result_summary,
+                "created_at": h.created_at.isoformat() if h.created_at else None
+            }
+            for h in history
+        ]
+    }
+
+
+# ==========================================
 # 执行历史 API
 # ==========================================
 @router.get("/history")

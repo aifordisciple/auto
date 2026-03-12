@@ -437,6 +437,52 @@ export const skillForgeApi = {
     const params = status ? `?status=${status}` : '';
     const response = await fetchAPI(`/api/skills/my${params}`);
     return response;
+  },
+
+  /**
+   * 获取技能版本历史
+   */
+  getVersions: async (skillId: string): Promise<{ status: string; total: number; data: any[] }> => {
+    const response = await fetchAPI(`/api/skills/${skillId}/versions`);
+    return response;
+  },
+
+  /**
+   * 创建新版本
+   */
+  createVersion: async (skillId: string, version: string, changeLog?: string): Promise<any> => {
+    const params = new URLSearchParams({ version });
+    if (changeLog) params.append('change_log', changeLog);
+    const response = await fetchAPI(`/api/skills/${skillId}/versions?${params.toString()}`, {
+      method: 'POST',
+    });
+    return response;
+  },
+
+  /**
+   * 回滚到指定版本
+   */
+  rollbackVersion: async (skillId: string, versionId: number): Promise<any> => {
+    const response = await fetchAPI(`/api/skills/${skillId}/rollback/${versionId}`, {
+      method: 'POST',
+    });
+    return response;
+  },
+
+  /**
+   * 获取技能使用统计
+   */
+  getStats: async (skillId: string): Promise<any> => {
+    const response = await fetchAPI(`/api/skills/${skillId}/stats`);
+    return response;
+  },
+
+  /**
+   * 获取技能执行历史
+   */
+  getExecutionHistory: async (skillId: string, limit: number = 20): Promise<any> => {
+    const response = await fetchAPI(`/api/skills/${skillId}/history?limit=${limit}`);
+    return response;
   }
 };
 

@@ -4,9 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { skillForgeApi, SkillAsset } from '@/lib/api';
 import {
   Box, Sparkles, Search, Trash2, Edit, Send, Eye, Clock,
-  Loader2, X, FileCode, AlertCircle, CheckCircle, Hourglass, XCircle
+  Loader2, X, FileCode, AlertCircle, CheckCircle, Hourglass, XCircle, GitBranch, BarChart3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { VersionHistoryPanel } from './VersionHistoryPanel';
+import { SkillStatsPanel } from './SkillStatsPanel';
 
 // 状态配置
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -37,6 +39,8 @@ export function MySkillsPanel({ onEditSkill }: MySkillsPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedSkillForVersion, setSelectedSkillForVersion] = useState<SkillAsset | null>(null);
+  const [selectedSkillForStats, setSelectedSkillForStats] = useState<SkillAsset | null>(null);
 
   // 加载我的技能
   useEffect(() => {
@@ -279,6 +283,20 @@ export function MySkillsPanel({ onEditSkill }: MySkillsPanelProps) {
                         修改并重新提交
                       </button>
                     )}
+                    <button
+                      onClick={() => setSelectedSkillForVersion(skill)}
+                      className="flex items-center gap-1 px-3 py-1 bg-gray-100 dark:bg-neutral-700 hover:bg-gray-200 dark:hover:bg-neutral-600 text-gray-600 dark:text-neutral-300 text-xs rounded transition-colors"
+                    >
+                      <GitBranch size={12} />
+                      版本
+                    </button>
+                    <button
+                      onClick={() => setSelectedSkillForStats(skill)}
+                      className="flex items-center gap-1 px-3 py-1 bg-gray-100 dark:bg-neutral-700 hover:bg-gray-200 dark:hover:bg-neutral-600 text-gray-600 dark:text-neutral-300 text-xs rounded transition-colors"
+                    >
+                      <BarChart3 size={12} />
+                      统计
+                    </button>
                     <div className="flex-1" />
                     {skill.status !== 'PUBLISHED' && skill.status !== 'PENDING_REVIEW' && (
                       <button
@@ -301,6 +319,59 @@ export function MySkillsPanel({ onEditSkill }: MySkillsPanelProps) {
           </div>
         )}
       </div>
+
+      {/* 版本历史面板 */}
+      <AnimatePresence>
+        {selectedSkillForVersion && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedSkillForVersion(null)}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center cursor-pointer"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-[#1e1e20] rounded-xl shadow-2xl w-[500px] max-h-[80vh] flex flex-col overflow-hidden cursor-default"
+            >
+              <VersionHistoryPanel
+                skill={selectedSkillForVersion}
+                onClose={() => setSelectedSkillForVersion(null)}
+                onRollback={loadMySkills}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 统计面板 */}
+      <AnimatePresence>
+        {selectedSkillForStats && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedSkillForStats(null)}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center cursor-pointer"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-[#1e1e20] rounded-xl shadow-2xl w-[500px] max-h-[80vh] flex flex-col overflow-hidden cursor-default"
+            >
+              <SkillStatsPanel
+                skill={selectedSkillForStats}
+                onClose={() => setSelectedSkillForStats(null)}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
