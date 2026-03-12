@@ -1018,6 +1018,37 @@ export function ChatStage() {
     return () => window.removeEventListener('append-result-message', handleAppendResultMessage);
   }, [addMessage]);
 
+  // ✨ 监听滚动到任务结果消息的事件
+  useEffect(() => {
+    const handleScrollToTaskResult = (event: CustomEvent) => {
+      const { taskId } = event.detail;
+      if (!taskId) return;
+
+      // 查找包含该任务结果的消息（通过 results/task_xxx 路径匹配）
+      const taskPattern = `results/task_${taskId}`;
+      const messageIndex = messages.findIndex(msg =>
+        msg.role === 'assistant' && msg.content.includes(taskPattern)
+      );
+
+      if (messageIndex !== -1) {
+        // 滚动到该消息
+        const messageElements = document.querySelectorAll('[data-message-id]');
+        if (messageElements[messageIndex]) {
+          messageElements[messageIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+          // 添加高亮效果
+          messageElements[messageIndex].classList.add('ring-2', 'ring-blue-500', 'ring-opacity-50');
+          setTimeout(() => {
+            messageElements[messageIndex].classList.remove('ring-2', 'ring-blue-500', 'ring-opacity-50');
+          }, 2000);
+        }
+      }
+    };
+
+    window.addEventListener('scroll-to-task-result', handleScrollToTaskResult as EventListener);
+    return () => window.removeEventListener('scroll-to-task-result', handleScrollToTaskResult as EventListener);
+  }, [messages]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -1245,12 +1276,13 @@ export function ChatStage() {
                   const blueprintData = msg.role === 'assistant' ? parseBlueprint(msg.content) : null;
                   
                   return (
-                  <motion.div 
-                    key={msg.id} 
+                  <motion.div
+                    key={msg.id}
+                    data-message-id={msg.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
-                    className={`flex flex-col group ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-4xl mx-auto w-full`}
+                    className={`flex flex-col group ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-4xl mx-auto w-full transition-all duration-300`}
                   >
                     <div className={`flex items-start gap-3 w-full ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${

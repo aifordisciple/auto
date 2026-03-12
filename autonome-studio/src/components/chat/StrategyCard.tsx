@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
+import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw, Eye, ExternalLink } from "lucide-react";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useUIStore } from "@/store/useUIStore";
 import { BASE_URL } from "@/lib/api";
@@ -25,6 +25,140 @@ interface StrategyCardProps {
   onCancel?: () => void;
 }
 
+// 日志弹窗组件
+const LogModal = ({ taskId, isOpen, onClose }: { taskId: string; isOpen: boolean; onClose: () => void }) => {
+  const [logs, setLogs] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setLogs([]);
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const fetchLogs = async () => {
+      try {
+        await fetchEventSource(`${BASE_URL}/api/tasks/${taskId}/logs/stream`, {
+          method: 'GET',
+          signal: controller.signal,
+          onmessage(event) {
+            if (event.event === 'log') {
+              try {
+                const data = JSON.parse(event.data);
+                setLogs(prev => [...prev, data.text]);
+              } catch (e) {
+                // 忽略解析错误
+              }
+            } else if (event.event === 'done') {
+              setIsLoading(false);
+              controller.abort();
+            }
+          },
+          onerror(err) {
+            console.error('Log stream error:', err);
+            setIsLoading(false);
+          }
+        });
+      } catch (e) {
+        setIsLoading(false);
+      }
+    };
+
+    fetchLogs();
+
+    return () => {
+      controller.abort();
+    };
+  }, [taskId, isOpen]);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          className="bg-white dark:bg-[#1a1a1c] border border-gray-200 dark:border-neutral-700 rounded-xl w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-neutral-700 bg-gray-50 dark:bg-neutral-900/50">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-green-500" />
+              <span className="font-medium text-gray-900 dark:text-white">任务日志</span>
+              <code className="text-xs bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400">{taskId.slice(0, 8)}</code>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Log Content */}
+          <div className="flex-1 overflow-y-auto p-4 bg-gray-900 dark:bg-neutral-950 font-mono text-xs">
+            {isLoading && logs.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                加载日志中...
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-gray-500">
+                暂无日志
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                {logs.map((log, i) => (
+                  <div
+                    key={i}
+                    className={`py-0.5 px-1 hover:bg-white/5 rounded ${
+                      log.includes('ERROR') || log.includes('❌') || log.includes('💥')
+                        ? 'text-red-400'
+                        : log.includes('WARNING') || log.includes('⚠️')
+                        ? 'text-yellow-400'
+                        : log.includes('✅') || log.includes('🎉') || log.includes('SUCCESS')
+                        ? 'text-green-400'
+                        : 'text-green-300/80'
+                    }`}
+                  >
+                    {log}
+                  </div>
+                ))}
+                <div ref={logEndRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-neutral-700 bg-gray-50 dark:bg-neutral-900/50">
+            <div className="text-xs text-gray-500 dark:text-neutral-400">
+              共 {logs.length} 条日志
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const { currentProjectId, currentSessionId } = useWorkspaceStore();
   const { autoExecuteStrategy } = useUIStore();
@@ -44,12 +178,23 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const logAbortControllerRef = useRef<AbortController | null>(null);
 
+  // 日志弹窗状态
+  const [showLogModal, setShowLogModal] = useState(false);
+
   // 可编辑参数状态
   const [editableParams, setEditableParams] = useState<Record<string, unknown>>(data.parameters || {});
   const [isEditingParams, setIsEditingParams] = useState(false);
 
   // 判断是否为 SKILL 类型（非 execute-python/execute-r）
   const isSkillType = data.tool_id !== 'execute-python' && data.tool_id !== 'execute-r';
+
+  // 任务完成后，滚动到对应的分析资产消息
+  const scrollToResultMessage = (id: string) => {
+    // 发送自定义事件，让 ChatStage 滚动到包含该任务结果的消息
+    window.dispatchEvent(new CustomEvent('scroll-to-task-result', {
+      detail: { taskId: id }
+    }));
+  };
 
   // 自动执行逻辑
   useEffect(() => {
@@ -504,7 +649,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             )}
           </>
         ) : (
-          <div className="flex items-center gap-3 w-full">
+          <div className="flex items-center gap-3 w-full flex-wrap">
             {/* 完成状态徽章 */}
             {taskStatus === 'SUCCESS' && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-500/30 rounded-lg">
@@ -518,13 +663,38 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
                 <span className="text-sm font-medium text-red-700 dark:text-red-300">执行失败</span>
               </div>
             )}
-            {/* 任务 ID */}
-            <div className="text-sm text-gray-500 dark:text-neutral-400">
-              Task ID: <code className="bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono">{taskId.slice(0, 8)}</code>
+            {/* 任务 ID - 可点击跳转到分析资产 */}
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-neutral-400">
+              <span>Task ID:</span>
+              <button
+                onClick={() => scrollToResultMessage(taskId)}
+                className="group flex items-center gap-1 bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                title="点击跳转到分析结果"
+              >
+                <code className="text-blue-600 dark:text-blue-400 font-mono">{taskId.slice(0, 8)}</code>
+                <ExternalLink className="w-3 h-3 text-gray-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+              {/* 眼睛图标 - 查看日志 */}
+              <button
+                onClick={() => setShowLogModal(true)}
+                className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded transition-colors"
+                title="查看日志"
+              >
+                <Eye className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* 日志弹窗 */}
+      {taskId && (
+        <LogModal
+          taskId={taskId}
+          isOpen={showLogModal}
+          onClose={() => setShowLogModal(false)}
+        />
+      )}
     </motion.div>
   );
 }
