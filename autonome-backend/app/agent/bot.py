@@ -267,15 +267,18 @@ with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
 
 """
 
-    # ✅ 修复后：没收 Python 直接执行工具，让 LLM 专职当"大脑"写策略
-    # 但保留探针工具，让 AI 能够感知数据环境
+    # ✨ 核心工具集：探针工具 + 沙箱执行工具
+    # Agent 可以直接执行代码，并根据错误自动修复重试
     from app.tools.probe_tools import peek_tabular_data, scan_workspace
+    from app.tools.bio_tools import execute_python_code
+
     all_tools = [
         search_and_vectorize_geo_data,
         submit_async_geo_analysis_task,
         generate_publishable_report,
         peek_tabular_data,  # 🔍 环境探针：预览表格数据
-        scan_workspace       # 🔍 环境探针：扫描目录结构
+        scan_workspace,      # 🔍 环境探针：扫描目录结构
+        execute_python_code  # 🛡️ 沙箱执行：运行分析代码（支持自动重试修复）
     ]
     main_agent = create_react_agent(llm, tools=all_tools, prompt=main_prompt)
 

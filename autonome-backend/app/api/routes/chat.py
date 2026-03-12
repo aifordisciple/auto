@@ -17,6 +17,128 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+# ==========================================
+# 对话上下文支持
+# ==========================================
+
+def load_conversation_history(session_id: str, db: Session, max_messages: int = 20) -> list:
+    """
+    加载最近 N 条历史消息，构建对话上下文
+
+    Args:
+        session_id: 会话 ID
+        db: 数据库会话
+        max_messages: 最大加载消息数（防止 token 超限）
+
+    Returns:
+        格式化的消息列表 [{"role": "user/assistant", "content": "..."}]
+    """
+    try:
+        messages = db.exec(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(max_messages)
+        ).all()
+
+        # 按时间正序排列（从旧到新）
+        messages = list(reversed(messages))
+
+        # 转换为 LangChain 消息格式
+        history = []
+        for msg in messages:
+            if msg.role == RoleEnum.user:
+                history.append({"role": "user", "content": msg.content})
+            elif msg.role == RoleEnum.assistant:
+                history.append({"role": "assistant", "content": msg.content})
+            # 忽略 system 消息（如果有）
+
+        log.info(f"📜 [Context] 加载了 {len(history)} 条历史消息")
+        return history
+
+    except Exception as e:
+        log.error(f"❌ [Context] 加载历史消息失败: {e}")
+        return []
+
+
+# ==========================================
+# 沙箱自动重试处理器
+# ==========================================
+
+class SandboxRetryHandler:
+    """沙箱执行失败自动重试处理器"""
+
+    MAX_RETRIES = 3  # 最大重试次数
+
+    # 错误标记 - 用于检测执行失败
+    ERROR_MARKERS = [
+        'Traceback',
+        'Error:',
+        'Exception:',
+        '❌',
+        'segmentation fault',
+        'Failed',
+        '错误:',
+    ]
+
+    @staticmethod
+    def is_execution_failed(output: str) -> bool:
+        """
+        检测沙箱执行是否失败
+
+        Args:
+            output: 沙箱执行输出
+
+        Returns:
+            True 表示执行失败，False 表示成功
+        """
+        if not output:
+            return True
+
+        output_str = str(output)
+
+        # 检查错误标记
+        for marker in SandboxRetryHandler.ERROR_MARKERS:
+            if marker in output_str:
+                return True
+
+        return False
+
+    @staticmethod
+    def extract_error_message(output: str, max_lines: int = 15) -> str:
+        """
+        从执行输出中提取错误信息
+
+        Args:
+            output: 沙箱执行输出
+            max_lines: 最大返回行数
+
+        Returns:
+            提取的错误信息
+        """
+        if not output:
+            return "执行无输出"
+
+        lines = output.split('\n')
+        error_lines = []
+
+        # 查找错误起始位置
+        for i, line in enumerate(lines):
+            for marker in SandboxRetryHandler.ERROR_MARKERS:
+                if marker in line:
+                    # 捕获错误及其上下文
+                    start = max(0, i - 2)
+                    error_lines = lines[start:i + max_lines]
+                    break
+            if error_lines:
+                break
+
+        if not error_lines:
+            error_lines = lines[:max_lines]
+
+        return '\n'.join(error_lines)
+
+
 class ChatRequest(BaseModel):
     project_id: str
     message: str
@@ -135,11 +257,15 @@ async def chat_stream(
             )
             
             log.info(f"💬 [Chat] 开始生成 - user_id={user_id}, message={request.message[:50]}...")
-            
-            messages = [{"role": "user", "content": request.message}]
-            
+
+            # ✨ Feature 1: 加载历史对话上下文
+            history = load_conversation_history(session_id_for_ai, session) if not is_new_session else []
+            messages = history + [{"role": "user", "content": request.message}]
+
             # ✨ 打印发送给大模型的完整消息
-            log.info(f"📤 [向 AI 发送请求]: {messages}")
+            log.info(f"📤 [向 AI 发送请求]: 历史消息 {len(history)} 条 + 当前消息 1 条")
+            if history:
+                log.info(f"📜 [对话上下文]: 最近 {len(history)} 条历史消息已加载")
             log.info("📡 正在等待 Agent 流式事件响应...")
 
             async for event in agent_executor.astream_events({"messages": messages}, config={"recursion_limit": 20}, version="v2"):
@@ -199,12 +325,31 @@ async def chat_stream(
                     output = event.get("data", {}).get("output", "")
 
                     if tool_name in ["execute_python_code"]:
-                        if "❌" in str(output):
-                            msg = f"\n\n> 🔴 *(沙箱执行受阻！Debugger 正在接管修复...)*\n\n"
+                        # ✨ Feature 2: 增强的错误检测
+                        is_failed = SandboxRetryHandler.is_execution_failed(output)
+
+                        if is_failed:
+                            # 提取错误信息
+                            error_msg = SandboxRetryHandler.extract_error_message(output)
+                            log.warning(f"⚠️ [Sandbox] 执行失败: {error_msg[:200]}")
+
+                            msg = f"\n\n> 🔴 *(沙箱执行失败，正在分析错误...)*\n\n"
+                            ai_full_response += msg
+                            yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+
+                            # 推送错误详情事件（前端可选择性展示）
+                            yield {
+                                "event": "sandbox_error",
+                                "data": json.dumps({
+                                    "type": "execution_error",
+                                    "error_preview": error_msg[:500],
+                                    "retry_hint": "Agent 将自动尝试修复"
+                                })
+                            }
                         else:
                             msg = f"\n\n> ✅ *(沙箱代码执行成功，产物已落盘)*\n\n"
-                        ai_full_response += msg
-                        yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+                            ai_full_response += msg
+                            yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
                     elif tool_name == "peek_tabular_data":
                         msg = f"\n\n> ✅ *(探针返回：表格结构已解析)*\n\n"
                         ai_full_response += msg
