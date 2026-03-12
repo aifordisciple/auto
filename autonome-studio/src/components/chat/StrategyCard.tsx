@@ -51,26 +51,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   // 判断是否为 SKILL 类型（非 execute-python/execute-r）
   const isSkillType = data.tool_id !== 'execute-python' && data.tool_id !== 'execute-r';
 
-  // Generate unique key for localStorage based on card data
-  const cacheKey = `strategy_status_${currentProjectId}_${data.title}_${data.description?.slice(0, 20)}`;
-
-  // Load cached status on mount
-  useEffect(() => {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        const cachedData = JSON.parse(cached);
-        if (cachedData.taskId && cachedData.taskStatus) {
-          setTaskId(cachedData.taskId);
-          setTaskStatus(cachedData.taskStatus);
-        }
-      } catch (e) {
-        // Invalid cache, ignore
-      }
-    }
-  }, [cacheKey]);
-
-  // ✨ 自动执行逻辑
+  // 自动执行逻辑
   useEffect(() => {
     // 只有当自动执行开关打开、且还没有执行过、且没有缓存状态时才自动执行
     if (
@@ -171,12 +152,6 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
           if (message.status === 'SUCCESS' || message.status === 'FAILURE') {
             setIsExecuting(false);
             if (message.status === 'SUCCESS') {
-              // Save to localStorage for persistence across re-renders
-              localStorage.setItem(cacheKey, JSON.stringify({
-                taskId: id,
-                taskStatus: message.status
-              }));
-
               // 后端已将正确的消息存入数据库（包含实际生成的文件列表）
               // 只需触发刷新即可获取正确消息，添加短暂延迟确保后端写入完成
               setTimeout(() => {
