@@ -45,7 +45,7 @@ celery_app.conf.update(
 # ==========================================
 # ✨ AI 代码修复助手
 # ==========================================
-CODE_FIXER_PROMPT = """你是一位资深的生信代码调试专家。用户的代码在沙箱中执行失败，请分析错误并修复代码。
+CODE_FIXER_PROMPT_PYTHON = """你是一位资深的生信代码调试专家。用户的 Python 代码在沙箱中执行失败，请分析错误并修复代码。
 
 【原始代码】
 ```python
@@ -63,13 +63,36 @@ CODE_FIXER_PROMPT = """你是一位资深的生信代码调试专家。用户的
 
 修复后的代码："""
 
-def fix_code_with_llm(code: str, error_msg: str, api_key: str, base_url: str, model_name: str) -> str:
+CODE_FIXER_PROMPT_R = """你是一位资深的 R 语言生信代码调试专家。用户的 R 代码在沙箱中执行失败，请分析错误并修复代码。
+
+【原始代码】
+```r
+{code}
+```
+
+【错误信息】
+{error_msg}
+
+【修复要求】
+1. 仔细分析 R 语言错误原因（注意 R 的错误信息格式）
+2. 生成修复后的完整 R 代码
+3. 保持代码的结构和注释
+4. 检查常见的 R 错误：变量未定义、包未加载、数据框列名错误、路径问题等
+5. 只输出修复后的代码，用 ```r 包裹
+
+修复后的 R 代码："""
+
+def fix_code_with_llm(code: str, error_msg: str, api_key: str, base_url: str, model_name: str, language: str = "python") -> str:
     """调用 LLM 修复代码"""
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url)
 
-        prompt = CODE_FIXER_PROMPT.format(code=code, error_msg=error_msg[:2000])
+        # 根据语言选择 prompt
+        if language.lower() == "r":
+            prompt = CODE_FIXER_PROMPT_R.format(code=code, error_msg=error_msg[:3000])
+        else:
+            prompt = CODE_FIXER_PROMPT_PYTHON.format(code=code, error_msg=error_msg[:3000])
 
         response = client.chat.completions.create(
             model=model_name,
@@ -80,9 +103,8 @@ def fix_code_with_llm(code: str, error_msg: str, api_key: str, base_url: str, mo
 
         fixed_code = response.choices[0].message.content
 
-        # 提取代码块
-        import re
-        code_match = re.search(r'```(?:python)?\s*\n([\s\S]*?)```', fixed_code)
+        # 提取代码块 - 支持 python 和 r
+        code_match = re.search(r'```(?:python|r)?\s*\n([\s\S]*?)```', fixed_code)
         if code_match:
             return code_match.group(1).strip()
 
@@ -478,13 +500,12 @@ def run_custom_python_task(self, params: dict):
                 log_msg(f"   - 对大数据进行采样或分批处理", level="WARNING")
                 log_msg(f"   - 使用更高效的算法或库（如 numpy 向量化）", level="WARNING")
             else:
-                # ✨ 详细记录错误信息
+                # ✨ 详细记录错误信息 - 完整输出
                 if result_output:
-                    error_lines = result_output.split('\n')
-                    log_msg(f"🔴 错误详情:", level="ERROR")
-                    for line in error_lines[-20:]:  # 显示最后20行（通常包含关键错误信息）
-                        if 'Error' in line or 'Exception' in line or 'Traceback' in line or '❌' in line:
-                            log_msg(f"   >>> {line}", level="ERROR")
+                    log_msg(f"🔴 完整错误日志:", level="ERROR")
+                    # 输出完整错误，不再截取
+                    for line in result_output.split('\n')[-50:]:  # 最后50行
+                        log_msg(f"   {line}", level="ERROR")
 
                 # ✨ 自动修复重试逻辑
                 log_msg(f"🔧 启动 AI 自动修复引擎...", level="WARNING")
@@ -539,12 +560,10 @@ def run_custom_python_task(self, params: dict):
                         current_code = fixed_code
                         last_error = result_output
 
-                        # 记录新的错误
-                        error_lines = result_output.split('\n')
+                        # 记录新的错误 - 完整输出
                         log_msg(f"🔴 新的错误:", level="ERROR")
-                        for line in error_lines[-10:]:
-                            if 'Error' in line or 'Exception' in line:
-                                log_msg(f"   >>> {line}", level="ERROR")
+                        for line in result_output.split('\n')[-30:]:
+                            log_msg(f"   {line}", level="ERROR")
 
                 # 检查是否修复成功
                 if exit_code == 0:
@@ -719,41 +738,93 @@ def run_custom_r_task(self, params: dict):
                 log_msg(f"   - 使用 data.table 或 dplyr 优化数据处理", level="WARNING")
                 log_msg(f"   - 减少数据量或分批处理", level="WARNING")
             else:
-                # ✨ 详细记录错误信息
+                # ✨ 详细记录错误信息 - 完整输出
                 if result_output:
-                    error_lines = result_output.split('\n')
-                    log_msg(f"🔴 错误详情:", level="ERROR")
-                    for line in error_lines[-20:]:
-                        if 'Error' in line or '错误' in line or '❌' in line:
-                            log_msg(f"   >>> {line}", level="ERROR")
+                    log_msg(f"🔴 完整错误日志:", level="ERROR")
+                    # 输出完整错误，不再截取
+                    for line in result_output.split('\n')[-50:]:  # 最后50行
+                        log_msg(f"   {line}", level="ERROR")
 
-                log_msg(f"💡 建议: 检查 R 语法、包依赖或数据格式", level="WARNING")
+                # ✨ 自动修复重试逻辑
+                log_msg(f"🔧 启动 AI 自动修复引擎...", level="WARNING")
+                max_retries = 3
+                current_code = code
+                last_error = result_output
 
-            with Session(engine) as db:
-                if is_timeout:
-                    final_content = (
-                        f"⏰ **R 代码执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"代码在沙箱中运行超过了 1 小时的时间限制。\n\n"
-                        f"### 🔍 可能的原因\n"
-                        f"1. R 代码中存在死循环\n"
-                        f"2. 处理的数据量过大\n"
-                        f"3. 复杂的统计运算或绑图操作\n\n"
-                        f"### 💡 解决建议\n"
-                        f"- 检查循环逻辑，确保有正确的退出条件\n"
-                        f"- 使用 data.table 或 dplyr 优化数据处理\n"
-                        f"- 减少数据量或分批处理\n"
-                        f"- 请求 AI 优化代码性能\n"
-                    )
+                for retry_attempt in range(1, max_retries + 1):
+                    log_msg(f"🔄 第 {retry_attempt}/{max_retries} 次尝试修复...")
+
+                    # 从数据库获取 LLM 配置
+                    with Session(engine) as config_db:
+                        from app.models.domain import SystemConfig
+                        config = config_db.get(SystemConfig, 1)
+                        if config:
+                            api_key = config.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+                            base_url = config.openai_base_url or "https://api.openai.com/v1"
+                            model_name = config.default_model or "gpt-3.5-turbo"
+                        else:
+                            api_key = os.getenv("OPENAI_API_KEY", "")
+                            base_url = "https://api.openai.com/v1"
+                            model_name = "gpt-3.5-turbo"
+
+                    # 调用 AI 修复代码 - 指定 R 语言
+                    fixed_code = fix_code_with_llm(current_code, last_error, api_key, base_url, model_name, language="r")
+
+                    if not fixed_code:
+                        log_msg(f"❌ AI 修复失败，无法生成新代码", level="ERROR")
+                        break
+
+                    log_msg(f"✅ AI 已生成修复代码，正在重新执行...")
+                    log_msg(f"📝 修复后的 R 代码预览:")
+                    for line in fixed_code.split('\n')[:10]:
+                        log_msg(f"   {line}")
+                    if len(fixed_code.split('\n')) > 10:
+                        log_msg(f"   ... (共 {len(fixed_code.split(chr(10)))} 行)")
+
+                    # 重新执行修复后的代码
+                    start_time = time.time()
+                    result_output, exit_code = run_container("autonome-tool-env", fixed_code, language="r", environment=env)
+                    elapsed_time = time.time() - start_time
+
+                    log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
+                    log_msg(f"🔢 退出码: {exit_code}")
+
+                    if exit_code == 0:
+                        log_msg(f"🎉 AI 修复成功！R 代码已正确执行")
+                        code = fixed_code  # 更新代码用于后续报告
+                        break
+                    else:
+                        log_msg(f"❌ 修复后代码仍然失败", level="ERROR")
+                        current_code = fixed_code
+                        last_error = result_output
+
+                        # 记录新的错误
+                        log_msg(f"🔴 新的错误:", level="ERROR")
+                        for line in result_output.split('\n')[-20:]:
+                            log_msg(f"   {line}", level="ERROR")
+
+                # 检查是否修复成功
+                if exit_code == 0:
+                    # 修复成功，继续执行后续流程
+                    log_msg("✅ R 代码执行成功！准备生成专家解读...")
                 else:
-                    final_content = (
-                        f"❌ **R 代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"### ⚠️ 错误终端日志\n"
-                        f"```text\n{result_output}\n```\n\n"
-                        f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
-                    )
-                db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
-                db.commit()
-            return {"status": "failure"}
+                    # 修复失败，返回错误信息
+                    log_msg(f"💥 AI 修复 {max_retries} 次后仍失败，返回错误报告", level="ERROR")
+
+                    with Session(engine) as db:
+                        final_content = (
+                            f"❌ **R 代码执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                            f"AI 已尝试自动修复 {max_retries} 次，但仍然失败。\n\n"
+                            f"### ⚠️ 完整错误日志\n"
+                            f"```\n{last_error}\n```\n\n"
+                            f"### 💡 建议\n"
+                            f"- 检查 R 包是否已正确安装\n"
+                            f"- 验证数据文件路径和格式\n"
+                            f"- 在聊天中向 AI 描述具体问题，请求帮助\n"
+                        )
+                        db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
+                        db.commit()
+                    return {"status": "failure"}
 
         log_msg("🎉 R 代码执行成功！准备生成专家解读...")
 
