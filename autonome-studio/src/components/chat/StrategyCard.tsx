@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw, Eye, ExternalLink } from "lucide-react";
+import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw, Eye, ExternalLink, Copy, Check } from "lucide-react";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useUIStore } from "@/store/useUIStore";
 import { BASE_URL } from "@/lib/api";
@@ -188,8 +188,35 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const [editableParams, setEditableParams] = useState<Record<string, unknown>>(data.parameters || {});
   const [isEditingParams, setIsEditingParams] = useState(false);
 
+  // ✨ 可编辑代码状态
+  const [editableCode, setEditableCode] = useState<string>(data.code || '');
+  const [isEditingCode, setIsEditingCode] = useState(false);
+  const [isCodeCopied, setIsCodeCopied] = useState(false);
+  const codeEditorRef = useRef<HTMLTextAreaElement>(null);
+
   // 判断是否为 SKILL 类型（非 execute-python/execute-r）
   const isSkillType = data.tool_id !== 'execute-python' && data.tool_id !== 'execute-r';
+  const hasCode = !isSkillType && (data.code || editableCode);
+
+  // 复制代码到剪贴板
+  const handleCopyCode = async () => {
+    const codeToCopy = isEditingCode ? editableCode : (data.code || editableCode);
+    if (!codeToCopy) return;
+
+    try {
+      await navigator.clipboard.writeText(codeToCopy);
+      setIsCodeCopied(true);
+      setTimeout(() => setIsCodeCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy code:', err);
+    }
+  };
+
+  // 获取语言类型
+  const getCodeLanguage = () => {
+    if (data.tool_id === 'execute-r') return 'r';
+    return 'python';
+  };
 
   // 任务完成后，滚动到对应的分析资产消息
   const scrollToResultMessage = (id: string) => {
@@ -365,11 +392,13 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
       let payload: Record<string, unknown>;
 
       // Support both execute-python and execute-r
-      if ((data.tool_id === 'execute-python' || data.tool_id === 'execute-r') && data.code) {
+      // ✨ 使用编辑后的代码 (editableCode)，如果没有编辑则使用原始代码
+      const codeToExecute = editableCode || data.code || '';
+      if ((data.tool_id === 'execute-python' || data.tool_id === 'execute-r') && codeToExecute) {
         payload = {
           tool_id: data.tool_id,
           parameters: {
-            code: data.code,
+            code: codeToExecute,  // ✨ 使用可编辑的代码
             session_id: safeSessionId,
             project_id: currentProjectId
           },
@@ -474,7 +503,94 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
         </div>
       )}
 
-      // Parameters Preview - ✨ 支持动态编辑
+      {/* ✨ 代码预览和编辑区域 - 带固定工具栏 */}
+      {hasCode && (
+        <div className="mb-4 rounded-lg overflow-hidden border border-gray-200 dark:border-neutral-700">
+          {/* 固定工具栏 */}
+          <div className="sticky top-0 z-10 flex items-center justify-between px-3 py-2 bg-gray-800 dark:bg-neutral-900 border-b border-gray-700 dark:border-neutral-700">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-gray-400">
+                {getCodeLanguage() === 'r' ? 'R' : 'Python'}
+              </span>
+              <span className="text-xs text-gray-500">
+                {editableCode.split('\n').length} 行
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {/* 复制按钮 */}
+              <button
+                onClick={handleCopyCode}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                title="复制代码"
+              >
+                {isCodeCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-green-400" />
+                    <span className="text-green-400">已复制</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">复制</span>
+                  </>
+                )}
+              </button>
+              {/* 编辑按钮 */}
+              <button
+                onClick={() => {
+                  setIsEditingCode(!isEditingCode);
+                  if (!isEditingCode) {
+                    // 进入编辑模式时，聚焦到编辑器
+                    setTimeout(() => codeEditorRef.current?.focus(), 100);
+                  }
+                }}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                  isEditingCode
+                    ? 'text-blue-400 bg-blue-500/20 hover:bg-blue-500/30'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+                title={isEditingCode ? '完成编辑' : '编辑代码'}
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{isEditingCode ? '完成' : '编辑'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 代码内容区域 */}
+          <div className="relative bg-gray-900 dark:bg-neutral-950">
+            {isEditingCode ? (
+              // 编辑模式 - textarea
+              <textarea
+                ref={codeEditorRef}
+                value={editableCode}
+                onChange={(e) => setEditableCode(e.target.value)}
+                className="w-full min-h-[200px] max-h-[400px] p-3 bg-transparent text-gray-300 font-mono text-xs leading-relaxed focus:outline-none resize-y"
+                placeholder="在此编辑代码..."
+                spellCheck={false}
+              />
+            ) : (
+              // 只读模式 - pre
+              <div className="max-h-[300px] overflow-auto">
+                <pre className="p-3 text-xs leading-relaxed text-gray-300 font-mono whitespace-pre-wrap break-all">
+                  {editableCode || data.code}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* 编辑模式提示 */}
+          {isEditingCode && (
+            <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-500/30">
+              <p className="text-xs text-amber-300">
+                💡 编辑代码后，点击"执行"按钮将运行修改后的代码
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Parameters Preview - ✨ 支持动态编辑 */}
       {data.parameters && Object.keys(data.parameters).length > 0 && (
         <div className="bg-gray-100 dark:bg-neutral-950/50 rounded-lg p-3 mb-4">
           <div className="flex items-center justify-between mb-2">

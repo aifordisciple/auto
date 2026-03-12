@@ -13,7 +13,6 @@ import { TaskCenter } from "./overlays/TaskCenter";
 import { TopUpModal } from "./overlays/TopUpModal";
 import { DataCenter } from "./overlays/DataCenter";
 import { SkillCenter } from "./overlays/SkillCenter";
-import { SkillForgeOverlay } from "./overlays/SkillForgeOverlay";
 import { ShortcutManager } from "./ShortcutManager";
 
 export function GlobalOverlay() {
@@ -69,7 +68,6 @@ export function GlobalOverlay() {
       <ControlPanel />
       <DataCenter />
       <SkillCenter />
-      <SkillForgeOverlay />
       <TopUpModal />
       
       <AnimatePresence>
