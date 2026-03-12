@@ -52,8 +52,8 @@ class SkillTemplateBase(SQLModel):
 class SkillTemplate(SkillTemplateBase, table=True):
     """技能模板数据库表"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    created_at: datetime = Field(default_factory=get_utc_now)
-    updated_at: datetime = Field(default_factory=get_utc_now)
+    created_at: Optional[datetime] = Field(default_factory=get_utc_now)
+    updated_at: Optional[datetime] = Field(default_factory=get_utc_now)
     usage_count: int = Field(default=0, description="使用次数")
 
 
@@ -77,8 +77,8 @@ class SkillTemplateCreate(SQLModel):
 class SkillTemplatePublic(SkillTemplateBase):
     """返回给前端的模板公共信息"""
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     usage_count: int
 
 
