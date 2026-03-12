@@ -414,23 +414,52 @@ def run_custom_python_task(self, params: dict):
         if exit_code != 0:
             log_msg(f"💥 代码执行失败 (Exit Code {exit_code})", level="ERROR")
 
-            # ✨ 详细记录错误信息
-            if result_output:
-                error_lines = result_output.split('\n')
-                log_msg(f"🔴 错误详情:", level="ERROR")
-                for line in error_lines[-20:]:  # 显示最后20行（通常包含关键错误信息）
-                    if 'Error' in line or 'Exception' in line or 'Traceback' in line or '❌' in line:
-                        log_msg(f"   >>> {line}", level="ERROR")
+            # ✨ 特殊处理：检测超时错误
+            is_timeout = "执行超时" in result_output or "timeout" in result_output.lower()
 
-            log_msg(f"💡 建议: 检查代码语法、文件路径或数据格式", level="WARNING")
+            if is_timeout:
+                log_msg(f"⏰ 检测到执行超时！", level="ERROR")
+                log_msg(f"   可能原因:", level="ERROR")
+                log_msg(f"   1. 代码中存在死循环或无限递归", level="ERROR")
+                log_msg(f"   2. 处理的数据量过大，需要分批处理", level="ERROR")
+                log_msg(f"   3. 耗时操作（如大规模矩阵运算）未优化", level="ERROR")
+                log_msg(f"💡 建议:", level="WARNING")
+                log_msg(f"   - 检查代码中的循环和递归逻辑", level="WARNING")
+                log_msg(f"   - 对大数据进行采样或分批处理", level="WARNING")
+                log_msg(f"   - 使用更高效的算法或库（如 numpy 向量化）", level="WARNING")
+            else:
+                # ✨ 详细记录错误信息
+                if result_output:
+                    error_lines = result_output.split('\n')
+                    log_msg(f"🔴 错误详情:", level="ERROR")
+                    for line in error_lines[-20:]:  # 显示最后20行（通常包含关键错误信息）
+                        if 'Error' in line or 'Exception' in line or 'Traceback' in line or '❌' in line:
+                            log_msg(f"   >>> {line}", level="ERROR")
+
+                    log_msg(f"💡 建议: 检查代码语法、文件路径或数据格式", level="WARNING")
 
             with Session(engine) as db:
-                final_content = (
-                    f"❌ **代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                    f"### ⚠️ 错误终端日志\n"
-                    f"```text\n{result_output}\n```\n\n"
-                    f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
-                )
+                if is_timeout:
+                    final_content = (
+                        f"⏰ **执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"代码在沙箱中运行超过了 300 秒的时间限制。\n\n"
+                        f"### 🔍 可能的原因\n"
+                        f"1. 代码中存在死循环或无限递归\n"
+                        f"2. 处理的数据量过大\n"
+                        f"3. 耗时操作未优化\n\n"
+                        f"### 💡 解决建议\n"
+                        f"- 检查循环逻辑，确保有正确的退出条件\n"
+                        f"- 对大数据进行采样或分批处理\n"
+                        f"- 使用向量化操作替代循环（如 numpy/pandas）\n"
+                        f"- 请求 AI 优化代码性能\n"
+                    )
+                else:
+                    final_content = (
+                        f"❌ **代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"### ⚠️ 错误终端日志\n"
+                        f"```text\n{result_output}\n```\n\n"
+                        f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
+                    )
                 db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                 db.commit()
             return {"status": "failure"}
@@ -571,23 +600,52 @@ def run_custom_r_task(self, params: dict):
         if exit_code != 0:
             log_msg(f"💥 R代码执行失败 (Exit Code {exit_code})", level="ERROR")
 
-            # ✨ 详细记录错误信息
-            if result_output:
-                error_lines = result_output.split('\n')
-                log_msg(f"🔴 错误详情:", level="ERROR")
-                for line in error_lines[-20:]:
-                    if 'Error' in line or '错误' in line or '❌' in line:
-                        log_msg(f"   >>> {line}", level="ERROR")
+            # ✨ 特殊处理：检测超时错误
+            is_timeout = "执行超时" in result_output or "timeout" in result_output.lower()
 
-            log_msg(f"💡 建议: 检查 R 语法、包依赖或数据格式", level="WARNING")
+            if is_timeout:
+                log_msg(f"⏰ 检测到执行超时！", level="ERROR")
+                log_msg(f"   可能原因:", level="ERROR")
+                log_msg(f"   1. R 代码中存在死循环", level="ERROR")
+                log_msg(f"   2. 处理的数据量过大", level="ERROR")
+                log_msg(f"   3. 复杂的统计运算或绘图", level="ERROR")
+                log_msg(f"💡 建议:", level="WARNING")
+                log_msg(f"   - 检查 R 代码中的循环逻辑", level="WARNING")
+                log_msg(f"   - 使用 data.table 或 dplyr 优化数据处理", level="WARNING")
+                log_msg(f"   - 减少数据量或分批处理", level="WARNING")
+            else:
+                # ✨ 详细记录错误信息
+                if result_output:
+                    error_lines = result_output.split('\n')
+                    log_msg(f"🔴 错误详情:", level="ERROR")
+                    for line in error_lines[-20:]:
+                        if 'Error' in line or '错误' in line or '❌' in line:
+                            log_msg(f"   >>> {line}", level="ERROR")
+
+                log_msg(f"💡 建议: 检查 R 语法、包依赖或数据格式", level="WARNING")
 
             with Session(engine) as db:
-                final_content = (
-                    f"❌ **R 代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                    f"### ⚠️ 错误终端日志\n"
-                    f"```text\n{result_output}\n```\n\n"
-                    f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
-                )
+                if is_timeout:
+                    final_content = (
+                        f"⏰ **R 代码执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"代码在沙箱中运行超过了 300 秒的时间限制。\n\n"
+                        f"### 🔍 可能的原因\n"
+                        f"1. R 代码中存在死循环\n"
+                        f"2. 处理的数据量过大\n"
+                        f"3. 复杂的统计运算或绑图操作\n\n"
+                        f"### 💡 解决建议\n"
+                        f"- 检查循环逻辑，确保有正确的退出条件\n"
+                        f"- 使用 data.table 或 dplyr 优化数据处理\n"
+                        f"- 减少数据量或分批处理\n"
+                        f"- 请求 AI 优化代码性能\n"
+                    )
+                else:
+                    final_content = (
+                        f"❌ **R 代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"### ⚠️ 错误终端日志\n"
+                        f"```text\n{result_output}\n```\n\n"
+                        f"> *(未生成图表。请查阅上方报错信息，或者直接要求 AI 修正代码并重新执行。)*"
+                    )
                 db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                 db.commit()
             return {"status": "failure"}
@@ -1038,23 +1096,54 @@ def execute_bundle_task(self, payload: dict):
         if exit_code != 0:
             log_msg(f"💥 脚本执行失败 (Exit Code {exit_code})", level="ERROR")
 
-            # ✨ 详细记录错误信息
-            if result_output:
-                error_lines = result_output.split('\n')
-                log_msg(f"🔴 错误详情:", level="ERROR")
-                for line in error_lines[-20:]:
-                    if 'Error' in line or 'Exception' in line or 'Traceback' in line or '错误' in line or '❌' in line:
-                        log_msg(f"   >>> {line}", level="ERROR")
+            # ✨ 特殊处理：检测超时错误
+            is_timeout = "执行超时" in result_output or "timeout" in result_output.lower()
 
-            log_msg(f"💡 建议: 检查脚本参数、文件路径或依赖配置", level="WARNING")
+            if is_timeout:
+                log_msg(f"⏰ 检测到执行超时！", level="ERROR")
+                log_msg(f"   SKILL: {skill_id}", level="ERROR")
+                log_msg(f"   可能原因:", level="ERROR")
+                log_msg(f"   1. SKILL 脚本执行时间过长", level="ERROR")
+                log_msg(f"   2. 输入数据量过大", level="ERROR")
+                log_msg(f"   3. 计算密集型操作未优化", level="ERROR")
+                log_msg(f"💡 建议:", level="WARNING")
+                log_msg(f"   - 减少输入数据量", level="WARNING")
+                log_msg(f"   - 检查 SKILL 参数配置", level="WARNING")
+                log_msg(f"   - 联系 SKILL 作者优化性能", level="WARNING")
+            else:
+                # ✨ 详细记录错误信息
+                if result_output:
+                    error_lines = result_output.split('\n')
+                    log_msg(f"🔴 错误详情:", level="ERROR")
+                    for line in error_lines[-20:]:
+                        if 'Error' in line or 'Exception' in line or 'Traceback' in line or '错误' in line or '❌' in line:
+                            log_msg(f"   >>> {line}", level="ERROR")
+
+                log_msg(f"💡 建议: 检查脚本参数、文件路径或依赖配置", level="WARNING")
 
             with Session(engine) as db:
-                final_content = (
-                    f"❌ **SKILL 执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                    f"### ⚠️ 错误终端日志\n"
-                    f"```text\n{result_output}\n```\n\n"
-                    f"> *(请查阅上方报错信息，或联系技术支持。)*"
-                )
+                skill_name = metadata.get("name", skill_id) if 'metadata' in dir() else skill_id
+                if is_timeout:
+                    final_content = (
+                        f"⏰ **SKILL 执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"SKILL: **{skill_name}**\n\n"
+                        f"代码在沙箱中运行超过了 300 秒的时间限制。\n\n"
+                        f"### 🔍 可能的原因\n"
+                        f"1. SKILL 脚本执行时间过长\n"
+                        f"2. 输入数据量过大\n"
+                        f"3. 计算密集型操作未优化\n\n"
+                        f"### 💡 解决建议\n"
+                        f"- 减少输入数据量或使用采样数据\n"
+                        f"- 检查 SKILL 参数配置\n"
+                        f"- 联系 SKILL 作者或技术支持\n"
+                    )
+                else:
+                    final_content = (
+                        f"❌ **SKILL 执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
+                        f"### ⚠️ 错误终端日志\n"
+                        f"```text\n{result_output}\n```\n\n"
+                        f"> *(请查阅上方报错信息，或联系技术支持。)*"
+                    )
                 db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
                 db.commit()
             return {"status": "failure"}
