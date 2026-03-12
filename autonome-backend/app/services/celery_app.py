@@ -352,6 +352,7 @@ def run_custom_python_task(self, params: dict):
 
     log_msg = create_task_logger(task_id)
     log_msg(f"🚀 初始化 Python 沙箱引擎 (Task ID: {task_id})")
+    log_msg(f"📋 项目 ID: {project_id}, 会话 ID: {session_id}")
 
     try:
         # 1. ✨ 生成本次任务专属的目录
@@ -362,9 +363,28 @@ def run_custom_python_task(self, params: dict):
         os.makedirs(task_out_dir, exist_ok=True)
         log_msg(f"📁 已分配专属输出目录: results/{task_dir_name}")
 
-        # 2. ✨ 将专属目录作为环境变量注入沙箱
+        # 2. ✨ 记录要执行的代码（截取前500字符）
+        code_preview = code[:500] + "..." if len(code) > 500 else code
+        log_msg(f"📝 准备执行代码 ({len(code)} 字符):")
+        log_msg(f"```python")
+        for line in code_preview.split('\n')[:20]:
+            log_msg(f"  {line}")
+        if len(code_preview.split('\n')) > 20:
+            log_msg(f"  ... (共 {len(code.split(chr(10)))} 行)")
+        log_msg(f"```")
+
+        # 3. ✨ 记录沙箱启动
+        log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
+        log_msg(f"⏳ 执行中... (最长等待 300 秒)")
+
+        # 4. ✨ 将专属目录作为环境变量注入沙箱
         env = {"TASK_OUT_DIR": task_out_dir}
+        start_time = time.time()
         result_output, exit_code = run_container("autonome-tool-env", code, language="python", environment=env)
+        elapsed_time = time.time() - start_time
+
+        log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
+        log_msg(f"🔢 退出码: {exit_code}")
 
         # 1. ✨ 终极终端乱码清理
         if result_output:
@@ -376,9 +396,34 @@ def run_custom_python_task(self, params: dict):
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
             result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
 
+            # ✨ 记录沙箱输出（截取关键部分）
+            output_lines = result_output.split('\n')
+            log_msg(f"📤 沙箱输出 ({len(output_lines)} 行):")
+            # 显示前10行和后10行（如果输出很长）
+            if len(output_lines) > 20:
+                for line in output_lines[:10]:
+                    log_msg(f"   {line[:100]}")
+                log_msg(f"   ... (中间省略 {len(output_lines) - 20} 行) ...")
+                for line in output_lines[-10:]:
+                    log_msg(f"   {line[:100]}")
+            else:
+                for line in output_lines[:15]:
+                    log_msg(f"   {line[:100]}")
+
         # 核心防御 1：拦截执行失败的代码
         if exit_code != 0:
             log_msg(f"💥 代码执行失败 (Exit Code {exit_code})", level="ERROR")
+
+            # ✨ 详细记录错误信息
+            if result_output:
+                error_lines = result_output.split('\n')
+                log_msg(f"🔴 错误详情:", level="ERROR")
+                for line in error_lines[-20:]:  # 显示最后20行（通常包含关键错误信息）
+                    if 'Error' in line or 'Exception' in line or 'Traceback' in line or '❌' in line:
+                        log_msg(f"   >>> {line}", level="ERROR")
+
+            log_msg(f"💡 建议: 检查代码语法、文件路径或数据格式", level="WARNING")
+
             with Session(engine) as db:
                 final_content = (
                     f"❌ **代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
@@ -469,6 +514,7 @@ def run_custom_r_task(self, params: dict):
 
     log_msg = create_task_logger(task_id)
     log_msg(f"🚀 初始化 R 沙箱引擎 (Task ID: {task_id})")
+    log_msg(f"📋 项目 ID: {project_id}, 会话 ID: {session_id}")
 
     try:
         # 1. ✨ 生成本次任务专属的目录
@@ -479,9 +525,28 @@ def run_custom_r_task(self, params: dict):
         os.makedirs(task_out_dir, exist_ok=True)
         log_msg(f"📁 已分配专属输出目录: results/{task_dir_name}")
 
-        # 2. ✨ 将专属目录作为环境变量注入沙箱
+        # 2. ✨ 记录要执行的代码（截取前500字符）
+        code_preview = code[:500] + "..." if len(code) > 500 else code
+        log_msg(f"📝 准备执行 R 代码 ({len(code)} 字符):")
+        log_msg(f"```r")
+        for line in code_preview.split('\n')[:20]:
+            log_msg(f"  {line}")
+        if len(code_preview.split('\n')) > 20:
+            log_msg(f"  ... (共 {len(code.split(chr(10)))} 行)")
+        log_msg(f"```")
+
+        # 3. ✨ 记录沙箱启动
+        log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
+        log_msg(f"⏳ 执行中... (最长等待 300 秒)")
+
+        # 4. ✨ 将专属目录作为环境变量注入沙箱
         env = {"TASK_OUT_DIR": task_out_dir}
+        start_time = time.time()
         result_output, exit_code = run_container("autonome-tool-env", code, language="r", environment=env)
+        elapsed_time = time.time() - start_time
+
+        log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
+        log_msg(f"🔢 退出码: {exit_code}")
 
         # 1. ✨ 终极终端乱码清理
         if result_output:
@@ -490,8 +555,32 @@ def run_custom_r_task(self, params: dict):
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
             result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
 
+            # ✨ 记录沙箱输出
+            output_lines = result_output.split('\n')
+            log_msg(f"📤 沙箱输出 ({len(output_lines)} 行):")
+            if len(output_lines) > 20:
+                for line in output_lines[:10]:
+                    log_msg(f"   {line[:100]}")
+                log_msg(f"   ... (中间省略 {len(output_lines) - 20} 行) ...")
+                for line in output_lines[-10:]:
+                    log_msg(f"   {line[:100]}")
+            else:
+                for line in output_lines[:15]:
+                    log_msg(f"   {line[:100]}")
+
         if exit_code != 0:
             log_msg(f"💥 R代码执行失败 (Exit Code {exit_code})", level="ERROR")
+
+            # ✨ 详细记录错误信息
+            if result_output:
+                error_lines = result_output.split('\n')
+                log_msg(f"🔴 错误详情:", level="ERROR")
+                for line in error_lines[-20:]:
+                    if 'Error' in line or '错误' in line or '❌' in line:
+                        log_msg(f"   >>> {line}", level="ERROR")
+
+            log_msg(f"💡 建议: 检查 R 语法、包依赖或数据格式", level="WARNING")
+
             with Session(engine) as db:
                 final_content = (
                     f"❌ **R 代码在沙箱中崩溃了 (Task ID: `{str(task_id)[:8]}`)**\n\n"
@@ -906,9 +995,24 @@ def execute_bundle_task(self, payload: dict):
         elif "bash" in executor_type.lower() or "shell" in executor_type.lower():
             language = "bash"
 
+        log_msg(f"📝 渲染后的脚本 ({language}):")
+        script_lines = rendered_script.split('\n')
+        for line in script_lines[:15]:
+            log_msg(f"   {line}")
+        if len(script_lines) > 15:
+            log_msg(f"   ... (共 {len(script_lines)} 行)")
+
         # 8. 在 Docker 沙箱中执行
+        log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
+        log_msg(f"⏳ 执行中... (最长等待 300 秒)")
+
         env = {"TASK_OUT_DIR": task_out_dir, "PROJECT_ID": project_id}
+        start_time = time.time()
         result_output, exit_code = run_container("autonome-tool-env", rendered_script, language=language, environment=env)
+        elapsed_time = time.time() - start_time
+
+        log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
+        log_msg(f"🔢 退出码: {exit_code}")
 
         # 9. 终端乱码清理
         if result_output:
@@ -917,9 +1021,33 @@ def execute_bundle_task(self, payload: dict):
             result_output = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', result_output)
             result_output = result_output.replace('\r\n', '\n').replace('\r', '\n').strip()
 
+            # ✨ 记录沙箱输出
+            output_lines = result_output.split('\n')
+            log_msg(f"📤 沙箱输出 ({len(output_lines)} 行):")
+            if len(output_lines) > 20:
+                for line in output_lines[:10]:
+                    log_msg(f"   {line[:100]}")
+                log_msg(f"   ... (中间省略 {len(output_lines) - 20} 行) ...")
+                for line in output_lines[-10:]:
+                    log_msg(f"   {line[:100]}")
+            else:
+                for line in output_lines[:15]:
+                    log_msg(f"   {line[:100]}")
+
         # 10. 处理执行结果
         if exit_code != 0:
             log_msg(f"💥 脚本执行失败 (Exit Code {exit_code})", level="ERROR")
+
+            # ✨ 详细记录错误信息
+            if result_output:
+                error_lines = result_output.split('\n')
+                log_msg(f"🔴 错误详情:", level="ERROR")
+                for line in error_lines[-20:]:
+                    if 'Error' in line or 'Exception' in line or 'Traceback' in line or '错误' in line or '❌' in line:
+                        log_msg(f"   >>> {line}", level="ERROR")
+
+            log_msg(f"💡 建议: 检查脚本参数、文件路径或依赖配置", level="WARNING")
+
             with Session(engine) as db:
                 final_content = (
                     f"❌ **SKILL 执行失败 (Task ID: `{str(task_id)[:8]}`)**\n\n"
