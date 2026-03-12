@@ -7,7 +7,7 @@ import json
 import re
 import uuid
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select, or_
@@ -375,6 +375,196 @@ def submit_skill_for_review(
     session.commit()
     log.info(f"📤 [Skills API] 用户 {current_user.id} 提交了技能审核: {skill_id}")
     return {"status": "success", "message": "已提交审核，请等待管理员通过"}
+
+
+# ==========================================
+# POST /api/skills/craft_from_bundle - 从压缩包锻造技能
+# ==========================================
+@router.post("/craft_from_bundle")
+async def craft_from_bundle(
+    file: UploadFile = File(...),
+    executor_type: str = Form("Logical_Blueprint"),
+    skill_name_hint: Optional[str] = Form(None),
+    generate_full_bundle: bool = Form(True),
+    category: Optional[str] = Form(None),
+    tags: str = Form("[]"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    【SKILL Forge Bundle】从压缩包创建技能
+
+    接收 multipart/form-data 格式的压缩包，自动解析并锻造技能。
+
+    支持格式：
+    - .zip
+    - .tar.gz
+    - .tgz
+
+    推荐使用 Logical_Blueprint (Nextflow 工作流) 作为执行器类型，
+    因为压缩包通常包含多个脚本文件，适合工作流编排。
+
+    Returns:
+        - data: 锻造结果
+        - files: 解析出的文件列表
+        - bundle_path: 生成的技能包路径
+        - files_created: 创建的文件列表
+    """
+    import tempfile
+    import json
+
+    # 1. 验证文件类型
+    filename = file.filename.lower()
+    if not (filename.endswith('.zip') or filename.endswith('.tar.gz') or filename.endswith('.tgz') or filename.endswith('.tar')):
+        raise HTTPException(status_code=400, detail="只支持 .zip, .tar.gz, .tgz 格式的压缩包")
+
+    # 2. 保存上传文件到临时目录
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
+    try:
+        content = await file.read()
+        temp_file.write(content)
+        temp_file.close()
+
+        log.info(f"📦 [Skills API] 用户 {current_user.id} 上传压缩包: {file.filename}, 大小: {len(content)} bytes")
+
+        # 3. 解析压缩包
+        from app.services.bundle_parser import parse_upload_bundle, get_bundle_preview
+
+        parse_result = parse_upload_bundle(temp_file.name)
+
+        if not parse_result.success:
+            raise HTTPException(status_code=400, detail=parse_result.error or "解析压缩包失败")
+
+        if not parse_result.raw_material or len(parse_result.raw_material.strip()) < 10:
+            raise HTTPException(status_code=400, detail="压缩包内容不足以锻造技能")
+
+        # 4. 获取 LLM 配置
+        config = session.get(SystemConfig, 1)
+        db_api_key = config.openai_api_key if config else None
+        db_base_url = config.openai_base_url if config else None
+        db_model = config.default_model if config else None
+
+        env_api_key = os.getenv("OPENAI_API_KEY")
+        is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
+
+        api_key = (db_api_key if db_api_key is not None else "") if is_local_model else (db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key)
+        base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
+        model_name = db_model if db_model else "gpt-3.5-turbo"
+
+        # 5. 调用 AI 锻造
+        try:
+            from app.agent.crafter import craft_skill_from_material
+
+            log.info(f"🔨 [Skills API] 从压缩包锻造技能... 类型: {executor_type}, 文件数: {len(parse_result.files)}")
+
+            # 解析 tags
+            try:
+                tags_list = json.loads(tags)
+            except:
+                tags_list = []
+
+            crafted_result = await craft_skill_from_material(
+                raw_material=parse_result.raw_material,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                executor_type=executor_type
+            )
+
+            # 6. 校验铁律 (仅对单脚本类型)
+            if crafted_result.get("script_code") and executor_type in ["Python_env", "R_env"]:
+                is_valid, error_msg = validate_iron_rules(crafted_result["script_code"])
+                if not is_valid:
+                    crafted_result["validation_warning"] = error_msg
+                else:
+                    crafted_result["validation_passed"] = True
+
+            # 7. 如果需要生成完整文件系统目录
+            bundle_path = None
+            files_created = []
+
+            if generate_full_bundle:
+                from app.services.skill_bundle_writer import write_skill_bundle, generate_skill_id_from_name
+                from app.models.skill_bundle import (
+                    SkillBundleContent, SkillBundleMetadata, ExecutorType, NextflowBundle
+                )
+
+                # 生成 skill_id
+                skill_id = generate_skill_id_from_name(
+                    skill_name_hint or crafted_result.get("name", "custom_skill")
+                )
+
+                # 构建元数据
+                metadata = SkillBundleMetadata(
+                    skill_id=skill_id,
+                    name=crafted_result.get("name", "未命名技能"),
+                    executor_type=ExecutorType(executor_type),
+                    category=category or "general",
+                    category_name="通用",
+                    subcategory=None,
+                    tags=tags_list
+                )
+
+                # 构建内容
+                content = SkillBundleContent(
+                    metadata=metadata,
+                    description=crafted_result.get("description", ""),
+                    parameters_schema=crafted_result.get("parameters_schema", {"type": "object", "properties": {}, "required": []}),
+                    expert_knowledge=crafted_result.get("expert_knowledge", ""),
+                    script_code=crafted_result.get("script_code"),
+                    dependencies=crafted_result.get("dependencies", [])
+                )
+
+                # 如果是 Nextflow 类型，添加 nextflow_bundle
+                if executor_type == "Logical_Blueprint" and crafted_result.get("nextflow_code"):
+                    content.nextflow_bundle = NextflowBundle(full_code=crafted_result["nextflow_code"])
+
+                # 写入文件系统
+                result = write_skill_bundle(content, skills_dir="/app/skills")
+                bundle_path = result.get("bundle_path")
+                files_created = result.get("files_created", [])
+
+                log.info(f"📁 [Skills API] 生成完整技能包: {skill_id}, 文件: {files_created}")
+
+            # 8. 生成 SKILL.md 内容
+            md_skill_id = skill_id if generate_full_bundle else f"draft_{uuid.uuid4().hex[:8]}"
+            skill_md = generate_skill_md(
+                skill_id=md_skill_id,
+                name=crafted_result.get("name", "未命名技能"),
+                executor_type=executor_type,
+                description=crafted_result.get("description", ""),
+                parameters_schema=crafted_result.get("parameters_schema", {"type": "object", "properties": {}, "required": []}),
+                expert_knowledge=crafted_result.get("expert_knowledge", ""),
+                category=category or "general",
+                category_name="通用",
+                tags=tags_list
+            )
+
+            crafted_result["skill_md"] = skill_md
+
+            # 9. 生成文件预览
+            file_preview = get_bundle_preview(parse_result.files)
+
+            return {
+                "status": "success",
+                "data": crafted_result,
+                "bundle_path": bundle_path,
+                "files_created": files_created,
+                "parsed_files": file_preview,
+                "file_stats": parse_result.stats,
+                "raw_material_length": len(parse_result.raw_material)
+            }
+
+        except Exception as e:
+            log.error(f"从压缩包锻造失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        # 清理临时文件
+        try:
+            os.unlink(temp_file.name)
+        except:
+            pass
 
 
 # ==========================================

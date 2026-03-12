@@ -216,6 +216,50 @@ export const skillForgeApi = {
   },
 
   /**
+   * 从压缩包创建技能
+   * 支持 .zip, .tar.gz, .tgz 格式
+   */
+  craftFromBundle: async (params: {
+    file: File;
+    executorType?: ExecutorType;
+    skillNameHint?: string;
+    generateFullBundle?: boolean;
+    category?: string;
+    tags?: string[];
+  }): Promise<{
+    data: CraftResponse;
+    bundle_path?: string;
+    files_created?: string[];
+    parsed_files?: Array<{
+      path: string;
+      type: string;
+      language: string | null;
+      size: number;
+      preview: string;
+    }>;
+    file_stats?: Record<string, number>;
+    raw_material_length?: number;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', params.file);
+    formData.append('executor_type', params.executorType || 'Logical_Blueprint');
+    formData.append('generate_full_bundle', String(params.generateFullBundle !== false));
+    if (params.skillNameHint) {
+      formData.append('skill_name_hint', params.skillNameHint);
+    }
+    if (params.category) {
+      formData.append('category', params.category);
+    }
+    formData.append('tags', JSON.stringify(params.tags || []));
+
+    const response = await fetchAPI('/api/skills/craft_from_bundle', {
+      method: 'POST',
+      body: formData,
+    });
+    return response;
+  },
+
+  /**
    * 将生成的代码提交到沙箱进行自动化测试
    */
   /**
