@@ -187,9 +187,12 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   // 创建会话
   createSession: async () => {
     const { executorType } = get();
+    const BASE_URL = typeof window !== 'undefined'
+      ? `http://${window.location.hostname}:8000`
+      : 'http://localhost:8000';
 
     try {
-      const response = await fetch('/api/skills/forge/session', {
+      const response = await fetch(`${BASE_URL}/api/skills/forge/session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -219,8 +222,12 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   // 加载会话
   loadSession: async (sessionId) => {
+    const BASE_URL = typeof window !== 'undefined'
+      ? `http://${window.location.hostname}:8000`
+      : 'http://localhost:8000';
+
     try {
-      const response = await fetch(`/api/skills/forge/session/${sessionId}`, {
+      const response = await fetch(`${BASE_URL}/api/skills/forge/session/${sessionId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
         }
@@ -244,8 +251,12 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   // 加载会话列表
   loadSessionList: async () => {
+    const BASE_URL = typeof window !== 'undefined'
+      ? `http://${window.location.hostname}:8000`
+      : 'http://localhost:8000';
+
     try {
-      const response = await fetch('/api/skills/forge/sessions', {
+      const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
         }
