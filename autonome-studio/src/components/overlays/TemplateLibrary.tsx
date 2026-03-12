@@ -223,9 +223,9 @@ export function TemplateLibrary({ onSelectTemplate }: TemplateLibraryProps) {
                     </div>
                   </div>
 
-                  {/* 悬浮操作提示 */}
-                  <div className="absolute inset-0 bg-blue-500/5 dark:bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                    <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 text-sm font-medium">
+                  {/* 悬浮操作提示 - pointer-events-none 防止阻挡点击 */}
+                  <div className="absolute inset-0 bg-blue-500/5 dark:bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
+                    <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 text-sm font-medium pointer-events-none">
                       点击实例化
                       <ChevronRight size={16} />
                     </span>

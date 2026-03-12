@@ -738,76 +738,41 @@ ${meta.expert_knowledge || '- 请根据实际数据情况配置必要的参数�
                 <p className="text-xs text-gray-500 dark:text-neutral-500 mt-1">锻造标准化分析模块</p>
               </div>
 
-              {/* 主 Tab 切换 */}
-              <div className="flex border-b border-gray-200 dark:border-neutral-800">
+              {/* 主 Tab 切换 - 纵向排列 */}
+              <div className="flex flex-col py-2">
                 <button
                   onClick={() => setMainTab('craft')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-3 px-4 py-3 text-left text-sm font-medium transition-colors ${
                     mainTab === 'craft'
-                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                      : 'text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300'
+                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border-r-2 border-blue-500'
+                      : 'text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300 hover:bg-gray-50 dark:hover:bg-neutral-800/50'
                   }`}
                 >
-                  <Hammer size={14} />
+                  <Hammer size={16} />
                   素材创建
                 </button>
                 <button
                   onClick={() => setMainTab('template')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-3 px-4 py-3 text-left text-sm font-medium transition-colors ${
                     mainTab === 'template'
-                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                      : 'text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300'
+                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border-r-2 border-blue-500'
+                      : 'text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300 hover:bg-gray-50 dark:hover:bg-neutral-800/50'
                   }`}
                 >
-                  <LayoutTemplate size={14} />
+                  <LayoutTemplate size={16} />
                   模板库
                 </button>
                 <button
                   onClick={() => setMainTab('myskills')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-3 px-4 py-3 text-left text-sm font-medium transition-colors ${
                     mainTab === 'myskills'
-                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                      : 'text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300'
+                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border-r-2 border-blue-500'
+                      : 'text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300 hover:bg-gray-50 dark:hover:bg-neutral-800/50'
                   }`}
                 >
-                  <Box size={14} />
+                  <Box size={16} />
                   我的技能
                 </button>
-              </div>
-
-              {/* 技能列表 */}
-              <div className="flex-1 overflow-y-auto p-2">
-                <div className="text-xs text-gray-500 dark:text-neutral-500 px-2 py-2 font-medium">
-                  已有技能 ({skills.length})
-                </div>
-                {isLoadingSkills ? (
-                  <div className="flex items-center justify-center py-4 text-gray-400 dark:text-neutral-500">
-                    <Sparkles size={16} className="animate-pulse" />
-                  </div>
-                ) : skills.length === 0 ? (
-                  <div className="text-center py-4 text-xs text-gray-400 dark:text-neutral-600">
-                    暂无技能
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {skills.map((skill) => (
-                      <div
-                        key={skill.skill_id}
-                        className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
-                      >
-                        <Box size={14} className="text-blue-400 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-700 dark:text-neutral-300 truncate">
-                            {skill.name}
-                          </p>
-                          <p className="text-[10px] text-gray-400 dark:text-neutral-600 font-mono truncate">
-                            {skill.skill_id}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 
