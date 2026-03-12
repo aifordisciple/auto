@@ -181,7 +181,7 @@ def create_task_logger(task_id: str):
         log_key = f"task_logs:{task_id}"
         redis_client.rpush(log_key, formatted_msg)
         redis_client.expire(log_key, 86400)
-        
+
         # 2. ✨ 同时写入物理服务器日志！
         if level == "ERROR":
             log.error(f"[Task {task_id}] {message}")
@@ -189,8 +189,23 @@ def create_task_logger(task_id: str):
             log.warning(f"[Task {task_id}] {message}")
         else:
             log.info(f"[Task {task_id}] {message}")
-            
-    return log_to_redis_and_file
+
+    def send_code_update(code: str, language: str = "python", attempt: int = 1):
+        """发送代码更新事件到前端"""
+        log_key = f"task_logs:{task_id}"
+        # 使用特殊的 JSON 格式，前端可以识别
+        code_event = json.dumps({
+            "type": "code_update",
+            "code": code,
+            "language": language,
+            "attempt": attempt,
+            "timestamp": time.strftime('%H:%M:%S')
+        })
+        redis_client.rpush(log_key, f"__CODE_UPDATE__:{code_event}")
+        redis_client.expire(log_key, 86400)
+        log.info(f"[Task {task_id}] 代码更新事件已发送 (attempt {attempt})")
+
+    return log_to_redis_and_file, send_code_update
 
 
 @celery_app.task(bind=True)
@@ -422,7 +437,7 @@ def run_custom_python_task(self, params: dict):
     project_id = params.get("project_id")  # ✨ 不再默认为 1
     user_message = params.get("message", "用户执行了生信数据分析任务")
 
-    log_msg = create_task_logger(task_id)
+    log_msg, send_code_update = create_task_logger(task_id)
     log_msg(f"🚀 初始化 Python 沙箱引擎 (Task ID: {task_id})")
     log_msg(f"📋 项目 ID: {project_id}, 会话 ID: {session_id}")
 
@@ -545,6 +560,10 @@ def run_custom_python_task(self, params: dict):
                         break
 
                     log_msg(f"✅ AI 已生成修复代码，正在重新执行...")
+
+                    # ✨ 发送代码更新事件到前端
+                    send_code_update(fixed_code, language="python", attempt=retry_attempt)
+
                     log_msg(f"📝 修复后的代码预览:")
                     for line in fixed_code.split('\n')[:10]:
                         log_msg(f"   {line}")
@@ -673,7 +692,7 @@ def run_custom_r_task(self, params: dict):
     project_id = params.get("project_id")  # ✨ 不再默认为 1
     user_message = params.get("message", "用户执行了生信 R 语言任务")
 
-    log_msg = create_task_logger(task_id)
+    log_msg, send_code_update = create_task_logger(task_id)
     log_msg(f"🚀 初始化 R 沙箱引擎 (Task ID: {task_id})")
     log_msg(f"📋 项目 ID: {project_id}, 会话 ID: {session_id}")
 
@@ -791,6 +810,10 @@ def run_custom_r_task(self, params: dict):
                         break
 
                     log_msg(f"✅ AI 已生成修复代码，正在重新执行...")
+
+                    # ✨ 发送代码更新事件到前端
+                    send_code_update(fixed_code, language="r", attempt=retry_attempt)
+
                     log_msg(f"📝 修复后的 R 代码预览:")
                     for line in fixed_code.split('\n')[:10]:
                         log_msg(f"   {line}")

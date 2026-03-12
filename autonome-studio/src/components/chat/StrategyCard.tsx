@@ -178,6 +178,9 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const logAbortControllerRef = useRef<AbortController | null>(null);
 
+  // ✨ 修复后的代码状态
+  const [fixedCode, setFixedCode] = useState<string | null>(null);
+
   // 日志弹窗状态
   const [showLogModal, setShowLogModal] = useState(false);
 
@@ -249,7 +252,25 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             if (event.event === 'log') {
               try {
                 const data = JSON.parse(event.data);
-                setLogs(prev => [...prev, data.text]);
+                const logText = data.text;
+
+                // ✨ 检查是否是代码更新事件
+                if (logText.startsWith('__CODE_UPDATE__:')) {
+                  try {
+                    const codeEventStr = logText.replace('__CODE_UPDATE__:', '');
+                    const codeEvent = JSON.parse(codeEventStr);
+                    if (codeEvent.type === 'code_update' && codeEvent.code) {
+                      setFixedCode(codeEvent.code);
+                      setLogs(prev => [...prev, `🔄 代码已由 AI 修复 (第 ${codeEvent.attempt} 次尝试)`]);
+                    }
+                  } catch (e) {
+                    // 解析失败，当作普通日志处理
+                    setLogs(prev => [...prev, logText]);
+                  }
+                } else {
+                  // 普通日志
+                  setLogs(prev => [...prev, logText]);
+                }
               } catch (e) {
                 // 忽略解析错误
               }
@@ -686,6 +707,19 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
           </div>
         )}
       </div>
+
+      {/* ✨ 修复后的代码预览 */}
+      {taskId && fixedCode && (
+        <div className="mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-500/30 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <RefreshCw className="w-4 h-4 text-amber-500" />
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-300">AI 修复后的代码</span>
+          </div>
+          <pre className="text-xs text-gray-700 dark:text-neutral-300 font-mono overflow-x-auto max-h-40 overflow-y-auto bg-gray-100 dark:bg-neutral-900/50 rounded p-2">
+            {fixedCode}
+          </pre>
+        </div>
+      )}
 
       {/* 日志弹窗 */}
       {taskId && (
