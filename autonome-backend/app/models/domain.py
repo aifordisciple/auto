@@ -8,6 +8,7 @@ import uuid
 
 # 导入其他模型以确保数据库表被创建
 from app.models.skill_template import SkillTemplate  # noqa: F401
+from app.models.forge_session import ForgeSession, ForgeMessage  # noqa: F401
 
 # ✨ 引入 pgvector 的 Vector 类型
 try:
