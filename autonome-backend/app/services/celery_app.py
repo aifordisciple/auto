@@ -375,7 +375,7 @@ def run_custom_python_task(self, params: dict):
 
         # 3. ✨ 记录沙箱启动
         log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
-        log_msg(f"⏳ 执行中... (最长等待 300 秒)")
+        log_msg(f"⏳ 执行中... (最长等待 1 小时)")
 
         # 4. ✨ 将专属目录作为环境变量注入沙箱
         env = {"TASK_OUT_DIR": task_out_dir}
@@ -442,7 +442,7 @@ def run_custom_python_task(self, params: dict):
                 if is_timeout:
                     final_content = (
                         f"⏰ **执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"代码在沙箱中运行超过了 300 秒的时间限制。\n\n"
+                        f"代码在沙箱中运行超过了 1 小时的时间限制。\n\n"
                         f"### 🔍 可能的原因\n"
                         f"1. 代码中存在死循环或无限递归\n"
                         f"2. 处理的数据量过大\n"
@@ -566,7 +566,7 @@ def run_custom_r_task(self, params: dict):
 
         # 3. ✨ 记录沙箱启动
         log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
-        log_msg(f"⏳ 执行中... (最长等待 300 秒)")
+        log_msg(f"⏳ 执行中... (最长等待 1 小时)")
 
         # 4. ✨ 将专属目录作为环境变量注入沙箱
         env = {"TASK_OUT_DIR": task_out_dir}
@@ -628,7 +628,7 @@ def run_custom_r_task(self, params: dict):
                 if is_timeout:
                     final_content = (
                         f"⏰ **R 代码执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
-                        f"代码在沙箱中运行超过了 300 秒的时间限制。\n\n"
+                        f"代码在沙箱中运行超过了 1 小时的时间限制。\n\n"
                         f"### 🔍 可能的原因\n"
                         f"1. R 代码中存在死循环\n"
                         f"2. 处理的数据量过大\n"
@@ -1062,7 +1062,7 @@ def execute_bundle_task(self, payload: dict):
 
         # 8. 在 Docker 沙箱中执行
         log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
-        log_msg(f"⏳ 执行中... (最长等待 300 秒)")
+        log_msg(f"⏳ 执行中... (最长等待 1 小时)")
 
         env = {"TASK_OUT_DIR": task_out_dir, "PROJECT_ID": project_id}
         start_time = time.time()
@@ -1127,7 +1127,7 @@ def execute_bundle_task(self, payload: dict):
                     final_content = (
                         f"⏰ **SKILL 执行超时 (Task ID: `{str(task_id)[:8]}`)**\n\n"
                         f"SKILL: **{skill_name}**\n\n"
-                        f"代码在沙箱中运行超过了 300 秒的时间限制。\n\n"
+                        f"代码在沙箱中运行超过了 1 小时的时间限制。\n\n"
                         f"### 🔍 可能的原因\n"
                         f"1. SKILL 脚本执行时间过长\n"
                         f"2. 输入数据量过大\n"

@@ -89,7 +89,7 @@ def docker_api_request(method: str, path: str, data: str = None, return_raw: boo
         return {"body": body_str}
 
 
-def run_container(image: str, command: str, language: str = "python", environment: dict = None, timeout: int = 300) -> tuple[str, int]:
+def run_container(image: str, command: str, language: str = "python", environment: dict = None, timeout: int = 3600) -> tuple[str, int]:
     """通过 Docker API 运行容器（基础沙箱，无网络，有 conda）
 
     Args:
@@ -97,7 +97,7 @@ def run_container(image: str, command: str, language: str = "python", environmen
         command: 要执行的命令
         language: 语言类型 "python" 或 "r"
         environment: 环境变量字典
-        timeout: 容器执行超时时间（秒），默认 300 秒
+        timeout: 容器执行超时时间（秒），默认 3600 秒（1小时）以适应生信分析任务
 
     Returns:
         (输出日志, 退出码) 元组
