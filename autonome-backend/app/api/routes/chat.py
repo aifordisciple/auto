@@ -333,7 +333,7 @@ async def chat_stream(
                             error_msg = SandboxRetryHandler.extract_error_message(output)
                             log.warning(f"⚠️ [Sandbox] 执行失败: {error_msg[:200]}")
 
-                            msg = f"\n\n> 🔴 *(沙箱执行失败，正在分析错误...)*\n\n"
+                            msg = f"\n\n> 🔴 *(沙箱执行失败，Agent 正在分析错误并尝试修复...)*\n\n"
                             ai_full_response += msg
                             yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
 
@@ -343,13 +343,22 @@ async def chat_stream(
                                 "data": json.dumps({
                                     "type": "execution_error",
                                     "error_preview": error_msg[:500],
-                                    "retry_hint": "Agent 将自动尝试修复"
+                                    "retry_hint": "Agent 将自动尝试修复代码"
                                 })
                             }
                         else:
                             msg = f"\n\n> ✅ *(沙箱代码执行成功，产物已落盘)*\n\n"
                             ai_full_response += msg
                             yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+
+                            # 推送成功事件
+                            yield {
+                                "event": "sandbox_success",
+                                "data": json.dumps({
+                                    "type": "execution_success",
+                                    "output_preview": output[:200] if output else ""
+                                })
+                            }
                     elif tool_name == "peek_tabular_data":
                         msg = f"\n\n> ✅ *(探针返回：表格结构已解析)*\n\n"
                         ai_full_response += msg
