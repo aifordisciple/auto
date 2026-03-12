@@ -6,6 +6,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { SessionSidebar } from "./SessionSidebar";
+import { BookmarkPanel } from "../chat/BookmarkPanel";
 
 export function Sidebar() {
   const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSettings, toggleSkillCenter, toggleSkillForge, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, isSkillForgeOpen, theme, toggleTheme } = useUIStore();
@@ -215,6 +216,14 @@ export function Sidebar() {
           />
         </button>
       </div>
+
+      {/* Bookmark Panel - 收藏夹面板 */}
+      {currentProjectId && (
+        <BookmarkPanel
+          projectId={currentProjectId}
+          onSelectSession={setCurrentSessionId}
+        />
+      )}
     </div>
   );
 }

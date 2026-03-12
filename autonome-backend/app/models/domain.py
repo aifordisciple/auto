@@ -371,3 +371,50 @@ class ResultShare(SQLModel, table=True):
     expires_at: Optional[datetime] = Field(default=None, description="过期时间")
     access_count: int = Field(default=0, description="访问次数")
     created_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 14. 消息收藏模型 (MessageBookmark)
+# ==========================================
+class MessageBookmark(SQLModel, table=True):
+    """消息收藏表 - 用于收藏重要消息并添加笔记"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    message_id: str = Field(foreign_key="chatmessage.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    note: Optional[str] = Field(default=None, description="收藏笔记")
+    created_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 15. 会话摘要缓存模型 (SessionSummaryCache)
+# ==========================================
+class SessionSummaryCache(SQLModel, table=True):
+    """会话摘要缓存表 - 存储 AI 生成的会话摘要"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="chatsession.id", unique=True, index=True)
+    summary: str = Field(description="会话摘要内容")
+    key_points: List[str] = Field(default_factory=list, sa_column=Column(JSONB), description="关键要点列表")
+    generated_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 16. 会话标签模型 (ChatSessionTag)
+# ==========================================
+class ChatSessionTag(SQLModel, table=True):
+    """会话标签表 - 用户自定义标签"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=50, index=True, description="标签名称")
+    color: str = Field(default="#3B82F6", description="标签颜色")
+    user_id: int = Field(foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 17. 会话标签关联模型 (SessionTagRelation)
+# ==========================================
+class SessionTagRelation(SQLModel, table=True):
+    """会话标签关联表 - 多对多关系"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="chatsession.id", index=True)
+    tag_id: int = Field(foreign_key="chatsessiontag.id", index=True)
+    created_at: datetime = Field(default_factory=get_utc_now)

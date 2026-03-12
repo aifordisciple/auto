@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet, Paperclip, Upload, CloudUpload } from "lucide-react";
+import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet, Paperclip, Upload, CloudUpload, Bookmark } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
@@ -453,13 +453,64 @@ const copyToClipboard = async (text: string) => {
   }
 };
 
-function MessageActionButtons({ content }: { content: string }) {
+function MessageActionButtons({ content, messageId, sessionId }: { content: string; messageId?: string; sessionId?: string }) {
   const [copied, setCopied] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+
+  // Check if message is bookmarked
+  useEffect(() => {
+    const checkBookmark = async () => {
+      if (!messageId || !sessionId) return;
+      const token = localStorage.getItem('autonome_access_token');
+      try {
+        const res = await fetch(`${BASE_URL}/api/chat/bookmarks`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const found = (data.data || []).some((b: any) => b.message_id === messageId);
+          setIsBookmarked(found);
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    };
+    checkBookmark();
+  }, [messageId, sessionId]);
 
   const handleCopy = async () => {
     await copyToClipboard(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleBookmark = async () => {
+    if (!messageId) return;
+
+    const token = localStorage.getItem('autonome_access_token');
+    try {
+      if (isBookmarked) {
+        // Remove bookmark
+        await fetch(`${BASE_URL}/api/chat/messages/${messageId}/bookmark`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        setIsBookmarked(false);
+      } else {
+        // Add bookmark
+        await fetch(`${BASE_URL}/api/chat/messages/${messageId}/bookmark`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({})
+        });
+        setIsBookmarked(true);
+      }
+    } catch (e) {
+      console.error('Bookmark action failed:', e);
+    }
   };
 
   return (
@@ -475,6 +526,20 @@ function MessageActionButtons({ content }: { content: string }) {
           <><Copy className="w-3.5 h-3.5" /><span className="text-[10px]">复制</span></>
         )}
       </button>
+      {messageId && (
+        <button
+          onClick={handleBookmark}
+          className={`flex items-center gap-1.5 p-1.5 rounded-md transition-all border border-transparent ${
+            isBookmarked
+              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-500 border-blue-200 dark:border-blue-700'
+              : 'hover:bg-gray-100 dark:hover:bg-neutral-800 text-gray-500 dark:text-neutral-500 hover:text-gray-700 dark:hover:text-neutral-300 hover:border-gray-200 dark:hover:border-neutral-700'
+          }`}
+          title={isBookmarked ? "取消收藏" : "收藏此消息"}
+        >
+          <Bookmark className="w-3.5 h-3.5" fill={isBookmarked ? "currentColor" : "none"} />
+          <span className="text-[10px]">{isBookmarked ? '已收藏' : '收藏'}</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -1301,7 +1366,7 @@ export function ChatStage() {
                       </div>
                     </div>
                     <div className={`flex items-center gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity ${msg.role === 'user' ? 'mr-11' : 'ml-11'}`}>
-                      <MessageActionButtons content={msg.content} />
+                      <MessageActionButtons content={msg.content} messageId={msg.id} sessionId={currentSessionId || undefined} />
                     </div>
                   </motion.div>
                 )})}

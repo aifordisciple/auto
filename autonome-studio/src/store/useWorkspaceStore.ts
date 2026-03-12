@@ -36,8 +36,8 @@ export interface RealFile {
 
 interface WorkspaceState {
   // Project context
-  currentProjectId: string;
-  setCurrentProjectId: (id: string) => void;
+  currentProjectId: string | null;
+  setCurrentProjectId: (id: string | null) => void;
 
   // Current chat session
   currentSessionId: string | null;
@@ -70,9 +70,17 @@ interface WorkspaceState {
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
-      // ✨ Default to empty string (no project selected)
-      currentProjectId: '',
-      setCurrentProjectId: (id) => set({ currentProjectId: id }),
+      // ✨ Default to null (no project selected)
+      currentProjectId: null,
+      setCurrentProjectId: (id) => {
+        // 同步更新 localStorage，确保 page.tsx 可以读取
+        if (id) {
+          localStorage.setItem('autonome_current_project_id', id);
+        } else {
+          localStorage.removeItem('autonome_current_project_id');
+        }
+        set({ currentProjectId: id });
+      },
 
       // Current session ID and title
       currentSessionId: null,

@@ -9,6 +9,35 @@ export interface Message {
   timestamp: number;
 }
 
+export interface Bookmark {
+  bookmark_id: number;
+  message_id: string;
+  session_id: string;
+  session_title: string;
+  project_id: string;
+  content: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface SessionTag {
+  id: number;
+  name: string;
+  color: string;
+}
+
+export interface SearchResult {
+  session_id: string;
+  session_title: string;
+  matched_messages: {
+    message_id: string;
+    content: string;
+    role: string;
+    created_at: string;
+    highlight: string;
+  }[];
+}
+
 interface ChatState {
   messages: Message[];
   setMessages: (messages: Message[]) => void;
@@ -19,6 +48,26 @@ interface ChatState {
   clearMessages: () => void;
   isTyping: boolean;
   setIsTyping: (status: boolean) => void;
+
+  // 搜索相关状态
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  searchResults: SearchResult[];
+  setSearchResults: (results: SearchResult[]) => void;
+  isSearching: boolean;
+  setIsSearching: (status: boolean) => void;
+
+  // 收藏相关状态
+  bookmarks: Bookmark[];
+  setBookmarks: (bookmarks: Bookmark[]) => void;
+  showBookmarkPanel: boolean;
+  setShowBookmarkPanel: (show: boolean) => void;
+
+  // 标签相关状态
+  tags: SessionTag[];
+  setTags: (tags: SessionTag[]) => void;
+  selectedTagId: number | null;
+  setSelectedTagId: (tagId: number | null) => void;
 }
 
 // 预设一条初始欢迎语
@@ -32,7 +81,7 @@ const initialMessage: Message = {
 export const useChatStore = create<ChatState>((set) => ({
   messages: [initialMessage],
   setMessages: (messages: Message[]) => set({ messages }),
-  addMessage: (role, content) => 
+  addMessage: (role, content) =>
     set((state) => ({
       messages: [
         ...state.messages,
@@ -52,4 +101,24 @@ export const useChatStore = create<ChatState>((set) => ({
   clearMessages: () => set({ messages: [initialMessage] }),
   isTyping: false,
   setIsTyping: (status: boolean) => set({ isTyping: status }),
+
+  // 搜索相关
+  searchQuery: '',
+  setSearchQuery: (query: string) => set({ searchQuery: query }),
+  searchResults: [],
+  setSearchResults: (results: SearchResult[]) => set({ searchResults: results }),
+  isSearching: false,
+  setIsSearching: (status: boolean) => set({ isSearching: status }),
+
+  // 收藏相关
+  bookmarks: [],
+  setBookmarks: (bookmarks: Bookmark[]) => set({ bookmarks }),
+  showBookmarkPanel: false,
+  setShowBookmarkPanel: (show: boolean) => set({ showBookmarkPanel: show }),
+
+  // 标签相关
+  tags: [],
+  setTags: (tags: SessionTag[]) => set({ tags }),
+  selectedTagId: null,
+  setSelectedTagId: (tagId: number | null) => set({ selectedTagId: tagId }),
 }));

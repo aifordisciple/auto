@@ -43,17 +43,15 @@ export default function AutonomeStudio() {
       return;
     }
 
-    const currentId = localStorage.getItem('autonome_current_project_id');
-    if (!currentId) {
-      // 没有选中的项目，自动打开项目中心让用户选择
-      toggleProjectCenter();
-    } else {
-      setProjectId(currentId);
-      setCurrentProjectId(currentId);
+    // 优先使用 Zustand store 中已恢复的 currentProjectId
+    // 如果 store 中有值，说明之前已选择过项目
+    if (currentProjectId) {
+      setProjectId(currentProjectId);
+      // 同步 localStorage（确保一致性）
+      localStorage.setItem('autonome_current_project_id', currentProjectId);
 
       // ✨ 获取真实项目名称
-      const localToken = localStorage.getItem('autonome_access_token');
-      fetch(`http://113.44.66.210:8000/api/projects/${currentId}`, {
+      fetch(`http://113.44.66.210:8000/api/projects/${currentProjectId}`, {
         headers: { 'Authorization': `Bearer ${localToken}` }
       })
         .then(res => res.json())
@@ -61,14 +59,17 @@ export default function AutonomeStudio() {
           if (data.status === 'success' && data.data) {
             setProjectName(data.data.name);
           } else {
-            const shortId = currentId.split('_')[1]?.substring(0, 6) || currentId;
+            const shortId = currentProjectId.split('_')[1]?.substring(0, 6) || currentProjectId;
             setProjectName(`Project ${shortId}`);
           }
         })
         .catch(() => {
-          const shortId = currentId.split('_')[1]?.substring(0, 6) || currentId;
+          const shortId = currentProjectId.split('_')[1]?.substring(0, 6) || currentProjectId;
           setProjectName(`Project ${shortId}`);
         });
+    } else {
+      // 没有选中的项目，自动打开项目中心让用户选择
+      toggleProjectCenter();
     }
   }, []);
 

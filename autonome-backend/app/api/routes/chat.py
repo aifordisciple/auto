@@ -1,6 +1,7 @@
 import json
 import os
 from http import HTTPStatus
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
@@ -8,7 +9,10 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.core.database import get_session, engine
-from app.models.domain import ChatSession, ChatMessage, DataFile, SystemConfig, RoleEnum, Project, User
+from app.models.domain import (
+    ChatSession, ChatMessage, DataFile, SystemConfig, RoleEnum, Project, User,
+    MessageBookmark, SessionSummaryCache, ChatSessionTag, SessionTagRelation
+)
 from app.agent.bot import build_bio_agent
 from app.core.logger import log
 from app.api.deps import get_current_user
@@ -849,3 +853,624 @@ Brief description of analysis pipeline for manuscript Methods section
             yield {"event": "done", "data": "[DONE]"}
 
     return EventSourceResponse(event_generator())
+
+
+# ==========================================
+# 对话搜索 API
+# ==========================================
+
+class SearchRequest(BaseModel):
+    query: str
+    project_id: Optional[str] = None
+    limit: int = 20
+
+
+class SearchResultMessage(BaseModel):
+    message_id: str
+    content: str
+    role: str
+    created_at: datetime
+    highlight: str
+
+
+class SearchResult(BaseModel):
+    session_id: str
+    session_title: str
+    matched_messages: list[SearchResultMessage]
+
+
+@router.post("/search")
+def search_messages(
+    request: SearchRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    搜索对话内容 - 使用 PostgreSQL 全文搜索
+    """
+    if not request.query or len(request.query.strip()) < 2:
+        return {"status": "success", "results": []}
+
+    query_text = request.query.strip().lower()
+
+    # 构建基础查询 - 获取用户的所有项目
+    projects = session.exec(
+        select(Project).where(Project.owner_id == current_user.id)
+    ).all()
+    project_ids = [p.id for p in projects]
+
+    if not project_ids:
+        return {"status": "success", "results": []}
+
+    # 搜索消息内容
+    base_query = (
+        select(ChatMessage, ChatSession)
+        .join(ChatSession, ChatMessage.session_id == ChatSession.id)
+        .where(ChatSession.project_id.in_(project_ids))
+        .where(ChatMessage.content.ilike(f"%{query_text}%"))
+        .order_by(ChatMessage.created_at.desc())
+        .limit(request.limit)
+    )
+
+    if request.project_id:
+        base_query = (
+            select(ChatMessage, ChatSession)
+            .join(ChatSession, ChatMessage.session_id == ChatSession.id)
+            .where(ChatSession.project_id == request.project_id)
+            .where(ChatMessage.content.ilike(f"%{query_text}%"))
+            .order_by(ChatMessage.created_at.desc())
+            .limit(request.limit)
+        )
+
+    results = session.exec(base_query).all()
+
+    # 按会话分组
+    grouped: dict[str, SearchResult] = {}
+    for msg, chat_session in results:
+        if chat_session.id not in grouped:
+            # 高亮关键词
+            content_lower = msg.content.lower()
+            highlight_start = content_lower.find(query_text)
+            if highlight_start != -1:
+                start = max(0, highlight_start - 50)
+                end = min(len(msg.content), highlight_start + len(query_text) + 100)
+                highlight = msg.content[start:end]
+                if start > 0:
+                    highlight = "..." + highlight
+                if end < len(msg.content):
+                    highlight = highlight + "..."
+            else:
+                highlight = msg.content[:150] + "..." if len(msg.content) > 150 else msg.content
+
+            grouped[chat_session.id] = SearchResult(
+                session_id=chat_session.id,
+                session_title=chat_session.title,
+                matched_messages=[SearchResultMessage(
+                    message_id=msg.id,
+                    content=msg.content,
+                    role=msg.role.value,
+                    created_at=msg.created_at,
+                    highlight=highlight
+                )]
+            )
+        else:
+            # 添加到现有会话的匹配消息
+            content_lower = msg.content.lower()
+            highlight_start = content_lower.find(query_text)
+            if highlight_start != -1:
+                start = max(0, highlight_start - 50)
+                end = min(len(msg.content), highlight_start + len(query_text) + 100)
+                highlight = msg.content[start:end]
+                if start > 0:
+                    highlight = "..." + highlight
+                if end < len(msg.content):
+                    highlight = highlight + "..."
+            else:
+                highlight = msg.content[:150] + "..." if len(msg.content) > 150 else msg.content
+
+            grouped[chat_session.id].matched_messages.append(SearchResultMessage(
+                message_id=msg.id,
+                content=msg.content,
+                role=msg.role.value,
+                created_at=msg.created_at,
+                highlight=highlight
+            ))
+
+    return {"status": "success", "results": list(grouped.values())}
+
+
+# ==========================================
+# 消息收藏 API
+# ==========================================
+
+class BookmarkCreate(BaseModel):
+    note: Optional[str] = None
+
+
+class BookmarkUpdate(BaseModel):
+    note: Optional[str] = None
+
+
+@router.post("/messages/{message_id}/bookmark")
+def create_bookmark(
+    message_id: str,
+    request: BookmarkCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """收藏消息"""
+    # 验证消息存在且用户有权访问
+    msg = session.get(ChatMessage, message_id)
+    if not msg:
+        raise HTTPException(status_code=404, detail="消息不存在")
+
+    chat_session = session.get(ChatSession, msg.session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    # 检查是否已收藏
+    existing = session.exec(
+        select(MessageBookmark)
+        .where(MessageBookmark.message_id == message_id)
+        .where(MessageBookmark.user_id == current_user.id)
+    ).first()
+
+    if existing:
+        return {"status": "success", "bookmark_id": existing.id, "message": "已收藏"}
+
+    # 创建收藏
+    bookmark = MessageBookmark(
+        message_id=message_id,
+        user_id=current_user.id,
+        note=request.note
+    )
+    session.add(bookmark)
+    session.commit()
+    session.refresh(bookmark)
+
+    return {"status": "success", "bookmark_id": bookmark.id}
+
+
+@router.delete("/messages/{message_id}/bookmark")
+def delete_bookmark(
+    message_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """取消收藏消息"""
+    bookmark = session.exec(
+        select(MessageBookmark)
+        .where(MessageBookmark.message_id == message_id)
+        .where(MessageBookmark.user_id == current_user.id)
+    ).first()
+
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="收藏不存在")
+
+    session.delete(bookmark)
+    session.commit()
+
+    return {"status": "success"}
+
+
+@router.put("/bookmarks/{bookmark_id}")
+def update_bookmark(
+    bookmark_id: int,
+    request: BookmarkUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """更新收藏笔记"""
+    bookmark = session.get(MessageBookmark, bookmark_id)
+    if not bookmark or bookmark.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="收藏不存在")
+
+    bookmark.note = request.note
+    session.add(bookmark)
+    session.commit()
+
+    return {"status": "success"}
+
+
+@router.get("/bookmarks")
+def get_bookmarks(
+    project_id: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取收藏列表"""
+    # 获取用户的所有收藏
+    bookmarks = session.exec(
+        select(MessageBookmark)
+        .where(MessageBookmark.user_id == current_user.id)
+        .order_by(MessageBookmark.created_at.desc())
+    ).all()
+
+    results = []
+    for bookmark in bookmarks:
+        msg = session.get(ChatMessage, bookmark.message_id)
+        if not msg:
+            continue
+
+        chat_session = session.get(ChatSession, msg.session_id)
+        if not chat_session:
+            continue
+
+        # 如果指定了项目ID，过滤
+        if project_id and chat_session.project_id != project_id:
+            continue
+
+        results.append({
+            "bookmark_id": bookmark.id,
+            "message_id": bookmark.message_id,
+            "session_id": chat_session.id,
+            "session_title": chat_session.title,
+            "project_id": chat_session.project_id,
+            "content": msg.content[:200] + "..." if len(msg.content) > 200 else msg.content,
+            "note": bookmark.note,
+            "created_at": bookmark.created_at
+        })
+
+    return {"status": "success", "data": results}
+
+
+# ==========================================
+# AI 会话摘要 API
+# ==========================================
+
+@router.get("/sessions/{session_id}/summary")
+def get_session_summary(
+    session_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取会话摘要（从缓存）"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+
+    # 查找缓存
+    cached = session.exec(
+        select(SessionSummaryCache)
+        .where(SessionSummaryCache.session_id == session_id)
+    ).first()
+
+    if cached:
+        return {
+            "status": "success",
+            "summary": cached.summary,
+            "key_points": cached.key_points,
+            "generated_at": cached.generated_at,
+            "cached": True
+        }
+
+    return {"status": "success", "summary": None, "cached": False}
+
+
+@router.post("/sessions/{session_id}/summarize")
+def generate_session_summary(
+    session_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """AI 生成会话摘要"""
+    from app.models.domain import get_utc_now
+
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    # 获取所有消息
+    messages = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at)
+    ).all()
+
+    if not messages:
+        return {"status": "success", "summary": "暂无对话内容", "key_points": []}
+
+    # 构建摘要提示词
+    conversation_text = "\n".join([
+        f"[{'用户' if msg.role == RoleEnum.user else 'AI'}]: {msg.content[:500]}"
+        for msg in messages
+    ])
+
+    # 调用 LLM 生成摘要
+    config = session.get(SystemConfig, 1)
+    try:
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=config.openai_api_key or "ollama",
+            base_url=config.openai_base_url or "http://localhost:11434/v1"
+        )
+
+        response = client.chat.completions.create(
+            model=config.default_model or "gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """你是一个对话摘要专家。请分析对话内容，生成：
+1. 一段简洁的摘要（100字以内）
+2. 3-5个关键要点
+
+请以 JSON 格式返回：
+{
+    "summary": "摘要内容",
+    "key_points": ["要点1", "要点2", "要点3"]
+}"""
+                },
+                {"role": "user", "content": f"请总结以下对话：\n\n{conversation_text}"}
+            ],
+            max_tokens=500,
+            temperature=0.3
+        )
+
+        result_text = response.choices[0].message.content.strip()
+
+        # 尝试解析 JSON
+        try:
+            # 提取 JSON 部分
+            if "```json" in result_text:
+                json_start = result_text.find("```json") + 7
+                json_end = result_text.find("```", json_start)
+                result_text = result_text[json_start:json_end].strip()
+            elif "```" in result_text:
+                json_start = result_text.find("```") + 3
+                json_end = result_text.find("```", json_start)
+                result_text = result_text[json_start:json_end].strip()
+
+            result = json.loads(result_text)
+            summary = result.get("summary", "摘要生成失败")
+            key_points = result.get("key_points", [])
+        except:
+            summary = result_text[:200]
+            key_points = []
+
+        # 缓存结果
+        cached_summary = session.exec(
+            select(SessionSummaryCache)
+            .where(SessionSummaryCache.session_id == session_id)
+        ).first()
+
+        if cached_summary:
+            cached_summary.summary = summary
+            cached_summary.key_points = key_points
+            cached_summary.generated_at = get_utc_now()
+        else:
+            cached_summary = SessionSummaryCache(
+                session_id=session_id,
+                summary=summary,
+                key_points=key_points
+            )
+            session.add(cached_summary)
+
+        session.commit()
+
+        return {
+            "status": "success",
+            "summary": summary,
+            "key_points": key_points,
+            "cached": False
+        }
+
+    except Exception as e:
+        log.error(f"AI 摘要生成失败: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+# ==========================================
+# 会话标签 API
+# ==========================================
+
+class TagCreate(BaseModel):
+    name: str
+    color: Optional[str] = "#3B82F6"
+
+
+@router.get("/tags")
+def get_tags(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取用户的所有标签"""
+    tags = session.exec(
+        select(ChatSessionTag)
+        .where(ChatSessionTag.user_id == current_user.id)
+        .order_by(ChatSessionTag.created_at.desc())
+    ).all()
+
+    return {"status": "success", "data": tags}
+
+
+@router.post("/tags")
+def create_tag(
+    request: TagCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """创建新标签"""
+    # 检查是否已存在同名标签
+    existing = session.exec(
+        select(ChatSessionTag)
+        .where(ChatSessionTag.user_id == current_user.id)
+        .where(ChatSessionTag.name == request.name)
+    ).first()
+
+    if existing:
+        return {"status": "success", "tag": existing}
+
+    tag = ChatSessionTag(
+        name=request.name,
+        color=request.color or "#3B82F6",
+        user_id=current_user.id
+    )
+    session.add(tag)
+    session.commit()
+    session.refresh(tag)
+
+    return {"status": "success", "tag": tag}
+
+
+@router.delete("/tags/{tag_id}")
+def delete_tag(
+    tag_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """删除标签"""
+    tag = session.get(ChatSessionTag, tag_id)
+    if not tag or tag.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="标签不存在")
+
+    # 删除所有关联
+    relations = session.exec(
+        select(SessionTagRelation)
+        .where(SessionTagRelation.tag_id == tag_id)
+    ).all()
+    for rel in relations:
+        session.delete(rel)
+
+    session.delete(tag)
+    session.commit()
+
+    return {"status": "success"}
+
+
+@router.get("/sessions/{session_id}/tags")
+def get_session_tags(
+    session_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取会话的所有标签"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+
+    # 获取会话的所有标签
+    relations = session.exec(
+        select(SessionTagRelation)
+        .where(SessionTagRelation.session_id == session_id)
+    ).all()
+
+    tags = []
+    for rel in relations:
+        tag = session.get(ChatSessionTag, rel.tag_id)
+        if tag:
+            tags.append({
+                "id": tag.id,
+                "name": tag.name,
+                "color": tag.color
+            })
+
+    return {"status": "success", "tags": tags}
+
+
+@router.post("/sessions/{session_id}/tags/{tag_id}")
+def add_tag_to_session(
+    session_id: str,
+    tag_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """为会话添加标签"""
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    tag = session.get(ChatSessionTag, tag_id)
+    if not tag or tag.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="标签不存在")
+
+    # 检查是否已关联
+    existing = session.exec(
+        select(SessionTagRelation)
+        .where(SessionTagRelation.session_id == session_id)
+        .where(SessionTagRelation.tag_id == tag_id)
+    ).first()
+
+    if existing:
+        return {"status": "success", "message": "已关联"}
+
+    relation = SessionTagRelation(session_id=session_id, tag_id=tag_id)
+    session.add(relation)
+    session.commit()
+
+    return {"status": "success"}
+
+
+@router.delete("/sessions/{session_id}/tags/{tag_id}")
+def remove_tag_from_session(
+    session_id: str,
+    tag_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """移除会话的标签"""
+    relation = session.exec(
+        select(SessionTagRelation)
+        .where(SessionTagRelation.session_id == session_id)
+        .where(SessionTagRelation.tag_id == tag_id)
+    ).first()
+
+    if not relation:
+        raise HTTPException(status_code=404, detail="关联不存在")
+
+    session.delete(relation)
+    session.commit()
+
+    return {"status": "success"}
+
+
+@router.get("/projects/{project_id}/sessions/tagged/{tag_id}")
+def get_sessions_by_tag(
+    project_id: str,
+    tag_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """获取项目中带有特定标签的会话"""
+    project = session.get(Project, project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+
+    # 获取带有该标签的会话
+    relations = session.exec(
+        select(SessionTagRelation)
+        .where(SessionTagRelation.tag_id == tag_id)
+    ).all()
+
+    session_ids = [rel.session_id for rel in relations]
+
+    if not session_ids:
+        return {"status": "success", "data": []}
+
+    tagged_sessions = session.exec(
+        select(ChatSession)
+        .where(ChatSession.project_id == project_id)
+        .where(ChatSession.id.in_(session_ids))
+        .order_by(ChatSession.created_at.desc())
+    ).all()
+
+    return {"status": "success", "data": tagged_sessions}
