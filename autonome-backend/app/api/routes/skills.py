@@ -120,6 +120,40 @@ def list_available_skills(
 
 
 # ==========================================
+# GET /api/skills/my - 获取当前用户的技能列表
+# ==========================================
+@router.get("/my", response_model=List[SkillAssetPublic])
+def get_my_skills(
+    status: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取当前用户创建的所有技能（包含所有状态）
+
+    Args:
+        status: 可选的状态过滤 (DRAFT, PRIVATE, PENDING_REVIEW, PUBLISHED, REJECTED)
+    """
+    statement = select(SkillAsset).where(
+        SkillAsset.owner_id == current_user.id
+    )
+
+    # 状态过滤
+    if status:
+        try:
+            status_enum = SkillStatus(status.upper())
+            statement = statement.where(SkillAsset.status == status_enum)
+        except ValueError:
+            pass  # 忽略无效的状态值
+
+    statement = statement.order_by(SkillAsset.updated_at.desc())
+    skills = session.exec(statement).all()
+
+    log.info(f"[Skills API] 用户 {current_user.id} 查询我的技能，共 {len(skills)} 个")
+    return skills
+
+
+# ==========================================
 # POST /api/skills/ - 创建新的自定义 SKILL
 # ==========================================
 @router.post("/", response_model=SkillAssetPublic)

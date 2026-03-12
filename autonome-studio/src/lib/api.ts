@@ -428,6 +428,15 @@ export const skillForgeApi = {
   getCatalog: async (): Promise<any> => {
     const response = await fetchAPI('/api/skills/catalog');
     return response;
+  },
+
+  /**
+   * 获取我的技能列表
+   */
+  listMySkills: async (status?: string): Promise<SkillAsset[]> => {
+    const params = status ? `?status=${status}` : '';
+    const response = await fetchAPI(`/api/skills/my${params}`);
+    return response;
   }
 };
 
