@@ -26,7 +26,7 @@ export interface SkillDraft {
 
 // 消息结构
 export interface ForgeMessage {
-  id: number;
+  id: string;
   session_id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -130,13 +130,18 @@ const initialState = {
   sessionList: []
 };
 
+// 生成唯一消息ID
+const generateMessageId = () => {
+  return `forge_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
 export const useForgeStore = create<ForgeState>((set, get) => ({
   ...initialState,
 
   // 消息操作
   addMessage: (role, content, attachments = []) => set(state => ({
     messages: [...state.messages, {
-      id: Date.now(),
+      id: generateMessageId(),
       session_id: state.sessionId || '',
       role,
       content,

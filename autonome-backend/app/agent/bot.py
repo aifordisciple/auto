@@ -208,6 +208,19 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 }}
 ```
 
+【经验推荐系统 - 🧠 智能复用】
+
+系统会自动检索相关的成功经验，格式如下：
+```recommended_experiences
+[{{"title": "...", "summary": "...", "similarity": 0.92, "solution_code": "..."}}]
+```
+
+你需要：
+1. 如果有高相关性经验（similarity > 0.8），告知用户"我之前处理过类似问题"
+2. 参考成功经验中的 solution_code 和 key_insights
+3. 优先复用已验证的解决方案，避免重复造轮子
+4. 在回复中提及"根据之前的成功经验..."来增强用户信任
+
 【双轨调度机制 - 关键决策树】
 第一轨（优先）：标准 SKILL 调用
   - 如果用户需求可以被上述 SKILL 兵器库中的模块覆盖，请优先选择对应的 skill_id

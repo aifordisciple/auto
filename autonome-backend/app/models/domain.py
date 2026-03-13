@@ -419,3 +419,117 @@ class SessionTagRelation(SQLModel, table=True):
     session_id: str = Field(foreign_key="chatsession.id", index=True)
     tag_id: int = Field(foreign_key="chatsessiontag.id", index=True)
     created_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 18. 经验资产类型枚举 (ExperienceType)
+# ==========================================
+class ExperienceType(str, Enum):
+    """经验资产类型"""
+    SUCCESSFUL_SESSION = "successful_session"    # 成功会话
+    DEBUG_PATTERN = "debug_pattern"              # 调试模式
+    CODE_SNIPPET = "code_snippet"                # 代码片段
+
+
+# ==========================================
+# 19. 经验资产模型 (ExperienceAsset)
+# ==========================================
+def generate_experience_id():
+    """生成经验资产唯一 ID"""
+    return f"exp_{uuid.uuid4().hex[:8]}"
+
+
+class ExperienceAsset(SQLModel, table=True):
+    """经验资产表 - 用户成功经验的沉淀"""
+    __tablename__ = "experienceasset"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    experience_id: str = Field(
+        default_factory=generate_experience_id,
+        unique=True, index=True, max_length=50,
+        description="经验资产唯一标识"
+    )
+
+    # 来源追溯
+    source_session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
+    source_user_id: int = Field(foreign_key="user.id", index=True)
+    source_project_id: Optional[str] = Field(default=None, foreign_key="project.id")
+
+    # 经验内容
+    experience_type: ExperienceType = Field(default=ExperienceType.SUCCESSFUL_SESSION)
+    title: str = Field(max_length=255, description="经验标题")
+    summary: str = Field(description="经验摘要（用户需求+解决方案）")
+    key_insights: List[str] = Field(default_factory=list, sa_column=Column(JSONB), description="关键洞察列表")
+
+    # 核心内容
+    original_query: str = Field(description="用户原始问题")
+    solution_code: Optional[str] = Field(default=None, description="核心解决方案代码")
+    solution_strategy: Optional[str] = Field(default=None, description="解决策略描述")
+    debug_iterations: int = Field(default=0, description="调试迭代次数")
+
+    # 向量化（使用 pgvector）
+    summary_embedding: Optional[List[float]] = Field(
+        default=None, sa_column=Column(Vector(1536)), description="摘要向量嵌入"
+    )
+
+    # 元数据
+    category: str = Field(default="general", max_length=50, description="经验分类: qc/analysis/visualization/pipeline/general")
+    tags: List[str] = Field(default_factory=list, sa_column=Column(JSONB), description="标签列表")
+
+    # 质量评分
+    usefulness_score: float = Field(default=0.0, ge=0.0, le=1.0, description="有用性评分")
+    reuse_count: int = Field(default=0, description="被复用次数")
+
+    # 状态
+    is_public: bool = Field(default=False, description="是否公开")
+    is_verified: bool = Field(default=False, description="是否已验证")
+
+    created_at: datetime = Field(default_factory=get_utc_now)
+    updated_at: datetime = Field(default_factory=get_utc_now)
+
+
+class ExperienceAssetCreate(SQLModel):
+    """创建经验资产的请求体"""
+    title: str
+    summary: str
+    key_insights: List[str] = []
+    original_query: str
+    solution_code: Optional[str] = None
+    solution_strategy: Optional[str] = None
+    category: str = "general"
+    tags: List[str] = []
+    source_session_id: Optional[str] = None
+    source_project_id: Optional[str] = None
+    is_public: bool = False
+
+
+class ExperienceAssetUpdate(SQLModel):
+    """更新经验资产的请求体"""
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    key_insights: Optional[List[str]] = None
+    solution_code: Optional[str] = None
+    solution_strategy: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_public: Optional[bool] = None
+
+
+class ExperienceAssetPublic(SQLModel):
+    """返回给前端的经验资产公共信息"""
+    id: int
+    experience_id: str
+    title: str
+    summary: str
+    key_insights: List[str]
+    original_query: str
+    solution_code: Optional[str]
+    solution_strategy: Optional[str]
+    category: str
+    tags: List[str]
+    usefulness_score: float
+    reuse_count: int
+    is_public: bool
+    is_verified: bool
+    created_at: datetime
+    updated_at: datetime

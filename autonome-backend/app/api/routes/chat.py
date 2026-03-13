@@ -16,6 +16,9 @@ from app.models.domain import (
 from app.agent.bot import build_bio_agent
 from app.core.logger import log
 from app.api.deps import get_current_user
+from app.services.success_evaluator import SuccessEvaluator
+from app.services.knowledge_extractor import KnowledgeExtractor
+from app.services.experience_recommender import ExperienceRecommender
 
 
 router = APIRouter()
@@ -265,6 +268,41 @@ async def chat_stream(
             # ✨ Feature 1: 加载历史对话上下文
             history = load_conversation_history(session_id_for_ai, session) if not is_new_session else []
             messages = history + [{"role": "user", "content": request.message}]
+
+            # ✨ Feature: 智能经验推荐 - 注入相关历史成功经验
+            experience_context = ""
+            try:
+                recommender = ExperienceRecommender(session)
+                recommendations = await recommender.recommend(
+                    user_query=request.message,
+                    user_id=user_id,
+                    top_k=3
+                )
+                if recommendations:
+                    experience_context = recommender.format_for_agent(recommendations)
+                    log.info(f"🧠 [Chat] 注入 {len(recommendations)} 条相关经验推荐")
+                    # 推送经验推荐事件给前端
+                    yield {
+                        "event": "experience_recommendations",
+                        "data": json.dumps({
+                            "count": len(recommendations),
+                            "experiences": [
+                                {
+                                    "title": r["title"],
+                                    "similarity": r["similarity"],
+                                    "category": r["category"]
+                                }
+                                for r in recommendations
+                            ]
+                        })
+                    }
+            except Exception as exp_err:
+                log.warning(f"经验推荐服务暂不可用: {exp_err}")
+
+            # 如果有经验推荐，将其添加到用户消息中
+            if experience_context:
+                enhanced_message = f"{experience_context}\n\n---\n\n用户问题: {request.message}"
+                messages = history + [{"role": "user", "content": enhanced_message}]
 
             # ✨ 打印发送给大模型的完整消息
             log.info(f"📤 [向 AI 发送请求]: 历史消息 {len(history)} 条 + 当前消息 1 条")
@@ -1474,3 +1512,118 @@ def get_sessions_by_tag(
     ).all()
 
     return {"status": "success", "data": tagged_sessions}
+
+
+# ==========================================
+# 会话关闭与经验提取 API
+# ==========================================
+
+class CloseSessionRequest(BaseModel):
+    """关闭会话请求"""
+    extract_experience: bool = True  # 是否尝试提取经验
+
+
+@router.post("/sessions/{session_id}/close")
+async def close_session(
+    session_id: str,
+    request: CloseSessionRequest = CloseSessionRequest(),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    关闭会话并尝试提取经验资产
+
+    当用户关闭会话时：
+    1. 评估会话成功度
+    2. 如果成功且置信度足够高，自动提取知识资产
+    3. 存储为私有经验，用户可选择公开
+    """
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    result = {
+        "session_id": session_id,
+        "session_title": chat_session.title,
+        "closed_at": datetime.now().isoformat(),
+        "experience_extracted": False,
+        "evaluation": None,
+        "experience": None
+    }
+
+    if not request.extract_experience:
+        return {"status": "success", **result}
+
+    try:
+        # 1. 评估会话成功度
+        evaluator = SuccessEvaluator(session)
+        evaluation = evaluator.evaluate_session(session_id)
+        result["evaluation"] = evaluation
+
+        log.info(
+            f"📊 [CloseSession] 会话 {session_id} 评估: "
+            f"成功={evaluation['is_successful']}, 置信度={evaluation['confidence']:.2f}"
+        )
+
+        # 2. 如果成功且置信度足够高，提取经验
+        if evaluation["is_successful"] and evaluation["confidence"] >= 0.7:
+            extractor = KnowledgeExtractor(session)
+            experience = await extractor.extract_from_session(
+                session_id=session_id,
+                user_id=current_user.id,
+                project_id=chat_session.project_id
+            )
+
+            if experience:
+                result["experience_extracted"] = True
+                result["experience"] = {
+                    "experience_id": experience.experience_id,
+                    "title": experience.title,
+                    "summary": experience.summary[:100] + "...",
+                    "category": experience.category
+                }
+                log.info(f"✅ [CloseSession] 成功提取经验: {experience.experience_id}")
+
+    except Exception as e:
+        log.error(f"❌ [CloseSession] 经验提取失败: {e}")
+        result["error"] = str(e)
+
+    return {"status": "success", **result}
+
+
+@router.get("/sessions/{session_id}/evaluate")
+async def evaluate_session_success(
+    session_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    评估会话成功度（不关闭会话）
+
+    返回会话成功度评估详情，供前端展示
+    """
+    chat_session = session.get(ChatSession, session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+
+    try:
+        evaluator = SuccessEvaluator(session)
+        evaluation = evaluator.evaluate_session(session_id)
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "evaluation": evaluation
+        }
+
+    except Exception as e:
+        log.error(f"评估会话失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
