@@ -55,20 +55,20 @@ export function Sidebar() {
           <Activity size={18} /> <span>控制面板</span>
         </div>
 
-        {/* Task Center */}
-        <div
-          onClick={() => toggleTaskCenter()}
-          className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white"
-        >
-          <ListTodo size={18} /> <span>任务中心</span>
-        </div>
-
         {/* Projects */}
         <div
           onClick={() => toggleProjectCenter()}
           className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white"
         >
           <FolderGit2 size={18} /> <span>项目中心</span>
+        </div>
+
+        {/* Task Center */}
+        <div
+          onClick={() => toggleTaskCenter()}
+          className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white"
+        >
+          <ListTodo size={18} /> <span>任务中心</span>
         </div>
 
         {/* Data Center */}
