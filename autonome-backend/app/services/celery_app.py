@@ -1137,9 +1137,19 @@ def execute_bundle_task(self, payload: dict):
     log_msg(f"📝 参数预览: {json.dumps(parameters, ensure_ascii=False)[:200]}...")
 
     try:
-        # 1. 加载 SKILL Bundle
+        # 1. 加载 SKILL Bundle - 支持文件系统和数据库两种来源
         parser = get_skill_parser()
         skill = parser.get_skill_by_id(skill_id)
+
+        # 如果文件系统没找到，尝试从数据库查找
+        if not skill:
+            log_msg(f"📂 文件系统未找到 SKILL，尝试从数据库加载...")
+            from app.core.skill_parser import get_db_skill_parser
+            from app.models.domain import User
+            # 获取用户 ID（从 payload 或默认为 1）
+            user_id = payload.get("user_id", 1)
+            db_parser = get_db_skill_parser(user_id)
+            skill = db_parser.get_skill_by_id(skill_id)
 
         if not skill:
             log_msg(f"💥 未找到 SKILL: {skill_id}", level="ERROR")
@@ -1149,9 +1159,15 @@ def execute_bundle_task(self, payload: dict):
         executor_type = metadata.get("executor_type", "Python_env")
         entry_point = metadata.get("entry_point", "")
         bundle_path = skill.get("bundle_path", "")
+        script_code = skill.get("script_code", "")  # 数据库 SKILL 的脚本代码
+        skill_source = skill.get("source", "filesystem")  # 来源标识
 
         log_msg(f"📋 执行器类型: {executor_type}")
-        log_msg(f"📁 入口脚本: {entry_point}")
+        log_msg(f"📋 SKILL 来源: {skill_source}")
+        if skill_source == "database":
+            log_msg(f"📝 使用数据库脚本代码 ({len(script_code)} 字符)")
+        else:
+            log_msg(f"📁 入口脚本: {entry_point}")
 
         # 2. 处理 Logical_Blueprint 类型（交由 Nextflow Generator 接管）
         if executor_type == "Logical_Blueprint":
@@ -1220,21 +1236,28 @@ def execute_bundle_task(self, payload: dict):
 
                 return {"status": "error", "message": error_msg}
 
-        # 3. 检查入口脚本是否存在
-        if not entry_point or entry_point == "none":
-            log_msg(f"💥 SKILL 缺少有效的 entry_point", level="ERROR")
-            return {"status": "error", "message": "No entry point defined"}
+        # 3. 获取脚本模板 - 支持文件系统和数据库两种来源
+        script_template = ""
+        if skill_source == "database" and script_code:
+            # 数据库 SKILL：直接使用 script_code
+            script_template = script_code
+            log_msg(f"✅ 已加载数据库脚本代码 ({len(script_code)} 字符)")
+        else:
+            # 文件系统 SKILL：从文件读取
+            if not entry_point or entry_point == "none":
+                log_msg(f"💥 SKILL 缺少有效的 entry_point", level="ERROR")
+                return {"status": "error", "message": "No entry point defined"}
 
-        script_path = os.path.join(bundle_path, entry_point)
-        if not os.path.exists(script_path):
-            log_msg(f"💥 入口脚本不存在: {script_path}", level="ERROR")
-            return {"status": "error", "message": f"Entry script not found: {script_path}"}
+            script_path = os.path.join(bundle_path, entry_point)
+            if not os.path.exists(script_path):
+                log_msg(f"💥 入口脚本不存在: {script_path}", level="ERROR")
+                return {"status": "error", "message": f"Entry script not found: {script_path}"}
 
-        # 4. 读取脚本模板
-        with open(script_path, 'r', encoding='utf-8') as f:
-            script_template = f.read()
+            with open(script_path, 'r', encoding='utf-8') as f:
+                script_template = f.read()
+            log_msg(f"✅ 已加载文件系统脚本: {entry_point}")
 
-        # 5. 使用 Jinja2 渲染参数
+        # 4. 使用 Jinja2 渲染参数
         # 注入系统级参数
         render_context = {
             **parameters,
@@ -1242,6 +1265,10 @@ def execute_bundle_task(self, payload: dict):
             "TASK_ID": task_id,
             "TASK_OUT_DIR": f"/app/uploads/project_{project_id}/results/task_{str(task_id)[:8]}"
         }
+
+        log_msg(f"🔧 渲染参数:")
+        for k, v in render_context.items():
+            log_msg(f"   {k} = {str(v)[:100]}")
 
         try:
             template = Template(script_template)
@@ -1252,14 +1279,14 @@ def execute_bundle_task(self, payload: dict):
 
         log_msg("✅ 脚本模板渲染完成")
 
-        # 6. 创建任务专属输出目录
+        # 5. 创建任务专属输出目录
         task_short_id = str(task_id)[:8]
         task_dir_name = f"task_{task_short_id}"
         task_out_dir = f"/app/uploads/project_{project_id}/results/{task_dir_name}"
         os.makedirs(task_out_dir, exist_ok=True)
         log_msg(f"📁 已分配专属输出目录: results/{task_dir_name}")
 
-        # 7. 根据执行器类型选择语言
+        # 6. 根据执行器类型选择语言
         language = "python"
         if "python" in executor_type.lower():
             language = "python"
@@ -1270,13 +1297,23 @@ def execute_bundle_task(self, payload: dict):
 
         log_msg(f"📝 渲染后的脚本 ({language}):")
         script_lines = rendered_script.split('\n')
-        for line in script_lines[:15]:
+        for line in script_lines[:20]:
             log_msg(f"   {line}")
-        if len(script_lines) > 15:
+        if len(script_lines) > 20:
             log_msg(f"   ... (共 {len(script_lines)} 行)")
 
-        # 8. 在 Docker 沙箱中执行
+        # 7. 在 Docker 沙箱中执行
         log_msg(f"🛡️ 启动安全沙箱容器 (autonome-tool-env)...")
+
+        # ✨ 显示完整的执行命令
+        if language == "python":
+            exec_cmd_display = f"python -c \"{rendered_script[:200]}...\"" if len(rendered_script) > 200 else f"python -c \"{rendered_script}\""
+        elif language == "r":
+            exec_cmd_display = f"Rscript -e \"{rendered_script[:200]}...\"" if len(rendered_script) > 200 else f"Rscript -e \"{rendered_script}\""
+        else:
+            exec_cmd_display = rendered_script[:500]
+        log_msg(f"🔧 执行命令: {exec_cmd_display}")
+
         log_msg(f"⏳ 执行中... (最长等待 1 小时)")
 
         env = {"TASK_OUT_DIR": task_out_dir, "PROJECT_ID": project_id}
@@ -1287,7 +1324,7 @@ def execute_bundle_task(self, payload: dict):
         log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
         log_msg(f"🔢 退出码: {exit_code}")
 
-        # 9. 终端乱码清理
+        # 8. 终端乱码清理
         if result_output:
             result_output = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', result_output)
             result_output = re.sub(r'\[\?\d+[hl]', '', result_output)

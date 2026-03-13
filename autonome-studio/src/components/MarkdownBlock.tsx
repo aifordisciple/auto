@@ -482,36 +482,36 @@ export function MarkdownBlock({ content }: { content: string }) {
             return <>{children}</>;
           },
 
-          // 表格渲染优化
+          // 表格渲染优化 - 专业级表格样式
           table: ({ children }: any) => (
-            <div className="w-full my-4 overflow-x-auto rounded-xl border border-gray-200 dark:border-neutral-700 shadow-sm">
-              <table className="w-full text-sm border-collapse">
+            <div className="w-full my-4 overflow-x-auto rounded-xl border border-gray-200 dark:border-neutral-700 shadow-lg bg-white dark:bg-neutral-900">
+              <table className="w-full text-sm border-collapse min-w-[500px]">
                 {children}
               </table>
             </div>
           ),
 
           thead: ({ children }: any) => (
-            <thead className="bg-gray-50 dark:bg-neutral-800/50 sticky top-0">
+            <thead className="bg-gradient-to-r from-gray-100 to-gray-50 dark:from-neutral-800 dark:to-neutral-800/70">
               {children}
             </thead>
           ),
 
           tbody: ({ children }: any) => (
-            <tbody className="divide-y divide-gray-100 dark:divide-neutral-800">
+            <tbody className="divide-y divide-gray-100 dark:divide-neutral-800/50">
               {children}
             </tbody>
           ),
 
           tr: ({ children }: any) => (
-            <tr className="hover:bg-gray-50 dark:hover:bg-neutral-800/30 transition-colors">
+            <tr className="hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors even:bg-gray-50/50 dark:even:bg-neutral-800/20">
               {children}
             </tr>
           ),
 
           th: ({ children, align }: any) => (
             <th
-              className={`px-4 py-3 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-neutral-700 ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'}`}
+              className={`px-4 py-3 text-xs font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider border-b-2 border-gray-200 dark:border-neutral-600 whitespace-nowrap ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'}`}
             >
               {children}
             </th>
@@ -519,7 +519,7 @@ export function MarkdownBlock({ content }: { content: string }) {
 
           td: ({ children, align }: any) => (
             <td
-              className={`px-4 py-2.5 text-sm text-gray-600 dark:text-gray-400 ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'}`}
+              className={`px-4 py-3 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-neutral-800/50 whitespace-nowrap ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'}`}
             >
               {children}
             </td>
