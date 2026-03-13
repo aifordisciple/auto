@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet, Paperclip, Upload, CloudUpload, Bookmark } from "lucide-react";
+import { Bot, User, Sparkles, Copy, Check, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, FileImage, FileSpreadsheet, Paperclip, Upload, CloudUpload, Bookmark, Box, Code } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 import { useChatStore } from "@/store/useChatStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useUIStore } from "@/store/useUIStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StrategyCard, parseStrategyCard } from "./StrategyCard";
 import { BlueprintCard, parseBlueprint } from "./BlueprintCard";
@@ -795,13 +796,22 @@ export function ChatStage() {
   const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId, pendingChatAttachments, clearPendingChatAttachments, setPendingChatAttachments, removePendingChatAttachment } = useWorkspaceStore();
   const { messages, addMessage, setMessages, appendLastMessage, isTyping, setIsTyping } = useChatStore();
   const { updateCredits } = useAuthStore();
+  const { openSkillCenter } = useUIStore();
 
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isStreamingRef = useRef(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  // ✨ 选项菜单状态（加号按钮点击后的选项列表）
+  const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
 
   // ✨ 附件选择器状态
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
+
+  // ✨ 导入代码弹窗状态
+  const [isCodeImportOpen, setIsCodeImportOpen] = useState(false);
+  const [importedCode, setImportedCode] = useState("");
 
   // ✨ 聊天区文件预览状态引擎
   const [previewData, setPreviewData] = useState<{url: string, filename: string} | null>(null);
@@ -1067,6 +1077,17 @@ export function ChatStage() {
     return () => window.removeEventListener('shortcut-focus-input', handleFocusInput);
   }, []);
 
+  // ✨ 点击外部关闭选项菜单
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setIsActionMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleSend = async (messageText?: string, contextFiles?: string[]) => {
     const currentInput = messageText || inputValue;
     // 允许空消息但有附件时发送
@@ -1204,17 +1225,83 @@ export function ChatStage() {
 
       {/* 底部操作栏：左侧附件按钮，右侧发送按钮 */}
       <div className="flex justify-between items-center px-2 pb-1 pt-1">
-        {/* 左侧: 添加附件按钮 (Plus 图标) */}
-        <button
-          onClick={() => setIsAttachmentPickerOpen(true)}
-          className="p-2 text-neutral-500 hover:text-blue-500 hover:bg-blue-500/10 rounded-full transition-all"
-          title="添加附件"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        </button>
+        {/* 左侧: 操作按钮 (Plus 图标) - 点击弹出选项菜单 */}
+        <div className="relative" ref={actionMenuRef}>
+          <button
+            onClick={() => setIsActionMenuOpen(!isActionMenuOpen)}
+            className={`p-2 rounded-full transition-all ${isActionMenuOpen ? 'text-blue-500 bg-blue-500/10' : 'text-neutral-500 hover:text-blue-500 hover:bg-blue-500/10'}`}
+            title="添加内容"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isActionMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}>
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+
+          {/* ✨ 选项菜单 - 类似 Gemini 风格 */}
+          <AnimatePresence>
+            {isActionMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.15 }}
+                className="absolute bottom-full left-0 mb-2 w-56 bg-[#1a1a1c] border border-neutral-700 rounded-xl shadow-2xl overflow-hidden z-50"
+              >
+                {/* 添加附件选项 */}
+                <button
+                  onClick={() => {
+                    setIsActionMenuOpen(false);
+                    setIsAttachmentPickerOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/60 transition-colors text-left"
+                >
+                  <div className="p-2 bg-blue-500/10 rounded-lg">
+                    <Paperclip size={18} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm text-neutral-200">添加附件</div>
+                    <div className="text-xs text-neutral-500">上传文件或选择项目文件</div>
+                  </div>
+                </button>
+
+                {/* 选择技能选项 */}
+                <button
+                  onClick={() => {
+                    setIsActionMenuOpen(false);
+                    openSkillCenter();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/60 transition-colors text-left border-t border-neutral-800"
+                >
+                  <div className="p-2 bg-purple-500/10 rounded-lg">
+                    <Box size={18} className="text-purple-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm text-neutral-200">选择技能</div>
+                    <div className="text-xs text-neutral-500">运行标准化分析模块</div>
+                  </div>
+                </button>
+
+                {/* 导入代码选项 */}
+                <button
+                  onClick={() => {
+                    setIsActionMenuOpen(false);
+                    setIsCodeImportOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/60 transition-colors text-left border-t border-neutral-800"
+                >
+                  <div className="p-2 bg-green-500/10 rounded-lg">
+                    <Code size={18} className="text-green-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm text-neutral-200">导入代码</div>
+                    <div className="text-xs text-neutral-500">粘贴代码片段作为上下文</div>
+                  </div>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         {/* 右侧: 发送按钮 */}
         <button
@@ -1498,6 +1585,74 @@ export function ChatStage() {
           setPendingChatAttachments(newPaths);
         }}
       />
+
+      {/* ✨ 导入代码弹窗 */}
+      <AnimatePresence>
+        {isCodeImportOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCodeImportOpen(false)} />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-[600px] max-h-[70vh] bg-[#1a1a1c] border border-neutral-700 rounded-xl shadow-2xl flex flex-col"
+            >
+              {/* Header */}
+              <div className="shrink-0 border-b border-neutral-800 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Code size={18} className="text-green-400" />
+                  <h3 className="text-sm font-semibold text-neutral-200">导入代码</h3>
+                </div>
+                <button onClick={() => setIsCodeImportOpen(false)} className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <p className="text-xs text-neutral-500 mb-3">粘贴代码片段，将作为对话上下文发送给 AI 助手。</p>
+                <textarea
+                  value={importedCode}
+                  onChange={(e) => setImportedCode(e.target.value)}
+                  placeholder="在此粘贴代码..."
+                  className="w-full h-64 bg-neutral-900 border border-neutral-800 rounded-lg p-3 text-sm text-neutral-300 font-mono resize-none outline-none focus:border-green-500/50 transition-colors placeholder:text-neutral-600"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="shrink-0 border-t border-neutral-800 px-4 py-3 flex justify-end gap-2">
+                <button
+                  onClick={() => setIsCodeImportOpen(false)}
+                  className="px-4 py-2 text-sm text-neutral-400 hover:text-white transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    if (importedCode.trim()) {
+                      // 将代码添加到输入框
+                      const codeBlock = `\n\`\`\`\n${importedCode}\n\`\`\`\n`;
+                      setInputValue(prev => prev + codeBlock);
+                      setImportedCode("");
+                      setIsCodeImportOpen(false);
+                    }
+                  }}
+                  disabled={!importedCode.trim()}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white text-sm rounded-lg transition-colors"
+                >
+                  <Code size={14} />
+                  导入代码
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
