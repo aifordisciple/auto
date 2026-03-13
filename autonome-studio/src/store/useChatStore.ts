@@ -44,6 +44,8 @@ interface ChatState {
   addMessage: (role: Role, content: string) => void;
   // 新增：用于流式拼接最后一个气泡的内容
   appendLastMessage: (contentChunk: string) => void;
+  // 新增：更新指定消息的内容
+  updateMessage: (messageId: string, content: string) => void;
   // 清空消息
   clearMessages: () => void;
   isTyping: boolean;
@@ -89,7 +91,7 @@ export const useChatStore = create<ChatState>((set) => ({
       ],
     })),
   // 新增实现：找到最后一条消息，把新传来的字符拼接到末尾
-  appendLastMessage: (contentChunk) =>
+  appendLastMessage: (contentChunk: string) =>
     set((state) => {
       const newMessages = [...state.messages];
       if (newMessages.length > 0) {
@@ -97,6 +99,13 @@ export const useChatStore = create<ChatState>((set) => ({
       }
       return { messages: newMessages };
     }),
+  // 新增实现：更新指定消息的内容
+  updateMessage: (messageId: string, content: string) =>
+    set((state) => ({
+      messages: state.messages.map(msg =>
+        msg.id === messageId ? { ...msg, content } : msg
+      ),
+    })),
   // 清空消息（保留初始欢迎语）
   clearMessages: () => set({ messages: [initialMessage] }),
   isTyping: false,

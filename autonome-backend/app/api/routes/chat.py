@@ -3,7 +3,7 @@ import os
 from http import HTTPStatus
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -543,6 +543,33 @@ def get_session_messages(
         .order_by(ChatMessage.created_at)
     ).all()
     return {"status": "success", "data": messages}
+
+
+@router.patch("/messages/{message_id}")
+def update_message_content(
+    message_id: str,
+    content: str = Body(..., embed=True),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """更新消息内容（用于持久化任务ID等元数据）"""
+    message = session.get(ChatMessage, message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail="消息不存在")
+
+    # 验证权限
+    chat_session = session.get(ChatSession, message.session_id)
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = session.get(Project, chat_session.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+
+    message.content = content
+    session.add(message)
+    session.commit()
+    return {"status": "success"}
 
 
 @router.put("/sessions/{session_id}")

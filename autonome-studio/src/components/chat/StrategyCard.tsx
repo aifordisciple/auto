@@ -21,6 +21,8 @@ export interface StrategyCardData {
 
 interface StrategyCardProps {
   data: StrategyCardData;
+  messageId?: string;
+  messageContent?: string;
   onExecute?: (taskId: string) => void;
   onCancel?: () => void;
 }
@@ -159,7 +161,7 @@ const LogModal = ({ taskId, isOpen, onClose }: { taskId: string; isOpen: boolean
   );
 };
 
-export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
+export function StrategyCard({ data, messageId, messageContent, onExecute, onCancel }: StrategyCardProps) {
   const { currentProjectId, currentSessionId } = useWorkspaceStore();
   const { autoExecuteStrategy } = useUIStore();
   const [isExecuting, setIsExecuting] = useState(false);
@@ -197,6 +199,40 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   // 判断是否为 SKILL 类型（非 execute-python/execute-r）
   const isSkillType = data.tool_id !== 'execute-python' && data.tool_id !== 'execute-r';
   const hasCode = !isSkillType && (data.code || editableCode);
+
+  // ✨ 从消息内容中提取已存储的 taskId
+  const getStoredTaskId = (): string | null => {
+    if (!messageContent) return null;
+    const match = messageContent.match(/<!-- TASK_ID: ([a-f0-9-]+) -->/);
+    return match ? match[1] : null;
+  };
+
+  // ✨ 组件挂载时恢复任务状态
+  useEffect(() => {
+    const storedTaskId = getStoredTaskId();
+    if (storedTaskId && !taskId) {
+      setTaskId(storedTaskId);
+      // 查询任务状态
+      const fetchTaskStatus = async () => {
+        try {
+          const response = await fetch(`${BASE_URL}/api/tasks/${storedTaskId}/status`);
+          const result = await response.json();
+          if (result.status) {
+            setTaskStatus(result.status);
+            setProgress(result.progress || null);
+            // 如果任务还在执行中，连接 WebSocket
+            if (result.status === 'PENDING' || result.status === 'STARTED' || result.status === 'RETRY') {
+              setIsExecuting(true);
+              connectWebSocket(storedTaskId);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch task status:', e);
+        }
+      };
+      fetchTaskStatus();
+    }
+  }, []);
 
   // 复制代码到剪贴板（带降级方案）
   const handleCopyCode = async () => {

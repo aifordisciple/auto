@@ -794,7 +794,7 @@ const AssetTreeCard = ({ links, onPreview, onDownload, onInterpret }: { links: {
 
 export function ChatStage() {
   const { currentProjectId, setActiveTool, updateToolParam, currentSessionId, setCurrentSessionId, pendingChatAttachments, clearPendingChatAttachments, setPendingChatAttachments, removePendingChatAttachment } = useWorkspaceStore();
-  const { messages, addMessage, setMessages, appendLastMessage, isTyping, setIsTyping } = useChatStore();
+  const { messages, addMessage, setMessages, appendLastMessage, updateMessage, isTyping, setIsTyping } = useChatStore();
   const { updateCredits } = useAuthStore();
   const { openSkillCenter } = useUIStore();
 
@@ -1476,7 +1476,28 @@ export function ChatStage() {
                             })()}
 
                             {/* ✨ 调整顺序 2：把策略卡片放到最后面，作为用户的下一步行动入口 */}
-                            {strategyCard && <StrategyCard data={strategyCard} />}
+                            {strategyCard && (
+                              <StrategyCard
+                                data={strategyCard}
+                                messageId={msg.id}
+                                messageContent={msg.content}
+                                onExecute={(taskId) => {
+                                  // 将 taskId 存储到消息内容中
+                                  const newContent = msg.content + `\n<!-- TASK_ID: ${taskId} -->`;
+                                  updateMessage(msg.id, newContent);
+                                  // 持久化到后端数据库
+                                  const token = localStorage.getItem('autonome_access_token');
+                                  fetch(`${BASE_URL}/api/chat/messages/${msg.id}`, {
+                                    method: 'PATCH',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                                    },
+                                    body: JSON.stringify({ content: newContent })
+                                  }).catch(e => console.error('Failed to persist task ID:', e));
+                                }}
+                              />
+                            )}
 
                             {/* ✨ 蓝图卡片：复杂任务可视化 */}
                             {blueprintData && <BlueprintCard content={JSON.stringify(blueprintData)} />}
