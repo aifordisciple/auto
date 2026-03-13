@@ -126,7 +126,9 @@ class SandboxRetryHandler:
         if not output:
             return "执行无输出"
 
-        lines = output.split('\n')
+        # ✨ 确保转换为字符串
+        output_str = str(output) if not isinstance(output, str) else output
+        lines = output_str.split('\n')
         error_lines = []
 
         # 查找错误起始位置
@@ -364,7 +366,16 @@ async def chat_stream(
 
                 elif kind == "on_tool_end":
                     tool_name = event.get("name", "unknown")
-                    output = event.get("data", {}).get("output", "")
+                    output_raw = event.get("data", {}).get("output", "")
+
+                    # ✨ 安全处理：output 可能是 ToolMessage 对象或字符串
+                    if hasattr(output_raw, 'content'):
+                        # ToolMessage 对象
+                        output = output_raw.content if output_raw.content else ""
+                    elif isinstance(output_raw, str):
+                        output = output_raw
+                    else:
+                        output = str(output_raw) if output_raw else ""
 
                     if tool_name in ["execute_python_code"]:
                         # ✨ Feature 2: 增强的错误检测
