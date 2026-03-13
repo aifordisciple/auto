@@ -475,7 +475,7 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-neutral-900 dark:to-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl p-5 shadow-sm dark:shadow-xl my-4 max-w-2xl"
+      className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-neutral-900 dark:to-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl p-5 shadow-sm dark:shadow-xl my-4 w-full"
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
