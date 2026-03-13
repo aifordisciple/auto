@@ -786,36 +786,42 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
             )}
           </>
         ) : (
-          <div className="flex items-center gap-3 w-full flex-wrap">
+          /* ✨ 任务完成状态行：状态徽章 + TaskID + 眼睛图标 */
+          <div className="flex items-center gap-3 w-full">
             {/* 完成状态徽章 */}
-            {taskStatus === 'SUCCESS' && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-500/30 rounded-lg">
+            {taskStatus === 'SUCCESS' ? (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-500/30 rounded-lg">
                 <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
-                <span className="text-sm font-medium text-green-700 dark:text-green-300">执行完成</span>
+                <span className="text-sm font-medium text-green-700 dark:text-green-300">完成</span>
               </div>
-            )}
-            {taskStatus === 'FAILURE' && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-500/30 rounded-lg">
+            ) : taskStatus === 'FAILURE' ? (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-500/30 rounded-lg">
                 <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                <span className="text-sm font-medium text-red-700 dark:text-red-300">执行失败</span>
+                <span className="text-sm font-medium text-red-700 dark:text-red-300">失败</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg">
+                <Loader2 className="w-4 h-4 text-gray-500 animate-spin" />
+                <span className="text-sm font-medium text-gray-600 dark:text-neutral-400">执行中</span>
               </div>
             )}
-            {/* 任务 ID - 可点击跳转到分析资产 */}
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-neutral-400">
-              <span>Task ID:</span>
+
+            {/* Task ID 组：ID + 跳转按钮 + 日志眼睛 */}
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => scrollToResultMessage(taskId)}
-                className="group flex items-center gap-1 bg-gray-200 dark:bg-neutral-800 px-2 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                className="group flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-neutral-800 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                 title="点击跳转到分析结果"
               >
-                <code className="text-blue-600 dark:text-blue-400 font-mono">{taskId.slice(0, 8)}</code>
-                <ExternalLink className="w-3 h-3 text-gray-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <span className="text-xs text-gray-500 dark:text-neutral-500">Task</span>
+                <code className="text-xs text-blue-600 dark:text-blue-400 font-mono font-medium">{taskId.slice(0, 8)}</code>
+                <ExternalLink className="w-3 h-3 text-gray-400 group-hover:text-blue-500 transition-colors" />
               </button>
               {/* 眼睛图标 - 查看日志 */}
               <button
                 onClick={() => setShowLogModal(true)}
-                className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded transition-colors"
-                title="查看日志"
+                className="p-1.5 text-gray-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                title="查看执行日志"
               >
                 <Eye className="w-4 h-4" />
               </button>
