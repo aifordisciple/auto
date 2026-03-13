@@ -910,7 +910,13 @@ export function ChatStage() {
         }),
         openWhenHidden: true,
         onopen: async (res) => {
-          if (!res.ok || res.status !== 200) {
+          if (!res.ok) {
+            if (res.status === 402) {
+              appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
+              isStreamingRef.current = false;
+              setIsTyping(false);
+              throw new Error('Insufficient credits');
+            }
             throw new Error(`Server responded with ${res.status}`);
           }
         },
@@ -1131,7 +1137,13 @@ export function ChatStage() {
         }),
         openWhenHidden: true,
         onopen: async (res) => {
-          if (!res.ok || res.status !== 200) {
+          if (!res.ok) {
+            if (res.status === 402) {
+              appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
+              isStreamingRef.current = false;
+              setIsTyping(false);
+              throw new Error('Insufficient credits');
+            }
             throw new Error(`Server responded with ${res.status}`);
           }
         },
