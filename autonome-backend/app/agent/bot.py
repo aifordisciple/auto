@@ -99,33 +99,47 @@ def build_bio_agent(api_key: str, base_url: str, model_name: str, physical_file_
 1. 用户提到数据文件 → 先调用 peek_tabular_data 预览
 2. 用户提到目录 → 先调用 scan_workspace 扫描
 3. 根据预览结果 → 制定处理策略
-4. 最后 → 输出代码
+4. 输出代码（用 ```python 或 ```r 包裹）
+5. 输出策略卡片（用 ```json_strategy 包裹）
+6. 等待用户确认后，前端会执行代码
 
-【Debugger 自我修复闭环 - 🚨 自动重试机制】
-你拥有 execute_python_code 工具，可以直接执行代码。当执行失败时：
+【策略卡片确认流程 - 🚨 强制执行】
+⚠️ 你没有直接执行代码的权限！必须按照以下流程操作：
 
-1. **自动重试流程**：
-   - 沙箱执行失败 → 系统推送错误信息给你
-   - 分析错误日志，定位问题根源
-   - 生成修正后的完整代码
-   - 再次调用 execute_python_code 执行
+1. **必须输出代码块**：用 ```python 或 ```r 包裹完整可执行代码
+2. **必须输出策略卡片**：紧跟代码块后，用 ```json_strategy 包裹
+3. **等待用户确认**：前端会展示策略卡片，用户点击确认后才执行
 
-2. **重试限制**：
-   - 最多自动重试 3 次
-   - 每次重试必须保留完整的参数系统和注释
-   - 如果是数据问题，先调用探针工具确认数据结构
+正确示例：
+```python
+import pandas as pd
+# 你的代码...
+```
 
-3. **常见错误修复策略**：
-   - FileNotFoundError: 检查文件路径，使用 scan_workspace 确认实际路径
-   - KeyError/ColumnNotFoundError: 使用 peek_tabular_data 确认列名
-   - ImportError/ModuleNotFoundError: 检查依赖，尝试替代方案
-   - ValueError/TypeError: 检查数据类型，添加类型转换
-   - 除零错误/空数据: 添加防御性检查
+```json_strategy
+{{
+  "title": "数据提取",
+  "description": "提取并拆分基因数据",
+  "tool_id": "execute-python",
+  "steps": ["读取文件", "提取列", "拆分数据"],
+  "estimated_time": "约 1 分钟"
+}}
+```
 
-4. **失败后的处理**：
-   - 如果 3 次重试后仍失败，向用户清晰说明问题
-   - 提供可能的解决方案或替代方案
-   - 不要简单道歉，要提供有价值的信息
+❌ 错误做法：直接说"我已经为您执行了"或"正在执行"
+✅ 正确做法：输出代码和策略卡片，等待用户确认
+
+【执行失败处理】
+如果用户反馈执行失败，你需要：
+1. 分析错误信息
+2. 定位问题根源
+3. 输出修正后的代码和新的策略卡片
+
+常见错误修复策略：
+- FileNotFoundError: 检查文件路径，使用 scan_workspace 确认实际路径
+- KeyError/ColumnNotFoundError: 使用 peek_tabular_data 确认列名
+- ImportError/ModuleNotFoundError: 检查依赖，尝试替代方案
+- ValueError/TypeError: 检查数据类型，添加类型转换
 
 【PI Agent 宏观规划模式 - 复杂任务蓝图】
 当用户提出**复杂、多步骤的需求**时（如"复刻某文献的分析流程"、"完成 RNA-Seq 全流程"），你必须输出 json_blueprint 蓝图，而不是简单的策略卡片。
@@ -298,10 +312,9 @@ with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
 
 """
 
-    # ✨ 核心工具集：探针工具 + 沙箱执行工具
-    # Agent 可以直接执行代码，并根据错误自动修复重试
+    # ✨ 核心工具集：仅探针工具（Agent 只负责制定计划，不直接执行代码）
+    # 代码的实际执行由前端 UI 拦截策略卡片后，用户确认再交由沙箱运行
     from app.tools.probe_tools import peek_tabular_data, scan_workspace
-    from app.tools.bio_tools import execute_python_code
 
     all_tools = [
         search_and_vectorize_geo_data,
@@ -309,7 +322,7 @@ with open(f'{{out_dir}}/data_summary.txt', 'w') as f:
         generate_publishable_report,
         peek_tabular_data,  # 🔍 环境探针：预览表格数据
         scan_workspace,      # 🔍 环境探针：扫描目录结构
-        execute_python_code  # 🛡️ 沙箱执行：运行分析代码（支持自动重试修复）
+        # 注意：不包含 execute_python_code，Agent 只输出代码和策略卡片，不直接执行
     ]
     main_agent = create_react_agent(llm, tools=all_tools, prompt=main_prompt)
 
