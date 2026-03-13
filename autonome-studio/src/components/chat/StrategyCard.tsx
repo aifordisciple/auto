@@ -198,13 +198,28 @@ export function StrategyCard({ data, onExecute, onCancel }: StrategyCardProps) {
   const isSkillType = data.tool_id !== 'execute-python' && data.tool_id !== 'execute-r';
   const hasCode = !isSkillType && (data.code || editableCode);
 
-  // 复制代码到剪贴板
+  // 复制代码到剪贴板（带降级方案）
   const handleCopyCode = async () => {
     const codeToCopy = isEditingCode ? editableCode : (data.code || editableCode);
     if (!codeToCopy) return;
 
     try {
-      await navigator.clipboard.writeText(codeToCopy);
+      // 优先使用现代 Clipboard API
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(codeToCopy);
+      } else {
+        // 降级方案：使用 execCommand
+        const textArea = document.createElement('textarea');
+        textArea.value = codeToCopy;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
       setIsCodeCopied(true);
       setTimeout(() => setIsCodeCopied(false), 2000);
     } catch (err) {
