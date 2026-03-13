@@ -1391,12 +1391,12 @@ export function ChatStage() {
 
                             {/* ✨ 使用 AssetTreeCard 渲染资产文件 */}
                             {msg.content && (() => {
-                              // ✨ 检测是否是策略消息，如果是则不提取文件（策略阶段的路径是假的）
-                              const isStrategyMsg = msg.content.includes('```json_strategy');
-
-                              // 如果是策略消息，不提取文件路径，只渲染文本
-                              if (isStrategyMsg) {
-                                let cleanText = msg.content.replace(/```json_strategy[\s\S]*?(```|$)/g, '').trim();
+                              // ✨ 如果有策略卡片，移除代码块和 JSON 策略块（策略卡片已包含这些内容）
+                              if (strategyCard) {
+                                let cleanText = msg.content
+                                  .replace(/```json_strategy[\s\S]*?(```|$)/g, '')
+                                  .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
+                                  .trim();
                                 return <MarkdownBlock content={cleanText} />;
                               }
 
