@@ -801,6 +801,7 @@ export function ChatStage() {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isStreamingRef = useRef(false);
+  const isInsufficientCreditsRef = useRef(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
 
   // ✨ 选项菜单状态（加号按钮点击后的选项列表）
@@ -912,6 +913,7 @@ export function ChatStage() {
         onopen: async (res) => {
           if (!res.ok) {
             if (res.status === 402) {
+              isInsufficientCreditsRef.current = true;
               appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
               isStreamingRef.current = false;
               setIsTyping(false);
@@ -939,6 +941,9 @@ export function ChatStage() {
         onerror(err) {
           isStreamingRef.current = false;
           setIsTyping(false);
+          if (isInsufficientCreditsRef.current) {
+            return;
+          }
           console.error("Interpret Error:", err);
           appendLastMessage("\n\n**[系统错误]** 深度解读服务异常，请稍后重试。");
           throw err;
@@ -947,6 +952,9 @@ export function ChatStage() {
     } catch (error) {
       isStreamingRef.current = false;
       setIsTyping(false);
+      if (isInsufficientCreditsRef.current) {
+        return;
+      }
       console.error('[Interpret] Error:', error);
       appendLastMessage("\n\n**[系统错误]** 深度解读请求失败。");
     }
@@ -1118,6 +1126,9 @@ export function ChatStage() {
       clearPendingChatAttachments();
     }
 
+    // 重置余额不足标志
+    isInsufficientCreditsRef.current = false;
+
     try {
       const token = localStorage.getItem('autonome_access_token');
       console.log('[Chat] Sending message:', { project_id: currentProjectId, session_id: currentSessionId });
@@ -1139,6 +1150,7 @@ export function ChatStage() {
         onopen: async (res) => {
           if (!res.ok) {
             if (res.status === 402) {
+              isInsufficientCreditsRef.current = true;
               appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
               isStreamingRef.current = false;
               setIsTyping(false);
@@ -1182,14 +1194,22 @@ export function ChatStage() {
         onerror(err) {
           isStreamingRef.current = false;
           setIsTyping(false);
+          // 如果是余额不足错误，不再显示额外错误消息
+          if (isInsufficientCreditsRef.current) {
+            return;
+          }
           console.error("Connection Error:", err);
           appendLastMessage("\n\n**[系统错误]** 连接后端大脑失败，请检查 FastAPI 服务是否启动。");
-          throw err; 
+          throw err;
         }
       });
     } catch (error) {
       isStreamingRef.current = false;
       setIsTyping(false);
+      // 如果是余额不足错误，不再显示额外错误消息
+      if (isInsufficientCreditsRef.current) {
+        return;
+      }
       console.error('[Chat] Send error:', error);
       appendLastMessage("\n\n**[系统错误]** 发送消息失败，请检查控制台。");
     }
