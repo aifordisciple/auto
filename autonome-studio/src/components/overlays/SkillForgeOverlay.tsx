@@ -219,7 +219,7 @@ export function SkillForgeOverlay() {
     if (craftedSkill && craftedSkill.parameters_schema?.properties) {
       const defaults: Record<string, unknown> = {};
       Object.entries(craftedSkill.parameters_schema.properties).forEach(([key, prop]) => {
-        defaults[key] = prop.default ?? '';
+        defaults[key] = (prop as { default?: unknown }).default ?? '';
       });
       setParamValues(defaults);
     }
@@ -306,7 +306,7 @@ export function SkillForgeOverlay() {
       if (result.parsed_files && result.parsed_files.length > 0) {
         setBundleFiles(result.parsed_files);
         setShowBundlePreview(true);
-        setCraftLogs(prev => prev + `\n📁 解析到 ${result.parsed_files.length} 个文件:\n`);
+        setCraftLogs(prev => prev + `\n📁 解析到 ${result.parsed_files?.length ?? 0} 个文件:\n`);
         result.parsed_files.forEach(f => {
           setCraftLogs(prev => prev + `  - ${f.path} (${f.type}${f.language ? ', ' + f.language : ''})\n`);
         });

@@ -135,6 +135,7 @@ export interface CraftResponse {
   dependencies: string[];
   validation_warning?: string;
   validation_passed?: boolean;
+  skill_md?: string;
 }
 
 export interface BundleResponse {
@@ -780,7 +781,7 @@ export const forgeSessionApi = {
   /**
    * 保存并提交审核
    */
-  submitSkill: async (sessionId: string): Promise<{ status: string; skill_id: string; name: string; status: string }> => {
+  submitSkill: async (sessionId: string): Promise<{ status: string; skill_id: string; name: string }> => {
     const response = await fetchAPI(`/api/skills/forge/session/${sessionId}/submit`, {
       method: 'POST',
     });

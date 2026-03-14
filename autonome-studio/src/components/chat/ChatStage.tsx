@@ -144,7 +144,7 @@ const AttachmentPicker = ({ isOpen, onClose, onAddFiles, projectId }: {
 
       const parts = filePath.split('/');
       let current = root;
-      parts.forEach((part, idx) => {
+      parts.forEach((part: string, idx: number) => {
         if (!current[part]) {
           current[part] = {
             name: part,

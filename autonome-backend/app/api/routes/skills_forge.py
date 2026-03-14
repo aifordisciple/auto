@@ -505,4 +505,106 @@ async def submit_forge_skill(
     }
 
 
+# ==========================================
+# POST /infer_parameters - AI 参数推断
+# ==========================================
+class InferParametersRequest(BaseModel):
+    """参数推断请求"""
+    code: str
+    executor_type: str = "Python_env"
+
+
+@router.post("/infer_parameters")
+async def infer_parameters(
+    request: InferParametersRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    从代码推断参数定义
+
+    分析 Python argparse 或 R commandArgs 代码，返回 JSON Schema
+    """
+    import re
+    import json
+
+    code = request.code
+    executor_type = request.executor_type
+
+    # 使用 LLM 进行智能推断
+    api_key, base_url, model_name = get_api_config(session)
+
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import HumanMessage
+
+    llm = ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        model=model_name,
+        temperature=0.1
+    )
+
+    prompt = f"""分析以下{'Python' if executor_type == 'Python_env' else 'R' if executor_type == 'R_env' else 'Nextflow'}代码，提取所有参数定义，返回 JSON Schema 格式。
+
+代码:
+```
+{code}
+```
+
+请返回符合以下格式的 JSON Schema:
+{{
+  "type": "object",
+  "properties": {{
+    "param_name": {{
+      "type": "string|number|integer|boolean",
+      "description": "参数描述",
+      "default": "默认值"
+    }}
+  }},
+  "required": ["必填参数列表"]
+}}
+
+注意:
+1. type 必须是 string, number, integer, boolean 之一
+2. 对于文件路径参数，添加 "format": "file-path"
+3. 对于目录路径参数，添加 "format": "directory-path"
+4. 必须包含 description 字段
+5. 只返回 JSON，不要有其他内容"""
+
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        content = response.content
+
+        # 提取 JSON
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_str = content.strip()
+
+        parameters_schema = json.loads(json_str)
+
+        log.info(f"✅ [Forge] 参数推断完成，发现 {len(parameters_schema.get('properties', {}))} 个参数")
+
+        return {
+            "status": "success",
+            "parameters_schema": parameters_schema
+        }
+
+    except json.JSONDecodeError as e:
+        log.error(f"🔥 [Forge] JSON 解析失败: {e}")
+        return {
+            "status": "error",
+            "parameters_schema": {"type": "object", "properties": {}, "required": []},
+            "message": "参数推断失败，请手动定义参数"
+        }
+    except Exception as e:
+        log.error(f"🔥 [Forge] 参数推断失败: {e}")
+        return {
+            "status": "error",
+            "parameters_schema": {"type": "object", "properties": {}, "required": []},
+            "message": str(e)
+        }
+
+
 log.info("✅ 技能锻造会话 API 已加载")

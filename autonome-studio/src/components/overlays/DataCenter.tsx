@@ -309,9 +309,10 @@ export function DataCenter() {
     }
 
     // 真实的右键菜单事件
+    const mouseEvent = e as React.MouseEvent;
     setContextMenu({
-      x: e.clientX || 0,
-      y: e.clientY || 0,
+      x: mouseEvent.clientX || 0,
+      y: mouseEvent.clientY || 0,
       node: node
     });
   }, []);
@@ -359,7 +360,9 @@ export function DataCenter() {
       // 清理状态并刷新
       setSelectedPaths(new Set());
       setIsBatchMode(false);
-      await fetchProjectFiles(currentProjectId);
+      if (currentProjectId) {
+        await fetchProjectFiles(currentProjectId);
+      }
     } catch (e) {
       alert("❌ 批量删除执行中断，部分文件可能删除失败。");
     } finally {

@@ -1,0 +1,14 @@
+mkdir -p gokegg_up
+cat *_filter_up* | perl -ne 'BEGIN{$flag=0;%hash=();}chomp;@line=split(/\t/);$str="$line[1]\t$line[0]";if($flag==0){$flag=1;next;}$hash{$line[-1]}.=$str."\n";END{foreach $k (sort {$a<=>$b} keys %hash){print $hash{$k};}}' | grep -v names | sort -t $'\t' -k 2,2 > filter_up_deg_sort.txt 
+less -S filter_up_deg_sort.txt | perl -ne 'BEGIN{$flag="";}chomp;@line=split(/\t/);$line[1]=~s/\W+/_/g;if($flag eq ""){open OUT,">gokegg_up/cluster_$line[1]";print "perl /Users/chengchao/biosource/besaltbio/GO_and_KEGG/kegg_go_pipe_one.pl -p 0 -gene cluster_$line[1] -go '"$1"' -col 1 -sp '"$2"' -pre cluster_$line[1] &\n";}elsif($line[1] ne $flag){close OUT;open OUT,">gokegg_up/cluster_$line[1]";print "perl /Users/chengchao/biosource/besaltbio/GO_and_KEGG/kegg_go_pipe_one.pl -p 0 -gene cluster_$line[1] -go '"$1"' -col 1 -sp '"$2"' -pre cluster_$line[1] &\n";}print OUT "$line[0]\n";$flag=$line[1];END{print "wait\n";}' > gokegg_up/gokegg.sh 
+# less -S filter_up_deg_sort.txt | perl -ne 'BEGIN{$flag="";open OUT,">gokegg_up/cluster_all";print "perl /Users/chengchao/biosource/besaltbio/GO_and_KEGG/kegg_go_pipe_one.pl -p 0 -gene cluster_all -go '"$1"' -col 1 -sp '"$2"' -pre cluster_all &\n";}chomp;@line=split(/\t/);print OUT "$line[0]\n";END{print "wait\n";}' >> gokegg_up/gokegg.sh
+
+mkdir -p gokegg_down
+cat *_filter_down* | perl -ne 'BEGIN{$flag=0;%hash=();}chomp;@line=split(/\t/);$str="$line[1]\t$line[0]";if($flag==0){$flag=1;next;}$hash{$line[-1]}.=$str."\n";END{foreach $k (sort {$a<=>$b} keys %hash){print $hash{$k};}}' | grep -v names | sort -t $'\t' -k 2,2 > filter_down_deg_sort.txt 
+less -S filter_down_deg_sort.txt | perl -ne 'BEGIN{$flag="";}chomp;@line=split(/\t/);$line[1]=~s/\W+/_/g;if($flag eq ""){open OUT,">gokegg_down/cluster_$line[1]";print "perl /Users/chengchao/biosource/besaltbio/GO_and_KEGG/kegg_go_pipe_one.pl -p 0 -gene cluster_$line[1] -go '"$1"' -col 1 -sp '"$2"' -pre cluster_$line[1] &\n";}elsif($line[1] ne $flag){close OUT;open OUT,">gokegg_down/cluster_$line[1]";print "perl /Users/chengchao/biosource/besaltbio/GO_and_KEGG/kegg_go_pipe_one.pl -p 0 -gene cluster_$line[1] -go '"$1"' -col 1 -sp '"$2"' -pre cluster_$line[1] &\n";}print OUT "$line[0]\n";$flag=$line[1];END{print "wait\n";}' > gokegg_down/gokegg.sh 
+# less -S filter_down_deg_sort.txt | perl -ne 'BEGIN{$flag="";open OUT,">gokegg_down/cluster_all";print "perl /Users/chengchao/biosource/besaltbio/GO_and_KEGG/kegg_go_pipe_one.pl -p 0 -gene cluster_all -go '"$1"' -col 1 -sp '"$2"' -pre cluster_all &\n";}chomp;@line=split(/\t/);print OUT "$line[0]\n";END{print "wait\n";}' >> gokegg_down/gokegg.sh
+
+cd gokegg_up && sh gokegg.sh && sh /Users/chengchao/biosource/besalttools/public/gokegg_heatmap_clusterprofile.sh &
+wait
+cd gokegg_down && sh gokegg.sh && sh /Users/chengchao/biosource/besalttools/public/gokegg_heatmap_clusterprofile.sh &
+wait

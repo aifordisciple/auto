@@ -64,8 +64,8 @@ export const useUIStore = create<UIState>()(
       toggleSkillForge: () => set((state) => ({ isSkillForgeOpen: !state.isSkillForgeOpen, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillCenterOpen: false })),
       openSkillCenter: () => set({ isSkillCenterOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillForgeOpen: false }),
       closeSkillCenter: () => set({ isSkillCenterOpen: false }),
-      openDataCenter: () => set({ isDataCenterOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillForgeOpen: false }),
-      openSkillForge: () => set({ isSkillForgeOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillForgeOpen: false }),
+      openDataCenter: () => set({ isDataCenterOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isControlPanelOpen: false, isSkillForgeOpen: false, isSkillCenterOpen: false }),
+      openSkillForge: () => set({ isSkillForgeOpen: true, isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillCenterOpen: false }),
 
       closeAllOverlays: () => set({ isTaskCenterOpen: false, isSettingsOpen: false, isProjectCenterOpen: false, isDataCenterOpen: false, isControlPanelOpen: false, isSkillCenterOpen: false, isSkillForgeOpen: false })
     }),

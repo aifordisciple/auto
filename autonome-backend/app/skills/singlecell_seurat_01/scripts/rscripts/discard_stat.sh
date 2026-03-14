@@ -1,0 +1,1 @@
+ls *_discard_stat.xls | perl -ne 'BEGIN{$flag=0;}$_=~/(\S+)\_discard_stat.xls/;$n=$1;open IN,"$_";while(<IN>){chomp;if(/^原始/){print "样本\t",$_,"\n" if $flag==0;$flag=1;}else{print $n,"\t",$_,"\n";}}close IN;' > Discard_stat.xls

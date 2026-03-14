@@ -68,7 +68,7 @@ export function TemplateDetailModal({ template, onClose, onInstantiate }: Templa
         executor_type: result.executor_type as any,
         parameters_schema: result.parameters_schema,
         expert_knowledge: result.expert_knowledge || '',
-        script_code: result.script_code,
+        script_code: result.script_code ?? undefined,
         dependencies: result.dependencies,
         validation_passed: true,
       };

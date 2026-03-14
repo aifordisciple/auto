@@ -1,0 +1,1 @@
+ls run_count_*/outs/metrics_summary.csv | perl -ne 'BEGIN{$flag=0;}chomp;$_=~/run_count_(\S+)\/outs/;$s=$1;open IN,"$_";while(<IN>){chomp;if(/^Estimated/){if($flag==0){print "sample,$_","\n";$flag=1;}}else{print $s,",$_","\n";}}' > metrics_summary_all.csv

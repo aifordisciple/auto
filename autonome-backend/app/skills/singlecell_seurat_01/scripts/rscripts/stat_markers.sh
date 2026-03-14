@@ -1,0 +1,1 @@
+cat combined_markers_cluster/deg_combined_markers_export.xls | cut -f 1 | grep -v cluster | sort | uniq -c | awk '{print $2"\t"$1}' | sort -k 1,1n | perl -ne 'BEGIN{print "cluster\tmarkers\n"}print $_;' > combined_markers/deg_combined_markers_stat.xls

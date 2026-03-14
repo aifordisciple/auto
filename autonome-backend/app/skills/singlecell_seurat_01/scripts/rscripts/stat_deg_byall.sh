@@ -1,0 +1,1 @@
+wc -l */*filter*.*s* | perl -ne 'chomp;next if(/\s+total$/);@line=split;$line[1]=~/^(\S+)\/\S*filter_(\S+)\./;$g=$1;$updown=$2;$h{$g}{$updown}=$line[0]-1;END{print "group\tup\tdown\n";foreach $k(keys %h){print $k,"\t",$h{$k}{"up"},"\t",$h{$k}{"down"},"\n";}}' > deg_stat.xls
