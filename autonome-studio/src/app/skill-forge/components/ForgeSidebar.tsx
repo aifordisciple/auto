@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { Hammer, Plus, MessageSquare, Box, ChevronRight, Trash2 } from 'lucide-react';
+import { Hammer, Plus, MessageSquare, Box, ChevronRight, Trash2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { useForgeStore, ForgeSessionListItem } from '@/store/useForgeStore';
 import { forgeSessionApi } from '@/lib/api';
+import { CreateEntryDialog } from './CreateEntryDialog';
 
 export function ForgeSidebar() {
   const {
@@ -19,6 +20,7 @@ export function ForgeSidebar() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   // 加载会话列表
   useEffect(() => {
@@ -109,14 +111,23 @@ export function ForgeSidebar() {
       {/* 新建按钮 */}
       <div className="p-3">
         <button
-          onClick={handleNewSession}
+          onClick={() => setShowCreateDialog(true)}
           disabled={isLoading}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-sm rounded-lg transition-colors"
         >
           <Plus size={16} />
-          新建锻造会话
+          新建技能
         </button>
       </div>
+
+      {/* 创建入口对话框 */}
+      <CreateEntryDialog
+        isOpen={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        onSuccess={() => {
+          loadSessionList();
+        }}
+      />
 
       {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto">
@@ -157,7 +168,7 @@ export function ForgeSidebar() {
                     <p className="text-xs text-neutral-500">{formatTime(session.updated_at)}</p>
                   </div>
                   {session.has_draft && (
-                    <Box size={12} className="text-emerald-500 shrink-0" title="有技能草稿" />
+                    <Box size={12} className="text-emerald-500 shrink-0" />
                   )}
                   <button
                     onClick={(e) => handleDeleteSession(e, session.id)}
@@ -180,7 +191,8 @@ export function ForgeSidebar() {
 
       {/* 底部说明 */}
       <div className="p-3 border-t border-neutral-800 text-xs text-neutral-600">
-        <p>💡 通过对话让AI帮您锻造技能</p>
+        <p>💡 对话、代码、模板、文件包</p>
+        <p className="mt-1">多种方式创建技能</p>
       </div>
     </div>
   );

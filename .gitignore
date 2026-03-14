@@ -11,6 +11,8 @@ node_modules/
 !.yarn/versions
 
 autonome_conda/
+biosource/
+
 
 # testing
 /coverage
