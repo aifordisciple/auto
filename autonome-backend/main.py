@@ -10,7 +10,7 @@ from app.core.logger import log
 from app.models.domain import SystemConfig
 
 # ✨ 导入所有路由模块
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, blueprint, templates, skills_forge, experiences
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, blueprint, templates, skills_forge, skills_market, experiences
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 
@@ -39,6 +39,13 @@ def on_startup():
             session.commit()
             log.info("✅ 已初始化系统配置")
 
+    # ✨ 初始化技能模板
+    try:
+        from app.core.init_templates import init_templates
+        init_templates()
+    except Exception as e:
+        log.warning(f"⚠️ 技能模板初始化失败: {e}")
+
 # ==========================================
 # ⚡️ 注册核心微服务路由 (代码极致解耦)
 # ==========================================
@@ -52,6 +59,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(skills.router, prefix="/api/skills", tags=["Skills"])
 app.include_router(skills_forge.router, prefix="/api/skills/forge", tags=["SkillForge"])
+app.include_router(skills_market.router, prefix="/api/skills/market", tags=["SkillMarket"])
 app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
 app.include_router(blueprint.router, prefix="/api/blueprint", tags=["Blueprint"])
 app.include_router(experiences.router, prefix="/api/experiences", tags=["Experiences"])
