@@ -913,8 +913,11 @@ export function ChatStage() {
         onopen: async (res) => {
           if (!res.ok) {
             if (res.status === 402) {
-              isInsufficientCreditsRef.current = true;
-              appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
+              // 只有第一次才追加消息
+              if (!isInsufficientCreditsRef.current) {
+                isInsufficientCreditsRef.current = true;
+                appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
+              }
               isStreamingRef.current = false;
               setIsTyping(false);
               throw new Error('Insufficient credits');
@@ -942,7 +945,7 @@ export function ChatStage() {
           isStreamingRef.current = false;
           setIsTyping(false);
           if (isInsufficientCreditsRef.current) {
-            return;
+            throw new Error('Insufficient credits - stop retry');
           }
           console.error("Interpret Error:", err);
           appendLastMessage("\n\n**[系统错误]** 深度解读服务异常，请稍后重试。");
@@ -1150,8 +1153,11 @@ export function ChatStage() {
         onopen: async (res) => {
           if (!res.ok) {
             if (res.status === 402) {
-              isInsufficientCreditsRef.current = true;
-              appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
+              // 只有第一次才追加消息
+              if (!isInsufficientCreditsRef.current) {
+                isInsufficientCreditsRef.current = true;
+                appendLastMessage("\n\n**[余额不足]** 您的算力余额不足，请充值后继续使用。");
+              }
               isStreamingRef.current = false;
               setIsTyping(false);
               throw new Error('Insufficient credits');
@@ -1194,9 +1200,9 @@ export function ChatStage() {
         onerror(err) {
           isStreamingRef.current = false;
           setIsTyping(false);
-          // 如果是余额不足错误，不再显示额外错误消息
+          // 如果是余额不足错误，抛出特定错误来停止重试，但不显示额外消息
           if (isInsufficientCreditsRef.current) {
-            return;
+            throw new Error('Insufficient credits - stop retry');
           }
           console.error("Connection Error:", err);
           appendLastMessage("\n\n**[系统错误]** 连接后端大脑失败，请检查 FastAPI 服务是否启动。");
@@ -1206,7 +1212,7 @@ export function ChatStage() {
     } catch (error) {
       isStreamingRef.current = false;
       setIsTyping(false);
-      // 如果是余额不足错误，不再显示额外错误消息
+      // 如果是余额不足错误，不显示额外错误消息
       if (isInsufficientCreditsRef.current) {
         return;
       }
