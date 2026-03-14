@@ -225,6 +225,13 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
               setIsExecuting(true);
               connectWebSocket(storedTaskId);
             }
+            // ✨ 如果任务已完成但前端没收到通知，触发刷新
+            if (result.status === 'SUCCESS' || result.status === 'FAILURE') {
+              // 触发刷新以显示结果消息
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('refresh-chat'));
+              }, 500);
+            }
           }
         } catch (e) {
           console.error('Failed to fetch task status:', e);

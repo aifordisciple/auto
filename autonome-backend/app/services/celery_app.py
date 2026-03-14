@@ -923,6 +923,7 @@ def run_custom_r_task(self, params: dict):
             )
             db.add(ChatMessage(session_id=session_id, role="assistant", content=final_content))
             db.commit()
+            log_msg(f"✅ 分析结果消息已保存到数据库 (session_id: {session_id})")
 
         return {"status": "success"}
     except Exception as e:
