@@ -10,7 +10,7 @@ from app.core.logger import log
 from app.models.domain import SystemConfig
 
 # ✨ 导入所有路由模块
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, blueprint, templates, skills_forge, skills_market, skill_share, skill_version, experiences
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, blueprint, templates, skills_forge, skills_market, skill_share, skill_version, ai_assistant, ai_interpret, skill_recommend, experiences
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 
@@ -62,6 +62,9 @@ app.include_router(skills_forge.router, prefix="/api/skills/forge", tags=["Skill
 app.include_router(skills_market.router, prefix="/api/skills/market", tags=["SkillMarket"])
 app.include_router(skill_share.router, prefix="/api/skills/share", tags=["SkillShare"])
 app.include_router(skill_version.router, tags=["SkillVersion"])
+app.include_router(ai_assistant.router, prefix="/api/ai", tags=["AIAssistant"])
+app.include_router(ai_interpret.router, prefix="/api/interpret", tags=["AIInterpret"])
+app.include_router(skill_recommend.router, prefix="/api/skills/recommend", tags=["SkillRecommend"])
 app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
 app.include_router(blueprint.router, prefix="/api/blueprint", tags=["Blueprint"])
 app.include_router(experiences.router, prefix="/api/experiences", tags=["Experiences"])
