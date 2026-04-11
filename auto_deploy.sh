@@ -41,7 +41,7 @@ BRANCH_NAME="main"
 REMOTE_URL="git@github.com:aifordisciple/auto.git"
 
 #echo "正在推送到远程仓库..."
-#git push -u origin "$BRANCH_NAME"
+git push -u origin "$BRANCH_NAME"
 
 #echo "✅ 远程推送完成！"
 

@@ -8,6 +8,30 @@ from typing import Annotated, Literal, Optional, Any
 from pydantic import BaseModel, Field
 
 
+# 意图类型字面量（用于 Pydantic Literal）
+IntentType = Literal[
+    "CHAT",                    # 纯理论问答、概念解释、打招呼
+    "EXPLICIT_SKILL",          # 选择了技能或明确指定调用某工具
+    "VAGUE_ANALYSIS",           # 模糊的数据分析需求
+    "TROUBLESHOOT",             # 报错排查与故障诊断
+    "SYSTEM_ACTION",            # 系统级指令
+    "PIPELINE_BUILD",           # 跨越单技能边界的复杂蓝图构建
+]
+
+
+class IntentClassification(BaseModel):
+    """
+    极速路由节点输出 - 结构化意图分类
+
+    用于 Router Node 判断用户意图，决定后续分流。
+    严禁在此注入全量技能库和文件树上下文。
+    """
+    intent: IntentType
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="分类置信度 0-1")
+    entities: dict[str, Any] = Field(default_factory=dict, description="提取的关键实体，如文件名、算法名")
+    reason: str = Field(default="", max_length=200, description="简短判断理由")
+
+
 class RouteQuery(BaseModel):
     """快速意图路由结果"""
     intent: Literal["casual_chat", "bio_analysis", "complex_blueprint", "skill_execute"]

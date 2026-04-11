@@ -38,6 +38,10 @@ from app.agent.context_builder import (
 # ✨ 新增：闲聊节点
 from app.agent.nodes.chat import chat_node
 
+# ✨ V2 架构：极速路由节点
+from app.agent.nodes.router import router_node, get_intent_routing_edges, RouterState
+from app.agent.schemas import IntentClassification
+
 
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -842,6 +846,337 @@ except Exception as e:
     workflow.add_node("main", route_and_respond)
     workflow.add_edge(START, "main")
     workflow.add_edge("main", END)
+
+    return workflow.compile()
+
+
+def build_bio_agent_v2(
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    physical_file_info: str,
+    global_file_tree: str,
+    user_id: int,
+    project_id: int,
+    selected_skill_id: Optional[str] = None,
+    vision_config: Optional[dict] = None,
+    task_mode: Optional[str] = None
+):
+    """
+    V2 架构：极速路由 Agent
+
+    与 build_bio_agent 的区别：
+    1. 使用 router_node 作为入口，先进行意图分类
+    2. 根据 intent 类型分流到不同专业节点
+    3. 去除全量技能库注入，实现极速响应（TTFT < 0.5s）
+    """
+    actual_api_key = api_key if (api_key and api_key.strip() != "") else "ollama-local"
+
+    # Token 预算控制
+    if task_mode == 'complex':
+        budget_level = BudgetLevel.HIGH
+    else:
+        budget_level = BudgetLevel.NORMAL
+
+    budget_controller = get_token_budget_controller(budget_level)
+
+    default_max_tokens = 128000
+
+    llm = ChatOpenAI(
+        api_key=actual_api_key,
+        base_url=base_url,
+        model=model_name,
+        temperature=0.1,
+        streaming=True,
+        max_retries=2,
+        max_tokens=default_max_tokens
+    )
+
+    log.info(f"🤖 [Bot V2] 构建 Agent - API: {base_url}, Model: {model_name}")
+
+    # 延迟加载占位符
+    _SKILL_PLACEHOLDER = "__DYNAMIC_SKILL_CATALOG__\n"
+    _KNOWLEDGE_PLACEHOLDER = "__DYNAMIC_KNOWLEDGE_CATALOG__\n"
+    _SELECTED_SKILL_PLACEHOLDER = "__DYNAMIC_SELECTED_SKILL__"
+
+    # ========== 复用 build_bio_agent 中的动态上下文构建 ==========
+    def build_dynamic_context(
+        user_message: str,
+        uid: int,
+        selected_skill_id: Optional[str]
+    ) -> tuple[str, str, str]:
+        """根据用户消息动态构建上下文（延迟加载 Skill）"""
+        try:
+            skill_catalog_md, _ = build_skill_catalog_md(uid, user_message, top_k=3)
+            knowledge_catalog_md, _ = build_knowledge_catalog_md(uid, user_message, top_k=3)
+        except Exception as e:
+            log.warning(f"⚠️ [Bot V2] 动态加载 Skill 失败: {e}")
+            skill_catalog_md = "*(暂无可用标准 SKILL)*\n"
+            knowledge_catalog_md = "*(暂无可用知识库)*\n"
+
+        selected_skill_context = ""
+        if selected_skill_id:
+            selected_skill_context = build_selected_skill_context(uid, selected_skill_id)
+
+        return skill_catalog_md, knowledge_catalog_md, selected_skill_context
+
+    # ========== V2 主 Agent 节点（处理 EXPLICIT_SKILL/VAGUE_ANALYSIS） ==========
+    async def main_agent_node(state: AgentState):
+        """
+        V2 主 Agent 节点
+
+        当 router 判断为 EXPLICIT_SKILL 或 VAGUE_ANALYSIS 时调用。
+        此时才注入完整的 Skill 上下文。
+        """
+        messages = state.get("messages", [])
+        if not messages:
+            return {"messages": [], "next": "end"}
+
+        last_msg = messages[-1]
+        user_message = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+
+        # 获取 intent
+        intent_obj = state.get("intent")
+        intent_type = intent_obj.intent if intent_obj else "VAGUE_ANALYSIS"
+
+        log.info(f"🤖 [Bot V2] 主节点接管，意图: {intent_type}")
+
+        # 动态构建完整上下文
+        skill_md, knowledge_md, selected_ctx = build_dynamic_context(
+            user_message, user_id, selected_skill_id
+        )
+
+        # 构建动态 prompt（替换占位符）
+        dynamic_prompt = main_prompt  # 复用上面的 prompt 模板
+        dynamic_prompt = dynamic_prompt.replace(_SKILL_PLACEHOLDER, skill_md)
+        dynamic_prompt = dynamic_prompt.replace(_KNOWLEDGE_PLACEHOLDER, knowledge_md)
+        dynamic_prompt = dynamic_prompt.replace(_SELECTED_SKILL_PLACEHOLDER, selected_ctx or "")
+
+        # 创建 agent with 动态 prompt
+        dynamic_agent = create_react_agent(actual_llm, tools=all_tools, prompt=dynamic_prompt)
+        result = await dynamic_agent.ainvoke(state)
+        return {"messages": [result["messages"][-1]], "next": "end"}
+
+    # ========== 构建 V2 工作流 ==========
+    from langgraph.graph import StateGraph
+    from langgraph.constants import START, END
+
+    class V2AgentState(TypedDict):
+        messages: Annotated[list[BaseMessage], add_messages]
+        intent: IntentClassification
+        next: str
+        physical_file_info: str
+
+    workflow = StateGraph(V2AgentState)
+
+    # 添加节点
+    workflow.add_node("router", router_node)
+    workflow.add_node("main", main_agent_node)
+    workflow.add_node("chat", lambda state: {
+        "messages": [AIMessage(content="你好，有什么可以帮你的吗？")],
+        "next": "end"
+    })
+
+    # 设置入口边
+    workflow.add_edge(START, "router")
+
+    # 添加条件边：根据 router 返回的 intent 决定下一个节点
+    workflow.add_conditional_edges(
+        "router",
+        lambda state: state.get("next", "retrieval"),
+        {
+            "chat": "chat",
+            "skill_execute": "main",  # 暂时复用 main 节点，后续拆分为 skill_execute_node
+            "retrieval": "main",       # 暂时复用 main 节点，后续拆分为 retrieval_node
+            "troubleshooting": "main", # 暂时复用 main 节点
+            "system_action": "main",    # 暂时复用 main 节点
+            "blueprint": "main",        # 暂时复用 main 节点
+            "end": END,
+        }
+    )
+
+    # 所有专业节点最终都到 END
+    workflow.add_edge("main", END)
+    workflow.add_edge("chat", END)
+
+    log.info("🔀 [Bot V2] V2 架构工作流已构建")
+
+    return workflow.compile()
+
+
+# V2 主 Agent 简化 Prompt（用于 main_agent_node）
+V2_MAIN_PROMPT = """你是 Autonome 生信分析高级专家及系统工作流规划大脑。你精通 R 和 Python (涉及画图/统计优先使用 R 语言)。
+
+<context>
+[当前系统上下文]
+当前项目 ID: {project_id}
+
+[用户显式指定的重点文件 (显微视力，请优先关注)]
+{physical_file_info}
+
+[系统可用可执行型 SKILL 兵器库]
+{skill_catalog_md}
+
+[系统可用知识型 SKILL 代码模式库]
+{knowledge_catalog_md}
+</context>
+
+<core_protocols>
+【核心角色与交互协议】
+1. **角色界限**：你只负责"制定计划"和"输出代码"，代码实际执行由前端UI拦截后交由沙箱运行。
+2. **环境探针优先规则**：
+   - 处理任何表格数据前，**必须**先调用 peek_tabular_data 预览表头和维度。
+   - 需要找文件或目录时，**必须**先调用 scan_workspace 扫描目录。
+</core_protocols>
+
+<decision_tree>
+【智能调度机制】
+在响应用户请求前，请严格按照以下步骤进行意图识别和调度：
+
+1. **知识型 SKILL 匹配检查**
+2. **可执行型 SKILL 匹配检查**
+3. **无匹配** → Live_Coding 实时兜底
+</decision_tree>
+
+<output_formats>
+【格式 1：智能意图识别层】(正式回复前必须输出)
+```json_intent
+{{
+  "intent_type": "knowledge_skill | executable_skill | live_coding",
+  "matched_skills": [{{ "skill_id": "xxx", "skill_type": "knowledge | executable", "match_score": 0.95 }}],
+  "recommended_action": "direct_execute | confirm_with_user | show_options",
+  "parameters_suggestion": {{}}
+}}
+```
+
+【格式 2：单步任务/Live Coding 策略卡片】
+```json_strategy
+{{
+  "title": "任务名称",
+  "description": "简要描述",
+  "tool_id": "execute-python" 或 "execute-r" 或 "具体SKILL_ID",
+  "parameters": {{"arg_name": "arg_value"}},
+  "steps": ["步骤1", "步骤2"],
+  "estimated_time": "约 1 分钟"
+}}
+```
+</output_formats>
+"""
+
+
+def build_bio_agent_v2_simple(
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    physical_file_info: str,
+    user_id: int,
+    project_id: int,
+):
+    """
+    V2 架构简化版：极速路由 + 主 Agent
+
+    使用 router_node 作为入口，根据意图分流。
+    """
+    actual_api_key = api_key if (api_key and api_key.strip() != "") else "ollama-local"
+
+    llm = ChatOpenAI(
+        api_key=actual_api_key,
+        base_url=base_url,
+        model=model_name,
+        temperature=0.1,
+        streaming=True,
+        max_retries=2,
+        max_tokens=128000
+    )
+
+    log.info(f"🤖 [Bot V2 Simple] 构建 Agent - API: {base_url}, Model: {model_name}")
+
+    from langgraph.graph import StateGraph
+    from langgraph.constants import START, END
+
+    class V2SimpleState(TypedDict):
+        messages: Annotated[list[BaseMessage], add_messages]
+        intent: IntentClassification
+        next: str
+        physical_file_info: str
+
+    # 动态上下文构建
+    def build_context(user_message: str):
+        try:
+            skill_md, _ = build_skill_catalog_md(user_id, user_message, top_k=3)
+            knowledge_md, _ = build_knowledge_catalog_md(user_id, user_message, top_k=3)
+        except Exception:
+            skill_md = "*(暂无可用标准 SKILL)*"
+            knowledge_md = "*(暂无可用知识库)*"
+        return skill_md, knowledge_md
+
+    # 主 Agent 节点
+    async def main_node(state: V2SimpleState):
+        messages = state.get("messages", [])
+        if not messages:
+            return {"messages": [], "next": "end"}
+
+        last_msg = messages[-1]
+        user_message = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+
+        skill_md, knowledge_md = build_context(user_message)
+
+        prompt = V2_MAIN_PROMPT.format(
+            project_id=project_id,
+            physical_file_info=physical_file_info,
+            skill_catalog_md=skill_md,
+            knowledge_catalog_md=knowledge_md
+        )
+
+        # 复用 tools
+        from app.tools.probe_tools import peek_tabular_data, scan_workspace
+        all_tools = [
+            search_and_vectorize_geo_data,
+            submit_async_geo_analysis_task,
+            generate_publishable_report,
+            peek_tabular_data,
+            scan_workspace,
+        ]
+
+        agent = create_react_agent(llm, tools=all_tools, prompt=prompt)
+        result = await agent.ainvoke({"messages": messages})
+        return {"messages": [result["messages"][-1]], "next": "end"}
+
+    # 闲聊节点
+    async def chat_only_node(state: V2SimpleState):
+        messages = state.get("messages", [])
+        if not messages:
+            return {"messages": [], "next": "end"}
+        last_msg = messages[-1]
+        user_message = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+        casual_type = _detect_casual_type(user_message)
+        return {
+            "messages": [AIMessage(content=CASUAL_RESPONSES.get(casual_type, CASUAL_RESPONSES["default"]))],
+            "next": "end"
+        }
+
+    # 构建工作流
+    workflow = StateGraph(V2SimpleState)
+    workflow.add_node("router", router_node)
+    workflow.add_node("main", main_node)
+    workflow.add_node("chat", chat_only_node)
+
+    workflow.add_edge(START, "router")
+
+    workflow.add_conditional_edges(
+        "router",
+        lambda state: state.get("next", "main"),
+        {
+            "chat": "chat",
+            "main": "main",
+            "end": END,
+        }
+    )
+
+    workflow.add_edge("main", END)
+    workflow.add_edge("chat", END)
+
+    log.info("🔀 [Bot V2 Simple] 工作流已构建")
 
     return workflow.compile()
 
