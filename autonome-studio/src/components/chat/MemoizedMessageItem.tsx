@@ -11,7 +11,8 @@ import { BlueprintCard, parseBlueprint } from "./BlueprintCard";
 import { IntentCard, parseIntentCard } from "./IntentCard";
 import { BattleReportCard, parseBattleReport } from "./BattleReportCard";
 import { InteractivePlotCard } from "./InteractivePlotCard";
-import { parseInteractivePlotCard } from "./StrategyCard/parseUtils";
+import { parseInteractivePlotCard, parseActionMenu } from "./StrategyCard/parseUtils";
+import InlineActionMenu from "./InlineActionMenu";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
@@ -295,6 +296,12 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   );
   const interactivePlotData = useMemo(() =>
     msg.role === 'assistant' ? parseInteractivePlotCard(displayContent || '') : null,
+    [msg.role, displayContent]
+  );
+
+  // ✨ V2: 解析操作菜单 (json_action_menu)
+  const actionMenuData = useMemo(() =>
+    msg.role === 'assistant' ? parseActionMenu(displayContent || '') : null,
     [msg.role, displayContent]
   );
 
@@ -612,6 +619,29 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     <>
                       <IntentCard data={intentData} />
                       {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
+                    </>
+                  );
+                }
+
+                // ✨ V2: 操作菜单渲染（置信度 < 0.90 时显示选项列表）
+                if (actionMenuData) {
+                  // 提取清理后的文本（移除 json_action_menu 块）
+                  const cleanText = displayContent
+                    .replace(/```json_action_menu[\s\S]*?```/g, '')
+                    .trim();
+
+                  return (
+                    <>
+                      {/* 先渲染 AI 的说明文本 */}
+                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
+                      {/* 然后渲染内联操作菜单 */}
+                      <InlineActionMenu
+                        data={actionMenuData}
+                        onSelect={(skillId) => {
+                          console.log("[MemoizedMessageItem] 用户选择了技能:", skillId);
+                          // TODO: 静默调用后端 API 获取预填参数，然后展开 StrategyCard
+                        }}
+                      />
                     </>
                   );
                 }

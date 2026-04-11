@@ -11,6 +11,7 @@
 import { preprocessLLMResponse } from '@/lib/contentFilter';
 import type { StrategyCardData } from './types';
 import type { InteractivePlotData } from '../InteractivePlotCard/types';
+import type { ActionMenuData } from '../InlineActionMenu/types';
 
 /**
  * 预处理代码块格式
@@ -26,15 +27,16 @@ export function preprocessCodeBlocks(content: string): string {
   // 例如：```json_strategy{"a":1} -> ```json_strategy\n{"a":1}
   // 使用 (?=[^\s\n]) 防止吞掉实际内容
   // ✨ 添加 json_interactive_plot 和 on_strategy 支持
+  // ✨ V2: 添加 json_action_menu 支持
   content = content.replace(
-    /```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|on_strategy|on_interactive_plot|json)(?=[^\s\n])/g,
+    /```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|json_action_menu|on_strategy|on_interactive_plot|json)(?=[^\s\n])/g,
     '```$1\n'
   );
 
   // 3. 修复代码块开始标记后只有空格（无换行）
   // ✨ 重要：这里用 [ \t]+ 绝不能用 \s+，因为 \s 包含 \n 会误吞换行
   content = content.replace(
-    /```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|on_strategy|on_interactive_plot|json)[ \t]+(?=[^\n])/g,
+    /```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|json_action_menu|on_strategy|on_interactive_plot|json)[ \t]+(?=[^\n])/g,
     '```$1\n'
   );
 
@@ -43,7 +45,7 @@ export function preprocessCodeBlocks(content: string): string {
 
   // 5. 修复相邻代码块粘连
   content = content.replace(
-    /```\s*```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|on_strategy|on_interactive_plot|json)/g,
+    /```\s*```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|json_action_menu|on_strategy|on_interactive_plot|json)/g,
     '```\n\n```$1'
   );
 
@@ -70,6 +72,31 @@ export function extractJsonFromCodeBlock(content: string): string | null {
     /```on_strategy\s*([\s\S]*?)```/,
     /```on_strategy\s*([{][\s\S]*?[}])\s*```/,
     /```on_strategy\s*([\s\S]+)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 从 json_action_menu 代码块提取 JSON
+ *
+ * V2 架构：支持解析操作菜单格式
+ */
+export function extractActionMenuFromCodeBlock(content: string): string | null {
+  const patterns = [
+    // 标准格式
+    /```json_action_menu\s*([\s\S]*?)```/,
+    // 无换行格式
+    /```json_action_menu\s*([{][\s\S]*?[}])\s*```/,
+    // 更宽松的匹配
+    /```json_action_menu\s*([\s\S]+)/,
   ];
 
   for (const pattern of patterns) {
@@ -537,6 +564,59 @@ export function parseInteractivePlotCard(content: string): InteractivePlotData |
     return data;
   } catch (e) {
     console.error("❌ 解析交互式图表卡片失败:", e);
+    return null;
+  }
+}
+
+// ==========================================
+// ✨ V2: ActionMenu 解析函数
+// ==========================================
+
+/**
+ * 解析操作菜单 (json_action_menu)
+ *
+ * V2 架构：当后端置信度 < 0.90 时，返回操作菜单供用户选择。
+ */
+export function parseActionMenu(content: string): ActionMenuData | null {
+  if (!content) return null;
+
+  try {
+    // 预处理代码块格式
+    content = preprocessCodeBlocks(content);
+
+    // 从代码块提取 JSON
+    const jsonStr = extractActionMenuFromCodeBlock(content);
+
+    if (!jsonStr) {
+      return null;
+    }
+
+    // 清洗并解析 JSON
+    const cleaned = sanitizeJsonString(jsonStr);
+    const data = tryRepairAndParseJson(cleaned);
+
+    if (!data || !Array.isArray(data.options)) {
+      console.warn("[parseActionMenu] 无效的 action_menu 数据:", data);
+      return null;
+    }
+
+    // 确保 options 数组有内容
+    if (data.options.length === 0) {
+      return null;
+    }
+
+    return {
+      title: data.title || "请选择操作",
+      message: data.message,
+      options: data.options.map((opt: { skill_id: string; name?: string; match_score?: number; match_reason?: string }) => ({
+        skill_id: opt.skill_id,
+        name: opt.name || opt.skill_id,
+        match_score: opt.match_score || 0.5,
+        match_reason: opt.match_reason,
+      })),
+    };
+  } catch (e) {
+    console.error("[parseActionMenu] 解析操作菜单失败:", e);
     return null;
   }
 }

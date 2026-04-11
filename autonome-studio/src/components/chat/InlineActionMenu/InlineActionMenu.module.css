@@ -1,0 +1,167 @@
+/**
+ * InlineActionMenu 样式
+ *
+ * V2 架构：内联操作菜单样式，参考 Claude Code 风格
+ */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-surface-secondary, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  max-width: 100%;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #ffffff);
+}
+
+.message {
+  font-size: 12px;
+  color: var(--color-text-secondary, #9ca3af);
+  margin: 0;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.option:hover:not(:disabled) {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--color-border-hover, rgba(255, 255, 255, 0.15));
+  transform: translateX(2px);
+}
+
+.option:active:not(:disabled) {
+  transform: translateX(0);
+}
+
+.option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.option.liveCoding {
+  background: linear-gradient(
+    135deg,
+    rgba(251, 191, 36, 0.1) 0%,
+    rgba(251, 146, 60, 0.1) 100%
+  );
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.option.liveCoding:hover:not(:disabled) {
+  background: linear-gradient(
+    135deg,
+    rgba(251, 191, 36, 0.15) 0%,
+    rgba(251, 146, 60, 0.15) 100%
+  );
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.optionContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.optionName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #ffffff);
+}
+
+.liveIcon {
+  color: #fbbf24;
+}
+
+.matchReason {
+  font-size: 11px;
+  color: var(--color-text-secondary, #9ca3af);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.optionRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.matchBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.chevron {
+  color: var(--color-text-tertiary, #6b7280);
+  transition: transform 0.15s ease;
+}
+
+.option:hover .chevron {
+  transform: translateX(2px);
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+.loader {
+  animation: spin 1s linear infinite;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.05));
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #6b7280);
+}
