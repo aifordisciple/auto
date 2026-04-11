@@ -93,8 +93,9 @@ export function filterThinkingContent(content: string, debug: boolean = false): 
     });
 
     // 处理不完整的 thinking 标签（流式传输中标签被分割的情况）
-    // 检测未闭合的 labora 标签，隐藏标签及之后的内容
-    const incompleteThinkPattern = /<tool_call>(?![\s\S]*<\/think>)[\s\S]*$/gi;
+    // 检测未闭合的 <think> 标签，隐藏标签及之后的内容
+    // 使用负向前瞻：如果后面没有 </think>，则认为是未闭合的
+    const incompleteThinkPattern = /<think>(?![\s\S]*<\/think>)[\s\S]*$/gi;
     const match = result.match(incompleteThinkPattern);
     if (match) {
       // 找到未闭合标签的起始位置，截断内容
@@ -111,6 +112,19 @@ export function filterThinkingContent(content: string, debug: boolean = false): 
     const thinkingMatch = result.match(incompleteThinkingPattern);
     if (thinkingMatch) {
       const startIndex = result.search(incompleteThinkingPattern);
+      if (startIndex > 0) {
+        result = result.substring(0, startIndex);
+      } else {
+        result = '';
+      }
+    }
+
+    // 处理未闭合的 <think> 标签（DeepSeek R1 等模型）
+    // 如果字符串中有 <think> 但没有 </think>，则截断从 <think> 到末尾的内容
+    const incompleteThinkColonPattern = /<think>(?![\s\S]*<\/think>)[\s\S]*$/gi;
+    const thinkColonMatch = result.match(incompleteThinkColonPattern);
+    if (thinkColonMatch) {
+      const startIndex = result.search(incompleteThinkColonPattern);
       if (startIndex > 0) {
         result = result.substring(0, startIndex);
       } else {

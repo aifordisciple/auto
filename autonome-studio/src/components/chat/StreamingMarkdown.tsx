@@ -252,10 +252,16 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
     // ✨ 额外的 HTML 标签处理 - 过滤任何残留的 think 标签
     // 这是一个额外的安全层，防止 think 标签被渲染到页面上
     html({ children }: any) {
-      if (typeof children === 'string' && children.includes('<think>')) {
-        return <>{children.replace(/<think>[\s\S]*?<\/think>/g, '')}</>;
+      // 如果是字符串类型，直接过滤掉 think 标签内容
+      if (typeof children === 'string') {
+        const filtered = children.replace(/<think>[\s\S]*?<\/think>/g, '');
+        if (filtered !== children) {
+          return <>{filtered}</>;
+        }
+        // 没有 think 标签但包含 HTML，直接渲染为普通文本（避免 dangerouslySetInnerHTML）
+        return <>{children}</>;
       }
-      return <span dangerouslySetInnerHTML={{ __html: children }} />;
+      return <>{children}</>;
     },
   }), [isDark]);
 
