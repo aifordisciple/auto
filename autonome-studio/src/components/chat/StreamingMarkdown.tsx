@@ -13,9 +13,8 @@ import remarkBreaks from 'remark-breaks'; // 兼容大模型（如 Kimi）的单
 // ✨ 移除 rehypeRaw：允许原始 HTML 标签会导致 <think> 等标签被渲染，引发浏览器错误
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Loader2 } from 'lucide-react';
 import { useUIStore } from '@/store/useUIStore';
-import { filterThinkingContent } from '@/lib/contentFilter';
 
 // ==========================================
 // 辅助函数
@@ -37,25 +36,52 @@ const copyToClipboard = async (text: string) => {
 };
 
 /**
+ * ✨ 解析并过滤思考过程（支持未闭合标签）
+ * 核心问题：流式传输时 <think> 标签可能未闭合，导致内容被渲染到页面上闪烁
+ * 解决方案：检测未闭合的 <think> 标签，截断其后续内容，并标记为"思考中"状态
+ */
+function parseAndFilterThinking(content: string): { cleanContent: string; isThinking: boolean } {
+  if (!content) return { cleanContent: '', isThinking: false };
+
+  let cleanContent = content;
+  let isThinking = false;
+
+  // 1. 移除所有已闭合的 <think>...</think> 块
+  cleanContent = cleanContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+  // 2. 检测是否存在未闭合的 <think> 标签
+  const openThinkIndex = cleanContent.toLowerCase().indexOf('<think>');
+  if (openThinkIndex !== -1) {
+    isThinking = true;
+    // 截断未闭合的 think 及后面的所有内容，防止闪烁
+    cleanContent = cleanContent.substring(0, openThinkIndex);
+  }
+
+  return { cleanContent, isThinking };
+}
+
+/**
  * 预处理流式 Markdown - 处理未闭合的结构
  * 对于未闭合的代码块，自动补全闭合标记
  */
-function preprocessStreamingMarkdown(content: string): string {
-  if (!content) return content;
+function preprocessStreamingMarkdown(content: string): { processed: string; isThinking: boolean } {
+  if (!content) return { processed: '', isThinking: false };
 
-  // 🔧 首先过滤 thinking 标签
-  let processed = filterThinkingContent(content);
+  // ✨ 首先处理 think 标签，检测是否处于思考中状态
+  const { cleanContent, isThinking } = parseAndFilterThinking(content);
 
   // 计算代码块数量
-  const codeBlockMatches = processed.match(/```[\w]*/g) || [];
+  const codeBlockMatches = cleanContent.match(/```[\w]*/g) || [];
   const openCodeBlocks = codeBlockMatches.length % 2;
+
+  let processed = cleanContent;
 
   // 如果有未闭合的代码块，添加临时闭合
   if (openCodeBlocks > 0) {
     processed += '\n```';
   }
 
-  return processed;
+  return { processed, isThinking };
 }
 
 // ==========================================
@@ -131,10 +157,15 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
   const isDark = theme !== 'light';
 
   // 预处理内容
-  const processedContent = useMemo(() => {
-    if (!content) return '';
+  const { processedContent, isCurrentlyThinking } = useMemo(() => {
+    if (!content) return { processedContent: '', isCurrentlyThinking: false };
     // 流式时处理未闭合的结构
-    return isStreaming ? preprocessStreamingMarkdown(content) : content;
+    if (isStreaming) {
+      return preprocessStreamingMarkdown(content);
+    }
+    // 非流式也做一次完整的 think 过滤
+    const { cleanContent, isThinking } = parseAndFilterThinking(content);
+    return { processedContent: cleanContent, isCurrentlyThinking: isThinking };
   }, [content, isStreaming]);
 
   // Markdown 渲染组件配置
@@ -251,12 +282,16 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
 
     // ✨ 额外的 HTML 标签处理 - 过滤任何残留的 think 标签
     // 这是一个额外的安全层，防止 think 标签被渲染到页面上
+    // 包括未闭合的情况（当 think 内容被截断后，剩余部分可能包含 < 符号）
     html({ children }: any) {
       // 如果是字符串类型，直接过滤掉 think 标签内容
       if (typeof children === 'string') {
-        const filtered = children.replace(/<think>[\s\S]*?<\/think>/g, '');
-        if (filtered !== children) {
-          return <>{filtered}</>;
+        // 过滤已闭合的 think 标签
+        const filtered = children.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        // 额外安全层：过滤可能残留的未闭合 think 标签片段
+        const finalFiltered = filtered.replace(/<think>[\s\S]*$/gi, '');
+        if (finalFiltered !== children) {
+          return <>{finalFiltered}</>;
         }
         // 没有 think 标签但包含 HTML，直接渲染为普通文本（避免 dangerouslySetInnerHTML）
         return <>{children}</>;
@@ -274,14 +309,26 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
 
   return (
     <div className={containerClass}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        components={components}
-      >
-        {processedContent}
-      </ReactMarkdown>
-      {/* 流式时显示光标 */}
-      {isStreaming && (
+      {/* ✨ 优雅的深度思考状态展示 (仅在正在 thinking 时出现) */}
+      {isCurrentlyThinking && (
+        <div className="flex items-center gap-2 text-violet-500 dark:text-violet-400 text-sm mb-4 bg-violet-50 dark:bg-violet-500/10 px-3 py-2 rounded-lg border border-violet-100 dark:border-violet-500/20 w-fit">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span className="font-medium tracking-wide">深度思考中...</span>
+        </div>
+      )}
+
+      {/* 渲染正常的 Markdown 内容 */}
+      {processedContent && (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkBreaks]}
+          components={components}
+        >
+          {processedContent}
+        </ReactMarkdown>
+      )}
+
+      {/* ✨ 流式时显示光标，且正在思考时不显示 */}
+      {isStreaming && !isCurrentlyThinking && (
         <span className="streaming-cursor">
           <span className="cursor-block" />
         </span>

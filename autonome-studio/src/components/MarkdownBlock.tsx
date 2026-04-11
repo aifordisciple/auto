@@ -12,7 +12,6 @@ import { BASE_URL, fetchAPI } from '@/lib/api';
 import { useUIStore } from '@/store/useUIStore';
 import { useChatStore } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { filterThinkingContent } from '@/lib/contentFilter';
 
 interface MarkdownBlockProps {
   content: string;
@@ -347,8 +346,8 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, projectId }:
   // ✨ 使用 useMemo 缓存处理结果，仅在 content 变化时重新计算
   // 重要：先过滤 think 标签内容，再提取链接
   const { processedContent, treeLinks } = useMemo(() => {
-    // 第一步：过滤掉 think 标签内容（包括未闭合的）
-    const thinkFiltered = filterThinkingContent(content);
+    // ✨ 强力全局清理正则：切除闭合的和未闭合的标签及其后文
+    const thinkFiltered = content.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
     // 第二步：提取文件链接
     const { text, links } = extractLinks(thinkFiltered);
     return { processedContent: text, treeLinks: links };
