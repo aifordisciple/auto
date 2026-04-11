@@ -360,7 +360,34 @@ export function ChatStage() {
               onEditResend={handleEditResend}
               scrollContainerRef={scrollContainerRef}
               messagesEndRef={messagesEndRef}
-              footer={null}
+
+              // ✨ 核心修改：无缝衔接的占位思考动画
+              footer={
+                // 触发条件：正在请求中，且当前列表最后一条是"用户消息"
+                // 这代表网络请求在路上，但后端的第一个字符还没到达，AI气泡尚未建立
+                isTyping && messages.length > 0 && messages[messages.length - 1].role === 'user' ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col group items-start max-w-4xl mx-auto w-full transition-all duration-300 mt-2"
+                  >
+                    <div className="flex items-start gap-0 md:gap-4 w-full">
+                      {/* 统一的 AI 头像（与真实消息保持完全一致） */}
+                      <div className="hidden md:flex w-8 h-8 rounded-full items-center justify-center shrink-0 overflow-hidden bg-[#1a1a1c] border border-neutral-700/60 shadow-sm">
+                        <img src="/ai-avatar.png" alt="AI Avatar" className="w-full h-full object-cover scale-[1.15]" />
+                      </div>
+
+                      {/* 占位气泡 */}
+                      <div className="flex-1 min-w-0 rounded-2xl px-3 md:px-5 py-3 md:py-4 bg-transparent">
+                        <div className="flex items-center gap-2 text-violet-500 dark:text-violet-400 text-sm bg-violet-50 dark:bg-violet-500/10 px-3 py-2 rounded-lg border border-violet-100 dark:border-violet-500/20 w-fit">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span className="font-medium tracking-wide">正在分配 Agent 节点...</span>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : null
+              }
             />
 
             <button
