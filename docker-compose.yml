@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. PostgreSQL 数据库引擎
+  # ==========================================
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: autonome-postgres
+    environment:
+      POSTGRES_USER: autonome
+      POSTGRES_PASSWORD: autonome_super_password
+      POSTGRES_DB: autonome_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ==========================================
+  # 2. 缓存与消息队列中间件
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: autonome-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # ==========================================
+  # 3. 后端核心 AI 大脑 (FastAPI)
+  # ==========================================
+  backend-api:
+    build:
+      context: ./autonome-backend
+    container_name: autonome-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+      # ✨ 修复1：使用 ${PWD} 动态获取物理机绝对路径，保证 AI 跑代码的沙箱也能挂载到正确数据
+      - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
+      # ✨ 关键修复：容器内使用 /workspace 而非默认的 uploads
+      - UPLOAD_DIR=/workspace
+    volumes:
+      # ✨ 修复2：改为绝对直连的 Bind Mount，容器侧路径改为 /workspace
+      - ./uploads:/workspace
+      # 将宿主机的 Docker 引擎控制权赋予后端
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # ==========================================
+  # 4. 底层异步任务引擎 (Celery Worker)
+  # ==========================================
+  backend-worker:
+    build:
+      context: ./autonome-backend
+    container_name: autonome-worker
+    command: celery -A app.services.celery_app worker --loglevel=info
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+      # ✨ 同步修复
+      - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
+      # ✨ 关键修复：Worker 同样需要使用 /workspace
+      - UPLOAD_DIR=/workspace
+    volumes:
+      # ✨ 同步修复：Worker也必须挂载同一个物理目录
+      - ./uploads:/workspace
+      # Worker 同样需要 Docker 控制权
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - postgres
+      - backend-api
+    restart: unless-stopped
+
+  # ==========================================
+  # 5. 前端 IDE 界面 (Next.js)
+  # ==========================================
+  frontend:
+    build:
+      context: ./autonome-studio
+    container_name: autonome-web
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend-api
+    restart: unless-stopped
+
+# 定义数据卷
+volumes:
+  redis_data:
+  pgdata:
+  # ✨ 修复3：彻底移除了 uploads_data 具名卷定义

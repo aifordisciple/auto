@@ -1,0 +1,75 @@
+# 开发环境覆盖配置
+# docker-compose 自动加载此文件，实现代码热重载
+version: '3.8'
+
+services:
+  # ==========================================
+  # 后端 API 开发模式：挂载源码 + 热重载
+  # ==========================================
+  backend-api:
+    volumes:
+      # 挂载源码实现热重载
+      - ./autonome-backend/app:/app/app:cached
+      - ./autonome-backend/main.py:/app/main.py:cached
+      # 保留容器内的依赖和虚拟环境
+      - /app/__pycache__
+      - /app/.venv
+      # ✨ 修改1：强制使用物理路径直连，容器侧路径改为 /workspace
+      - ./uploads:/workspace
+      # Docker 控制
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      # Ollama 嵌入服务配置（host.docker.internal 指向宿主机）
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_EMBED_MODEL=bge-m3:latest
+      # 覆盖默认命令，启用热重载
+    # 注意：--reload-exclude 必须使用绝对路径，因为 watchfiles 返回绝对路径
+    # 相对路径 uploads 无法匹配绝对路径 /workspace/... 导致排除失败
+    command: uvicorn main:app --reload --reload-dir app --reload-exclude /workspace --host 0.0.0.0 --port 8000
+
+  # ==========================================
+  # 后端 Worker 开发模式：挂载源码
+  # ==========================================
+  backend-worker:
+    volumes:
+      - ./autonome-backend/app:/app/app:cached
+      - ./autonome-backend/main.py:/app/main.py:cached
+      - /app/__pycache__
+      - /app/.venv
+      # ✨ 修改2：强制使用物理路径直连，容器侧路径改为 /workspace
+      - ./uploads:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      # Ollama 嵌入服务配置（host.docker.internal 指向宿主机）
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_EMBED_MODEL=bge-m3:latest
+
+  # ==========================================
+  # 前端开发模式：挂载源码 + 热重载
+  # ==========================================
+  frontend:
+    build:
+      target: development
+    volumes:
+      # 挂载源码实现热重载
+      - ./autonome-studio/src:/app/src:cached
+      - ./autonome-studio/public:/app/public:cached
+      - ./autonome-studio/package.json:/app/package.json:cached
+      - ./autonome-studio/next.config.ts:/app/next.config.ts:cached
+      - ./autonome-studio/tsconfig.json:/app/tsconfig.json:cached
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      # ✅ API 地址保持你的公网 IP 配置
+      - NEXT_PUBLIC_API_URL=http://113.44.66.210:8000
+    # 覆盖默认命令，启用开发模式
+    command: npm run dev
+
+# ✨ 修改3：彻底移除 uploads_data 的声明，防止幽灵卷产生
+# (如果原文件底部还有其他 volume 声明可以保留，但绝对不能有 uploads_data)

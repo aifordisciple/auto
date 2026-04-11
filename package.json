@@ -1,0 +1,27 @@
+{
+  "name": "autonome-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Autonome Studio - AI-Native Bioinformatics IDE",
+  "scripts": {
+    "dev": "pnpm --filter autonome-studio dev",
+    "dev:desktop": "pnpm --filter autonome-desktop tauri dev",
+    "build": "pnpm --filter autonome-studio build",
+    "build:desktop": "pnpm --filter autonome-desktop tauri build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^29.0.1"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.5.0"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@8.15.0"
+}

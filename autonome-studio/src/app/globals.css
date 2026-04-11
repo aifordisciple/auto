@@ -1,0 +1,676 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
+}
+
+.dark {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+/* ✨ 极客网格背景 */
+.bg-grid-pattern {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  mask-image: linear-gradient(to bottom, transparent, black, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 2%, black 50%, transparent 98%);
+}
+
+/* ✨ AI 呼吸灯动画 */
+@keyframes glow-pulse {
+  0% { box-shadow: 0 0 15px 0px rgba(59, 130, 246, 0.2); }
+  50% { box-shadow: 0 0 30px 5px rgba(59, 130, 246, 0.4); }
+  100% { box-shadow: 0 0 15px 0px rgba(59, 130, 246, 0.2); }
+}
+.animate-glow {
+  animation: glow-pulse 3s infinite ease-in-out;
+}
+
+/* ✨ 扫光动画 */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.animate-shimmer {
+  animation: shimmer 1.5s infinite;
+}
+/* ✨ 扫光动画 */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s infinite;
+}
+
+/* ✨ 自定义极简滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+/* ✨ 专业聊天消息样式 - 对齐 Gemini/ChatGPT 风格 */
+.chat-message-content {
+  font-size: 1rem;
+  line-height: 2;
+  letter-spacing: 0.01em;
+  color: oklch(0.25 0.02 260);
+}
+
+.dark .chat-message-content {
+  color: oklch(0.9 0.01 260);
+}
+
+/* 聊天消息内的段落样式 */
+.chat-message-content p {
+  margin-bottom: 1.25em;
+  line-height: 2;
+}
+
+.chat-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* 聊天消息内的标题样式 */
+.chat-message-content h1,
+.chat-message-content h2,
+.chat-message-content h3,
+.chat-message-content h4 {
+  margin-top: 1.75em;
+  margin-bottom: 0.875em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.chat-message-content h1 { font-size: 1.5em; }
+.chat-message-content h2 { font-size: 1.25em; }
+.chat-message-content h3 { font-size: 1.125em; }
+
+/* 聊天消息内的列表样式 */
+.chat-message-content ul,
+.chat-message-content ol {
+  margin: 1.25em 0;
+  padding-left: 1.5em;
+}
+
+.chat-message-content li {
+  margin: 0.5em 0;
+  line-height: 1.8;
+}
+
+.chat-message-content li::marker {
+  color: oklch(0.5 0.1 250);
+}
+
+.dark .chat-message-content li::marker {
+  color: oklch(0.6 0.05 250);
+}
+
+/* 聊天消息内的引用样式 - 透明背景 */
+.chat-message-content blockquote {
+  margin: 1em 0;
+  padding: 0.75em 1em;
+  border-left: 3px solid oklch(0.7 0.1 250);
+  background: transparent;
+  border-radius: 0 0.5em 0.5em 0;
+}
+
+.dark .chat-message-content blockquote {
+  border-left-color: oklch(0.5 0.1 250);
+}
+
+.chat-message-content blockquote p {
+  margin: 0;
+}
+
+/* ✨ 专业表格样式 - 透明背景融入主页 */
+.chat-message-content table {
+  width: 100%;
+  margin: 1.25em 0;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  border-radius: 0.75em;
+  overflow: hidden;
+  border: 1px solid oklch(0.9 0.005 260);
+}
+
+.dark .chat-message-content table {
+  border-color: oklch(1 0 0 / 8%);
+}
+
+.chat-message-content thead {
+  background: transparent;
+  border-bottom: 2px solid oklch(0.88 0.01 260);
+}
+
+.dark .chat-message-content thead {
+  border-bottom-color: oklch(1 0 0 / 12%);
+}
+
+.chat-message-content th {
+  padding: 0.875em 1em;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: oklch(0.4 0.03 260);
+}
+
+.dark .chat-message-content th {
+  color: oklch(0.65 0.02 260);
+}
+
+.chat-message-content tbody tr {
+  border-bottom: 1px solid oklch(0.92 0.005 260);
+  transition: background-color 0.15s ease;
+}
+
+.dark .chat-message-content tbody tr {
+  border-bottom-color: oklch(1 0 0 / 6%);
+}
+
+.chat-message-content tbody tr:last-child {
+  border-bottom: none;
+}
+
+.chat-message-content tbody tr:hover {
+  background: oklch(0.97 0.003 260);
+}
+
+.dark .chat-message-content tbody tr:hover {
+  background: oklch(1 0 0 / 4%);
+}
+
+.chat-message-content td {
+  padding: 0.75em 1em;
+  color: oklch(0.3 0.02 260);
+}
+
+.dark .chat-message-content td {
+  color: oklch(0.85 0.01 260);
+}
+
+/* ✨ 内联代码样式 */
+.chat-message-content code:not(pre code) {
+  padding: 0.2em 0.4em;
+  margin: 0 0.1em;
+  font-size: 0.875em;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  background: oklch(0.95 0.01 260);
+  border-radius: 0.375em;
+  color: oklch(0.55 0.15 25);
+}
+
+.dark .chat-message-content code:not(pre code) {
+  background: oklch(0.25 0.02 260);
+  color: oklch(0.75 0.1 25);
+}
+
+/* ✨ 代码块样式 */
+.chat-message-content pre {
+  margin: 1em 0;
+  border-radius: 0.75em;
+  overflow: hidden;
+}
+
+.chat-message-content pre code {
+  display: block;
+  padding: 1.25em;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* ✨ 链接样式 */
+.chat-message-content a {
+  color: oklch(0.55 0.2 250);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.chat-message-content a:hover {
+  border-bottom-color: currentColor;
+}
+
+.dark .chat-message-content a {
+  color: oklch(0.7 0.15 250);
+}
+
+/* ✨ 分割线样式 */
+.chat-message-content hr {
+  margin: 1.5em 0;
+  border: none;
+  height: 1px;
+  background: oklch(0.9 0.005 260);
+}
+
+.dark .chat-message-content hr {
+  background: oklch(0.25 0.02 260);
+}
+
+/* ✨ 表格容器滚动样式 - 透明背景 */
+.chat-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin: 1.25em 0;
+  border-radius: 0.75em;
+  border: 1px solid oklch(0.9 0.005 260);
+  background: transparent;
+}
+
+.dark .chat-table-wrapper {
+  border-color: oklch(1 0 0 / 8%);
+  background: transparent;
+}
+
+/* ==========================================
+ * ✨ 流式消息渲染优化样式
+ * ========================================== */
+
+/**
+ * 流式光标动画 - 闪烁的打字光标效果
+ * 使用 CSS 动画实现平滑的闪烁，不依赖 JavaScript
+ */
+.cursor-block {
+  width: 2px;
+  height: 1.2em;
+  background: oklch(0.55 0.2 250);
+  animation: cursor-blink 1s step-end infinite;
+  border-radius: 1px;
+}
+
+.dark .cursor-block {
+  background: oklch(0.7 0.15 250);
+}
+
+@keyframes cursor-blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+/**
+ * 流式消息占位符 - 内容为空时的骨架屏
+ */
+.streaming-placeholder {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/**
+ * 流式指示器 - 消息末尾的动画标记
+ */
+.streaming-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 2px;
+}
+
+/**
+ * 消息包装器 - 流式消息的容器
+ */
+.stream-message-wrapper {
+  position: relative;
+  display: inline;
+}
+
+/**
+ * 静态消息包装器 - 历史消息的容器
+ */
+.static-message-wrapper {
+  display: contents;
+}
+
+/**
+ * "滚动到底部"按钮样式
+ */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 100px;
+  right: 24px;
+  z-index: 50;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 16px;
+  border-radius: 9999px;
+
+  background: oklch(0.98 0.005 260);
+  border: 1px solid oklch(0.9 0.01 260);
+  box-shadow: 0 4px 12px oklch(0 0 0 / 0.1);
+
+  font-size: 13px;
+  font-weight: 500;
+  color: oklch(0.3 0.02 260);
+
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+.scroll-to-bottom-btn.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: oklch(0.95 0.01 260);
+  box-shadow: 0 6px 16px oklch(0 0 0 / 0.15);
+}
+
+.dark .scroll-to-bottom-btn {
+  background: oklch(0.22 0.02 260);
+  border-color: oklch(0.3 0.02 260);
+  color: oklch(0.85 0.01 260);
+  box-shadow: 0 4px 12px oklch(0 0 0 / 0.3);
+}
+
+.dark .scroll-to-bottom-btn:hover {
+  background: oklch(0.28 0.02 260);
+  box-shadow: 0 6px 16px oklch(0 0 0 / 0.4);
+}
+
+/**
+ * 流式消息过渡动画优化
+ * 禁用历史消息的入场动画，减少跳动
+ */
+.chat-message-no-animation {
+  animation: none !important;
+}
+
+/**
+ * 平滑滚动容器优化
+ * 移除 scroll-smooth 类的默认行为，使用 JavaScript 控制
+ */
+.smooth-scroll-container {
+  scroll-behavior: auto;
+  overscroll-behavior: contain;
+}
+
+/* ==========================================
+ * ✨ 流式消息淡入效果 (Fade In)
+ * ========================================== */
+
+/**
+ * 流式消息淡入动画
+ * 每个段落/元素出现时有轻微的淡入效果，让输出更丝滑
+ */
+@keyframes streaming-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/**
+ * 流式消息内容容器淡入
+ * 整体内容区域有淡入效果
+ */
+.streaming-content-fade {
+  animation: streaming-fade-in 0.3s ease-out;
+}
+
+/**
+ * 流式消息中的段落淡入效果
+ * 每个段落独立淡入，形成流水般的效果
+ */
+.streaming-message-content p,
+.streaming-message-content li,
+.streaming-message-content h1,
+.streaming-message-content h2,
+.streaming-message-content h3,
+.streaming-message-content h4,
+.streaming-message-content pre,
+.streaming-message-content blockquote,
+.streaming-message-content table {
+  animation: streaming-fade-in 0.25s ease-out;
+}
+
+/**
+ * 流式消息中的行内元素淡入
+ * 更快的淡入速度，避免影响阅读
+ */
+.streaming-message-content code:not(pre code),
+.streaming-message-content a,
+.streaming-message-content strong,
+.streaming-message-content em {
+  animation: streaming-fade-in 0.15s ease-out;
+}
+
+/**
+ * 流式光标淡入增强
+ * 光标出现时也有淡入效果
+ */
+.streaming-cursor {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: streaming-fade-in 0.2s ease-out;
+}
+
+/* ==========================================
+ * ✨ 移动端 UI 适配样式
+ * ========================================== */
+
+/**
+ * iOS Safe Area 支持
+ * 适配 iPhone X 及以上机型的刘海屏和底部安全区域
+ */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/**
+ * 移动端触摸目标最小尺寸
+ * 符合 iOS/Android 设计规范：最小 44x44px
+ * 添加 .compact 类可以跳过此规则
+ */
+@media (max-width: 767px) {
+  button:not(.compact),
+  a:not(.compact),
+  [role="button"]:not(.compact) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 紧凑按钮保持原样 */
+  .compact {
+    min-height: auto;
+    min-width: auto;
+  }
+}
+
+/**
+ * 移动端滚动优化
+ * 启用 iOS 原生滚动回弹效果
+ */
+@media (max-width: 767px) {
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/**
+ * 移动端文本选择优化
+ * 防止长按选择导致的意外行为
+ */
+@media (max-width: 767px) {
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

@@ -1,0 +1,7 @@
+packages:
+  # 前端应用
+  - 'autonome-studio'
+  - 'autonome-desktop'
+
+  # 共享包
+  - 'packages/*'
