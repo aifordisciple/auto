@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw, Eye, ExternalLink, Copy, Check, FolderInput, Hammer } from "lucide-react";
+import { Play, Clock, CheckCircle, Loader2, XCircle, Edit3, Terminal, ChevronDown, ChevronUp, RefreshCw, Eye, ExternalLink, Copy, Check, FolderInput, Hammer, Sparkles } from "lucide-react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
@@ -935,10 +935,12 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
             <div className="space-y-3">
               {Object.entries(editableParams).map(([key, value]) => {
                 const isBool = typeof value === 'boolean' || value === 'true' || value === 'false';
+                const isAIInferred = data.ai_inferred_params?.includes(key);
 
                 return (
                   <div key={key} className="flex items-center gap-3">
-                    <label className="text-xs text-gray-600 dark:text-neutral-400 min-w-[120px]">
+                    <label className={`text-xs min-w-[120px] flex items-center gap-1 ${isAIInferred ? 'text-blue-500 dark:text-blue-400' : 'text-gray-600 dark:text-neutral-400'}`}>
+                      {isAIInferred && <Sparkles className="w-3 h-3" />}
                       {key}
                     </label>
                     {isBool ? (
@@ -949,7 +951,11 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
                           ...editableParams,
                           [key]: e.target.value === 'true'
                         })}
-                        className="flex-1 px-2 py-1 text-xs bg-gray-200 dark:bg-neutral-800 border border-gray-300 dark:border-neutral-600 rounded text-gray-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className={`flex-1 px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                          isAIInferred
+                            ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-gray-700 dark:text-neutral-300'
+                            : 'bg-gray-200 dark:bg-neutral-800 border-gray-300 dark:border-neutral-600'
+                        }`}
                       >
                         <option value="true">true</option>
                         <option value="false">false</option>
@@ -963,7 +969,11 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
                           ...editableParams,
                           [key]: e.target.value
                         })}
-                        className="flex-1 px-2 py-1 text-xs bg-gray-200 dark:bg-neutral-800 border border-gray-300 dark:border-neutral-600 rounded text-gray-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className={`flex-1 px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                          isAIInferred
+                            ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-gray-700 dark:text-neutral-300'
+                            : 'bg-gray-200 dark:bg-neutral-800 border-gray-300 dark:border-neutral-600 text-gray-700 dark:text-neutral-300'
+                        }`}
                       />
                     )}
                   </div>
@@ -973,11 +983,22 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
           ) : (
             // 原有的参数展示
             <div className="flex flex-wrap gap-2">
-              {Object.entries(data.parameters).map(([key, value]) => (
-                <span key={key} className="text-xs bg-gray-200 dark:bg-neutral-800 px-2 py-1 rounded text-gray-700 dark:text-neutral-300">
-                  <span className="text-gray-500 dark:text-neutral-500">{key}:</span> {String(value)}
-                </span>
-              ))}
+              {Object.entries(data.parameters).map(([key, value]) => {
+                const isAIInferred = data.ai_inferred_params?.includes(key);
+                return (
+                  <span
+                    key={key}
+                    className={`text-xs px-2 py-1 rounded ${
+                      isAIInferred
+                        ? 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                        : 'bg-gray-200 dark:bg-neutral-800 text-gray-700 dark:text-neutral-300'
+                    }`}
+                  >
+                    {isAIInferred && <Sparkles className="inline w-3 h-3 mr-1" />}
+                    <span className={isAIInferred ? 'text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-neutral-500'}>{key}:</span> {String(value)}
+                  </span>
+                );
+              })}
             </div>
           )}
         </div>

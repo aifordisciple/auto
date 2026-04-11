@@ -60,6 +60,8 @@ export interface StrategyCardData {
   task_mode?: TaskMode;
   /** ✨ 可视化配置（交互式可视化模式时必须提供） */
   visualization_config?: VisualizationConfig;
+  /** ✨ V2: AI 推断的参数列表（用于视觉标记） */
+  ai_inferred_params?: string[];
 }
 
 /**
