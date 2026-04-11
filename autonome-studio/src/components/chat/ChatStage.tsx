@@ -363,9 +363,12 @@ export function ChatStage() {
 
               // ✨ 核心修改：无缝衔接的占位思考动画
               footer={
-                // 触发条件：正在请求中，且当前列表最后一条是"用户消息"
-                // 这代表网络请求在路上，但后端的第一个字符还没到达，AI气泡尚未建立
-                isTyping && messages.length > 0 && messages[messages.length - 1].role === 'user' ? (
+                // 触发条件：正在请求中，且最后一条是"空 assistant 消息"，倒数第二条是"用户消息"
+                // 这代表网络请求在路上，后端尚未返回有效内容，AI气泡已建立但内容为空
+                isTyping && messages.length >= 2 &&
+                messages[messages.length - 1].role === 'assistant' &&
+                messages[messages.length - 1].content === '' &&
+                messages[messages.length - 2].role === 'user' ? (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
