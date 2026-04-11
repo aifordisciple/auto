@@ -423,12 +423,20 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
       {/* ✨ 移动端优化：隐藏头像节省空间，gap-0 消除间距，消息内容占满全宽 */}
       <div className={`flex items-start gap-0 md:gap-4 w-full ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
         {/* ✨ 移动端隐藏头像（hidden md:flex），桌面端保持显示 */}
-        <div className={`hidden md:flex w-8 h-8 rounded-full items-center justify-center shrink-0 ${
+        <div className={`hidden md:flex w-8 h-8 rounded-full items-center justify-center shrink-0 overflow-hidden ${
           msg.role === 'user'
             ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-            : 'bg-gradient-to-br from-purple-500 to-blue-500 text-white'
+            : 'bg-[#1a1a1c] border border-neutral-700/60 shadow-sm'
         }`}>
-          {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
+          {msg.role === 'user' ? (
+            <User size={18} />
+          ) : (
+            <img
+              src="/ai-avatar.png"
+              alt="AI Avatar"
+              className="w-full h-full object-cover scale-[1.15]"
+            />
+          )}
         </div>
         {/* ✨ 移动端减少 padding（px-3 py-3），桌面端保持原样（px-5 py-4） */}
         {/* ✨ 用户消息：温和的蓝灰色背景 + 柔和文字色，保护眼睛 */}

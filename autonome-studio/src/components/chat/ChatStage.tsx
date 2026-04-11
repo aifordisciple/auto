@@ -358,33 +358,7 @@ export function ChatStage() {
               onEditResend={handleEditResend}
               scrollContainerRef={scrollContainerRef}
               messagesEndRef={messagesEndRef}
-              footer={
-                isTyping &&
-                messages.length > 0 &&
-                messages[messages.length - 1].role === 'assistant' &&
-                !streamingContent ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-start gap-4"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center shrink-0 mt-1 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 to-purple-500/10 animate-pulse"></div>
-                      <Sparkles size={16} className="text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <div className="flex items-center gap-3 bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-sm dark:shadow-lg relative overflow-hidden">
-                      <span className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-blue-600 dark:from-blue-400 via-purple-600 dark:via-purple-400 to-blue-600 dark:to-blue-400 animate-pulse">
-                        Thinking
-                      </span>
-                      <div className="flex gap-1.5 items-center mt-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-bounce [animation-delay:-0.15s]"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce"></div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ) : null
-              }
+              footer={null}
             />
 
             <button
