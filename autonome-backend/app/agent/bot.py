@@ -42,6 +42,15 @@ from app.agent.nodes.chat import chat_node
 from app.agent.nodes.router import router_node, get_intent_routing_edges, RouterState
 from app.agent.schemas import IntentClassification
 
+# ✨ V2 架构：专业节点
+from app.agent.nodes.retrieval import retrieval_node
+from app.agent.nodes.troubleshooting import troubleshooting_node
+from app.agent.nodes.system_action import system_action_node
+from app.agent.nodes.blueprint import blueprint_node
+from app.agent.nodes.param_update import param_update_node
+from app.agent.nodes.skill_form_builder import skill_form_builder_node
+from app.agent.nodes.skill_execute import skill_execute_node, handle_skill_execute
+
 
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -817,6 +826,40 @@ except Exception as e:
         last_msg = messages[-1]
         user_message = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
 
+        # ==========================================
+        # ✨ UI 隐式指令硬编码路由 (0延迟，免大模型)
+        # ==========================================
+        if user_message.startswith("[UI_ACTION:REQUEST_SKILL_PARAMS]"):
+            skill_id = user_message.split("]")[1].strip()
+            log.info(f"🔀 [Bot] 捕获隐式指令: 请求技能参数表单, skill_id={skill_id}")
+
+            # 直接调用 skill_form_builder 逻辑
+            from app.agent.nodes.skill_form_builder import skill_form_builder_node
+            form_state = {
+                "messages": messages,
+                "skill_id": skill_id,
+                "skill_params": {}
+            }
+            form_result = await skill_form_builder_node(form_state)
+            return {"messages": form_result.get("messages", []), "next": "end"}
+
+        if user_message.startswith("[UI_ACTION:EXECUTE_SKILL]"):
+            import json
+            try:
+                payload_str = user_message.split("]", 1)[1].strip()
+                payload = json.loads(payload_str)
+                skill_id = payload.get("skill_id", "")
+                skill_params = payload.get("parameters", {})
+                log.info(f"🔀 [Bot] 捕获隐式指令: 确定执行技能, skill_id={skill_id}")
+
+                # TODO: 调用 SuperExecutor 执行技能
+                # 目前暂时返回执行指令已收到的确认消息
+                confirm_msg = f"技能执行指令已收到，正在准备执行 {skill_id}..."
+                return {"messages": [AIMessage(content=confirm_msg)], "next": "end"}
+            except json.JSONDecodeError as e:
+                log.error(f"🔀 [Bot] 解析 EXECUTE_SKILL payload 失败: {e}")
+                return {"messages": [AIMessage(content=f"执行指令解析失败: {e}")], "next": "end"}
+
         # ✨ 快速路径：闲聊检测（无需调用 LLM）
         if is_casual_chat(user_message):
             casual_type = _detect_casual_type(user_message)
@@ -1099,6 +1142,8 @@ def build_bio_agent_v2_simple(
         intent: IntentClassification
         next: str
         physical_file_info: str
+        skill_id: str  # ✨ 用于 UI_ACTION 隐式指令传递 skill_id
+        skill_params: dict  # ✨ 用于 UI_ACTION 隐式指令传递参数
 
     # 动态上下文构建
     def build_context(user_message: str):
@@ -1160,21 +1205,43 @@ def build_bio_agent_v2_simple(
     workflow.add_node("router", router_node)
     workflow.add_node("main", main_node)
     workflow.add_node("chat", chat_only_node)
+    workflow.add_node("skill_form_builder", skill_form_builder_node)
+    # ✨ V2 专业节点
+    workflow.add_node("skill_execute", skill_execute_node)
+    workflow.add_node("retrieval", retrieval_node)
+    workflow.add_node("troubleshooting", troubleshooting_node)
+    workflow.add_node("system_action", system_action_node)
+    workflow.add_node("blueprint", blueprint_node)
+    workflow.add_node("param_update", param_update_node)
 
     workflow.add_edge(START, "router")
 
     workflow.add_conditional_edges(
         "router",
-        lambda state: state.get("next", "main"),
+        lambda state: state.get("next", "retrieval"),
         {
             "chat": "chat",
             "main": "main",
+            "skill_form_builder": "skill_form_builder",
+            "skill_execute": "skill_execute",  # ✨ 使用独立 skill_execute 节点
+            "retrieval": "retrieval",      # ✨ VAGUE_ANALYSIS -> 检索节点
+            "troubleshooting": "troubleshooting",  # ✨ TROUBLESHOOT -> 排错节点
+            "system_action": "system_action",  # ✨ SYSTEM_ACTION -> 系统操作节点
+            "blueprint": "blueprint",        # ✨ PIPELINE_BUILD -> 蓝图节点
+            "param_update": "param_update",  # ✨ UI_UPDATE -> 参数更新节点
             "end": END,
         }
     )
 
     workflow.add_edge("main", END)
     workflow.add_edge("chat", END)
+    workflow.add_edge("skill_form_builder", END)
+    workflow.add_edge("skill_execute", END)
+    workflow.add_edge("retrieval", END)
+    workflow.add_edge("troubleshooting", END)
+    workflow.add_edge("system_action", END)
+    workflow.add_edge("blueprint", END)
+    workflow.add_edge("param_update", END)
 
     log.info("🔀 [Bot V2 Simple] 工作流已构建")
 

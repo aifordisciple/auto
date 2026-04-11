@@ -163,9 +163,9 @@ def create_router_node():
     return llm.with_structured_output(IntentClassification, method="json_mode")
 
 
-async def router_node(state: RouterState) -> dict:
+async def router_node_logic(messages: list, physical_file_info: str) -> dict:
     """
-    极速路由节点入口
+    极速路由核心逻辑（可独立调用）
 
     职责：
     1. 截取最近 2-3 轮对话
@@ -174,14 +174,12 @@ async def router_node(state: RouterState) -> dict:
     4. 返回分流决策
 
     Args:
-        state: RouterState，包含 messages 和 physical_file_info
+        messages: 消息列表
+        physical_file_info: 物理文件信息
 
     Returns:
         dict: 包含 intent 和 next 节点名称
     """
-    messages = state.get("messages", [])
-    physical_file_info = state.get("physical_file_info", "无")
-
     if not messages:
         log.warning("🔀 [Router] 收到空消息，跳转到 VAGUE_ANALYSIS")
         return {
@@ -193,8 +191,51 @@ async def router_node(state: RouterState) -> dict:
     last_msg = messages[-1]
     user_message = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
 
+    # ==========================================
+    # ✨ UI 隐式指令硬编码路由 (0延迟，免大模型)
+    # ==========================================
+    if user_message.startswith("[UI_ACTION:REQUEST_SKILL_PARAMS]"):
+        skill_id = user_message.split("]")[1].strip()
+        log.info(f"🔀 [Router] 捕获隐式指令: 请求技能参数表单, skill_id={skill_id}")
+        return {
+            "intent": IntentClassification(
+                intent=INTENT_SYSTEM_ACTION,
+                reason="拉取参数表单",
+                confidence=1.0,
+                entities={"skill_id": skill_id}
+            ),
+            "next": "skill_form_builder"
+        }
+
+    if user_message.startswith("[UI_ACTION:EXECUTE_SKILL]"):
+        import json
+        try:
+            payload_str = user_message.split("]", 1)[1].strip()
+            payload = json.loads(payload_str)
+            skill_id = payload.get("skill_id", "")
+            skill_params = payload.get("parameters", {})
+            log.info(f"🔀 [Router] 捕获隐式指令: 确定执行技能, skill_id={skill_id}")
+            return {
+                "intent": IntentClassification(
+                    intent=INTENT_EXPLICIT_SKILL,
+                    reason="执行技能",
+                    confidence=1.0,
+                    entities={"skill_id": skill_id, "skill_params": skill_params}
+                ),
+                "next": "skill_execute",
+                "skill_id": skill_id,
+                "skill_params": skill_params
+            }
+        except json.JSONDecodeError as e:
+            log.error(f"🔀 [Router] 解析 EXECUTE_SKILL payload 失败: {e}")
+            return {
+                "intent": IntentClassification(intent=INTENT_VAGUE_ANALYSIS, reason="执行指令解析失败"),
+                "next": "retrieval"
+            }
+
     casual_type = _detect_casual_type(user_message)
-    if casual_type in CASUAL_RESPONSES:
+    # ✨ 只对明确的闲聊类型走快速路径，"default" 需要 LLM 分类
+    if casual_type != "default" and casual_type in CASUAL_RESPONSES:
         log.info(f"🔀 [Router] 闲聊快速响应: {casual_type}")
         return {
             "intent": IntentClassification(
@@ -252,6 +293,21 @@ async def router_node(state: RouterState) -> dict:
         }
 
 
+async def router_node(state: RouterState) -> dict:
+    """
+    极速路由节点入口（LangGraph 节点包装器）
+
+    Args:
+        state: RouterState，包含 messages 和 physical_file_info
+
+    Returns:
+        dict: 包含 intent 和 next 节点名称
+    """
+    messages = state.get("messages", [])
+    physical_file_info = state.get("physical_file_info", "无")
+    return await router_node_logic(messages, physical_file_info)
+
+
 def _decide_next_node(intent: IntentClassification) -> str:
     """
     根据意图类型决定下一个节点
@@ -272,9 +328,9 @@ def _decide_next_node(intent: IntentClassification) -> str:
     if intent_type == INTENT_EXPLICIT_SKILL:
         return "skill_execute"
 
-    # VAGUE_ANALYSIS -> retrieval (检索节点，后续阶段)
+    # ✨ VAGUE_ANALYSIS -> super_executor (超级执行者 V4)
     if intent_type == INTENT_VAGUE_ANALYSIS:
-        return "retrieval"
+        return "super_executor"
 
     # TROUBLESHOOT -> troubleshooting (排错节点)
     if intent_type == INTENT_TROUBLESHOOT:
@@ -284,9 +340,9 @@ def _decide_next_node(intent: IntentClassification) -> str:
     if intent_type == INTENT_SYSTEM_ACTION:
         return "system_action"
 
-    # PIPELINE_BUILD -> blueprint (蓝图构建节点)
+    # ✨ PIPELINE_BUILD -> super_executor (超级执行者 V4)
     if intent_type == INTENT_PIPELINE_BUILD:
-        return "blueprint"
+        return "super_executor"
 
     # ✨ UI_UPDATE -> param_update (参数更新节点)
     if intent_type == INTENT_UI_UPDATE:
@@ -308,10 +364,10 @@ def get_intent_routing_edges() -> dict[str, str]:
     return {
         INTENT_CHAT: "chat",
         INTENT_EXPLICIT_SKILL: "skill_execute",
-        INTENT_VAGUE_ANALYSIS: "retrieval",
+        INTENT_VAGUE_ANALYSIS: "super_executor",  # ✨ 路由到超级执行者
         INTENT_TROUBLESHOOT: "troubleshooting",
         INTENT_SYSTEM_ACTION: "system_action",
-        INTENT_PIPELINE_BUILD: "blueprint",
+        INTENT_PIPELINE_BUILD: "super_executor",  # ✨ 路由到超级执行者
         INTENT_UI_UPDATE: "param_update",  # ✨ V2: 参数更新节点
     }
 

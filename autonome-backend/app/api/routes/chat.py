@@ -32,9 +32,10 @@ from sse_starlette.sse import EventSourceResponse
 from app.core.database import get_session, engine
 from app.models.domain import (
     ChatSession, ChatMessage, DataFile, SystemConfig, RoleEnum, Project, User,
-    SkillAsset, SkillStatus, ClaudeExecutorPermission
+    SkillAsset, SkillStatus
 )
 from app.agent.bot import build_bio_agent
+from app.agent.unified_executor import build_unified_agent
 from app.agent.planning_coordinator import execute_planning
 from app.core.logger import log
 from app.api.deps import get_current_user
@@ -153,6 +154,7 @@ async def chat_stream(
     session.add(user_msg)
     session.commit()
     session_id_for_ai = chat_session.id
+    user_msg_id = user_msg.id  # ✨ 保存消息 ID 避免后续访问 detached 对象
 
     user_id = current_user.id
 
@@ -405,12 +407,11 @@ async def chat_stream(
                     }
                     log.info(f"🖼️ [Chat] 使用独立视觉模型配置: {vision_model} @ {vision_base_url}")
 
-            agent_executor = build_bio_agent(
+            agent_executor = build_unified_agent(
                 api_key=api_key,
                 base_url=base_url,
                 model_name=model_name,
                 physical_file_info=physical_file_info,
-                global_file_tree=global_file_tree,
                 user_id=user_id,
                 project_id=request.project_id,
                 selected_skill_id=request.skill_id,
@@ -582,7 +583,7 @@ async def chat_stream(
                 yield {
                     "event": "recommendation_card",
                     "data": json.dumps({
-                        "message_id": str(user_msg.id) if 'user_msg' in dir() else "",
+                        "message_id": str(user_msg_id) if 'user_msg_id' in dir() else "",
                         "title": "请选择执行方式",
                         "options": recommendation_options
                     })
@@ -679,189 +680,8 @@ async def chat_stream(
             if history:
                 log.info(f"📜 [对话上下文]: 最近 {len(history)} 条历史消息已加载")
 
-            # 超级执行者模式
-            if request.task_mode == 'super_executor':
-                log.info(f"⚡ [Chat] 启动超级执行者模式 (Claude Code)")
-
-                ai_full_response = ""
-
-                try:
-                    with Session(engine) as perm_session:
-                        claude_permission = perm_session.exec(
-                            select(ClaudeExecutorPermission).where(
-                                ClaudeExecutorPermission.user_id == user_id
-                            )
-                        ).first()
-
-                        has_claude_permission = False
-                        claude_mode = None
-
-                        if claude_permission:
-                            if claude_permission.expires_at and claude_permission.expires_at < datetime.utcnow():
-                                log.info(f"[Chat] 用户 {user_id} 的 Claude 授权已过期")
-                            else:
-                                has_claude_permission = True
-                                allowed_modes = claude_permission.allowed_modes or ["container"]
-                                if "host" in allowed_modes:
-                                    claude_mode = "host"
-                                elif "container" in allowed_modes:
-                                    claude_mode = "container"
-                                log.info(f"[Chat] 用户 {user_id} 有 Claude 权限，模式: {claude_mode}")
-
-                    if not has_claude_permission or not claude_mode:
-                        log.info(f"[Chat] 用户 {user_id} 无 Claude 权限，提示申请")
-
-                        yield {
-                            "event": "super_executor_no_permission",
-                            "data": json.dumps({
-                                "message": "您没有 Claude Code 执行权限",
-                                "action": "apply_permission"
-                            })
-                        }
-
-                        ai_full_response = "> ⚠️ **权限不足**\n\n您没有 Claude Code 执行权限。\n\n请使用侧边栏的「超级执行者」面板申请权限，或联系管理员开通。"
-
-                        yield {"event": "message", "data": json.dumps({"type": "text", "content": ai_full_response})}
-
-                    else:
-                        log.info(f"[Chat] 启动 Claude Code 执行，模式: {claude_mode}")
-
-                        yield {
-                            "event": "claude_execution_start",
-                            "data": json.dumps({
-                                "message": f"正在启动 Claude Code ({claude_mode} 模式)...",
-                                "mode": claude_mode
-                            })
-                        }
-
-                        from app.services.claude_executor_service import claude_executor_service
-
-                        claude_session = claude_executor_service.create_session(
-                            project_id=request.project_id,
-                            user_id=user_id,
-                            mode=claude_mode
-                        )
-
-                        log.info(f"[Chat] Claude 会话已创建: {claude_session.session_id}")
-
-                        result = await claude_executor_service.execute(
-                            session=claude_session,
-                            prompt=request.message,
-                            output_callback=None
-                        )
-
-                        if result.success:
-                            log.info(f"[Chat] Claude 执行成功，耗时: {result.execution_time_seconds:.1f}s")
-
-                            battle_report = result.battle_report or {}
-
-                            ai_full_response = ""
-
-                            assistant_message = battle_report.get("assistant_message", "")
-                            if assistant_message:
-                                max_length = 20000
-                                if len(assistant_message) > max_length:
-                                    assistant_message = assistant_message[:max_length]
-                                    assistant_message += f"\n\n---\n*⚠️ 内容已截断*"
-                                ai_full_response += f"{assistant_message}\n"
-
-                            files_created = battle_report.get("files_created", [])
-                            files_modified = battle_report.get("files_modified", [])
-                            files_read = battle_report.get("files_read", [])
-
-                            if files_created or files_modified or files_read:
-                                ai_full_response += "\n---\n\n### 📁 文件操作\n"
-
-                                if files_created:
-                                    ai_full_response += "\n**创建:** "
-                                    ai_full_response += ", ".join(f"`{f}`" for f in files_created)
-
-                                if files_modified:
-                                    ai_full_response += "\n**修改:** "
-                                    ai_full_response += ", ".join(f"`{f}`" for f in files_modified)
-
-                                if files_read and (files_created or files_modified):
-                                    ai_full_response += f"\n**读取:** {len(files_read)} 个文件"
-
-                            commands_executed = battle_report.get("commands_executed", [])
-                            if commands_executed:
-                                ai_full_response += f"\n\n### ⚡ 执行命令 ({len(commands_executed)} 条)"
-
-                            ai_full_response += f"\n\n---\n*⏱️ 执行耗时: {result.execution_time_seconds:.1f}s*"
-
-                            yield {
-                                "event": "claude_execution_complete",
-                                "data": json.dumps({
-                                    "session_id": claude_session.session_id,
-                                    "success": True,
-                                    "execution_time": result.execution_time_seconds
-                                })
-                            }
-
-                        else:
-                            log.error(f"[Chat] Claude 执行失败: {result.error}")
-
-                            ai_full_response = f"### ❌ 执行失败\n\n```\n{result.error}\n```"
-
-                            yield {
-                                "event": "claude_execution_error",
-                                "data": json.dumps({
-                                    "session_id": claude_session.session_id,
-                                    "error": result.error
-                                })
-                            }
-
-                        yield {"event": "message", "data": json.dumps({"type": "text", "content": ai_full_response})}
-
-                except Exception as e:
-                    import traceback
-                    error_details = traceback.format_exc()
-                    log.error(f"❌ [Chat] 超级执行者错误: {str(e)}\n{error_details}")
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"error": f"超级执行者执行失败: {str(e)}"})
-                    }
-
-                finally:
-                    with Session(engine) as final_db_session:
-                        user_msg = ChatMessage(
-                            session_id=session_id_for_ai,
-                            role=RoleEnum.user,
-                            content=request.message[:500] + "..." if len(request.message) > 500 else request.message,
-                            attachments={"mode": "super_executor"}
-                        )
-                        final_db_session.add(user_msg)
-
-                        if ai_full_response:
-                            ai_msg = ChatMessage(
-                                session_id=session_id_for_ai,
-                                role=RoleEnum.assistant,
-                                content=ai_full_response
-                            )
-                            final_db_session.add(ai_msg)
-
-                        db_user = final_db_session.get(User, user_id)
-                        if db_user:
-                            try:
-                                from app.services.billing_service import BillingService
-                                bs = BillingService(final_db_session)
-                                bs.deduct_credits(
-                                    wallet_id=wallet.wallet_id,
-                                    amount=cost_credits,
-                                    transaction_type="consume_chat",
-                                    description=f"聊天消息消费",
-                                )
-                            except Exception as e:
-                                log.warning(f"扣费失败: {e}")
-                                if db_user.billing:
-                                    db_user.billing.credits_balance -= cost_credits
-                                    if db_user.billing.credits_balance < 0:
-                                        db_user.billing.credits_balance = 0
-
-                        final_db_session.commit()
-
-                    yield {"event": "done", "data": "[DONE]"}
-                    return
+            # ✨ 超级执行者模式已整合到 unified_executor
+            # VAGUE_ANALYSIS 和 PIPELINE_BUILD 意图会自动路由到 super_executor_node
 
             # 专家委员会模式
             use_expert_committee_mode = should_use_expert_committee(request.message, request.task_mode)
@@ -948,6 +768,88 @@ async def chat_stream(
 
             log.info("📡 正在等待 Agent 流式事件响应...")
 
+            # ✨ 优先使用技能匹配的意图结果，避免重复调用 LLM 路由器
+            # intent_result 在前面已经通过技能匹配获取
+            resolved_intent_type = None
+            if intent_result and intent_result.get("intent_type"):
+                resolved_intent_type = intent_result.get("intent_type")
+                log.info(f"🎯 [Chat] 使用技能匹配结果: intent={resolved_intent_type}")
+
+            # ✨ 如果技能匹配没有确定意图，才调用路由器
+            if not resolved_intent_type:
+                from app.agent.nodes.router import router_node_logic
+                try:
+                    router_result = await router_node_logic(messages, physical_file_info)
+                    if router_result.get("intent"):
+                        resolved_intent_type = router_result["intent"].intent if hasattr(router_result["intent"], "intent") else str(router_result["intent"])
+                        log.info(f"🔀 [Chat] 路由器意图: {resolved_intent_type}")
+
+                        # 如果有闲聊响应（提前返回）
+                        if "messages" in router_result and router_result["messages"]:
+                            for msg in router_result["messages"]:
+                                if hasattr(msg, 'content') and msg.content:
+                                    ai_full_response = msg.content
+                                    yield {"event": "message", "data": json.dumps({"type": "text", "content": ai_full_response})}
+                            yield {"event": "done", "data": "[DONE]"}
+                            return
+                except Exception as router_err:
+                    log.warning(f"⚠️ [Chat] 路由器调用失败: {router_err}")
+                    resolved_intent_type = "VAGUE_ANALYSIS"  # 默认
+
+            log.info(f"🎯 [Chat] 最终意图: {resolved_intent_type}")
+
+            # ✨ 根据意图类型分流处理
+            if resolved_intent_type in {"VAGUE_ANALYSIS", "PIPELINE_BUILD"}:
+                log.info(f"🚀 [Chat] 启动超级执行者 V4，意图类型: {resolved_intent_type}")
+
+                try:
+                    from app.agent.super_executor_v4 import SuperExecutorV4
+                    # 从 messages 中提取用户消息内容
+                    last_msg = messages[-1] if messages else {}
+                    if isinstance(last_msg, dict):
+                        raw_input_text = last_msg.get("content", "")
+                    else:
+                        raw_input_text = getattr(last_msg, 'content', "")
+                    executor = SuperExecutorV4(
+                        raw_input=raw_input_text,
+                        project_id=str(request.project_id),
+                        user_id=user_id,
+                        api_key=api_key,
+                        base_url=base_url,
+                        model_name=model_name
+                    )
+
+                    async for event in executor.run():
+                        event_type = event.get("event", "")
+                        event_data = event.get("data", {})
+
+                        if event_type == "message":
+                            # event_data 可能是 dict 或 string
+                            if isinstance(event_data, str):
+                                content = json.loads(event_data).get("content", "")
+                            else:
+                                content = event_data.get("content", "")
+                            if content:
+                                ai_full_response += content
+                                yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
+                        elif event_type == "status_update":
+                            yield {"event": "status", "data": json.dumps(event_data)}
+                        elif event_type == "phase_change":
+                            yield {"event": "phase_change", "data": json.dumps(event_data)}
+                        elif event_type == "error":
+                            error_msg = event_data.get("error", "Unknown error") if isinstance(event_data, dict) else str(event_data)
+                            yield {"event": "error", "data": json.dumps({"error": error_msg})}
+
+                    yield {"event": "done", "data": "[DONE]"}
+                    return
+
+                except Exception as super_err:
+                    log.error(f"❌ [Chat] 超级执行者错误: {super_err}")
+                    yield {"event": "error", "data": json.dumps({"error": str(super_err)})}
+                    yield {"event": "done", "data": "[DONE]"}
+                    return
+
+            # ✨ 其他意图类型走 LangGraph Agent 工作流
             async for event in agent_executor.astream_events({"messages": messages}, config={"recursion_limit": 20}, version="v2"):
                 kind = event["event"]
 
@@ -1065,6 +967,18 @@ async def chat_stream(
                         msg = f"\n\n> ✅ *(探针返回：目录结构已扫描)*\n\n"
                         ai_full_response += msg
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": msg})}
+
+                elif kind == "on_node":
+                    # ✨ 处理统一执行器节点返回的消息（如闲聊响应）
+                    node_name = event.get("name", "")
+                    if node_name == "unified":
+                        output = event.get("data", {}).get("output", {})
+                        if isinstance(output, dict) and "messages" in output:
+                            for msg in output["messages"]:
+                                if hasattr(msg, 'content') and msg.content:
+                                    content = msg.content
+                                    ai_full_response += content
+                                    yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
 
             if thinking_buffer:
                 filtered_content = filter_thinking_content(thinking_buffer, is_streaming=True)

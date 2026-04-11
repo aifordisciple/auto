@@ -97,7 +97,14 @@ class IntentClassifier:
             - confidence: 0.0 - 1.0
             - reason: 分类原因描述
         """
-        msg = message.strip().lower()
+        msg_raw = message.strip()
+
+        # ✨ 新增：VIP 绿色通道 - 拦截 UI 驱动的隐式指令
+        if msg_raw.startswith("[UI_ACTION:"):
+            # 直接放行，标记为最高优先级的分析任务，让 Router 进一步分流
+            return "analytical", 1.0, "UI 驱动的隐式系统指令"
+
+        msg = msg_raw.lower()
 
         # 空消息默认为 casual
         if len(msg) < 2:

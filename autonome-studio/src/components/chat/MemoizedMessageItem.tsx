@@ -13,6 +13,7 @@ import { BattleReportCard, parseBattleReport } from "./BattleReportCard";
 import { InteractivePlotCard } from "./InteractivePlotCard";
 import { parseInteractivePlotCard, parseActionMenu, parseParamUpdate } from "./StrategyCard/parseUtils";
 import InlineActionMenu from "./InlineActionMenu";
+import { RecommendationCard } from "./RecommendationCard";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
@@ -679,20 +680,33 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     );
                   }
 
-                  // 否则渲染内联操作菜单
+                  // 否则渲染推荐选择卡片
+                  // 将 ActionMenuOption[] 转换为 RecommendationOption[]
+                  const recommendationOptions = actionMenuData.options.map((opt) => ({
+                    type: "skill" as const,
+                    skill_id: opt.skill_id,
+                    name: opt.name,
+                    description: opt.match_reason || opt.name,
+                    match_score: opt.match_score,
+                  }));
+
+                  const recommendationData = {
+                    message_id: msg.id,
+                    title: actionMenuData.title,
+                    options: recommendationOptions,
+                  };
+
                   return (
                     <>
                       {/* 先渲染 AI 的说明文本 */}
                       {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      {/* 然后渲染内联操作菜单 */}
+                      {/* ✨ V2: 使用 InlineActionMenu 替代 RecommendationCard */}
                       <InlineActionMenu
                         data={actionMenuData}
                         onSelect={(skillId) => {
                           console.log("[MemoizedMessageItem] 用户选择了技能:", skillId);
-                          if (skillId !== "live_coding") {
-                            setSelectedSkillId(skillId);
-                            fetchParams(skillId);
-                          }
+                          setSelectedSkillId(skillId);
+                          fetchParams(skillId);
                         }}
                       />
                     </>
