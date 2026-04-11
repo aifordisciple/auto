@@ -89,7 +89,6 @@ export function GlobalOverlay() {
     if (isProjectCenterOpen) return <ProjectCenter />;
     if (isSettingsOpen) return <SettingsCenter />;
     if (isTaskCenterOpen) return <TaskCenter />;
-    if (isControlPanelOpen) return <ControlPanel />;
     return null;
   };
 
@@ -97,11 +96,10 @@ export function GlobalOverlay() {
     if (isProjectCenterOpen) return 'Projects';
     if (isSettingsOpen) return 'Settings';
     if (isTaskCenterOpen) return 'Tasks';
-    if (isControlPanelOpen) return 'Control Panel';
     return '';
   };
 
-  const anyOverlayOpen = isTaskCenterOpen || isSettingsOpen || isProjectCenterOpen || isControlPanelOpen;
+  const anyOverlayOpen = isTaskCenterOpen || isSettingsOpen || isProjectCenterOpen;
 
   return (
     <>
