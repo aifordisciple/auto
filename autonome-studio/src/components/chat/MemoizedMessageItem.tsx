@@ -381,7 +381,9 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
       /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/results\/[^\s'"]+\.[a-zA-Z0-9]+/gi,
       /\[.*?\]\(\)/g,
       /^[-*+]\s*$/gm,
-      /<!-- DEEP_INTERPRET_META[\s\S]*?DEEP_INTERPRET_META -->\n?/g,
+      // ✨ 增强：使用更宽泛的匹配，涵盖所有可能的 DEEP_INTERPRET_META 注释块
+      /<!-- DEEP_INTERPRET_META[\s\S]*?DEEP_INTERPRET_META -->/gi,
+      /<!-- DEEP_SEARCH_META[\s\S]*?DEEP_SEARCH_META -->/gi,
       /<!-- TASK_ID: [a-f0-9-]+ -->\n?/g,
       /<!-- TASK_NAME: [^\s]+ -->\n?/g,
       /^[\s\n]+$/gm,
@@ -407,7 +409,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   };
 
   // ✨ 隐藏空的 assistant 消息（但在流式生成中保留，以显示 Thinking 状态）
-  if (msg.role === 'assistant' && !displayContent?.trim() && !(isLast && isTyping)) {
+  if (msg.role === 'assistant' && !displayContent && !(isLast && isTyping)) {
     return null;
   }
 

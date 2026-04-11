@@ -303,9 +303,8 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
     },
   }), [isDark]);
 
-  // ✨ 关键修复：即使 content 为空，流式状态也不能 return null，
-  //   必须渲染组件以便显示 "深度思考中..." UI
-  if (!content && !isStreaming) return null;
+  // ✨ 关键修复：允许空内容渲染，只要是流式状态或者被判定为正在思考
+  if (!content && !isStreaming && !isCurrentlyThinking) return null;
 
   // 流式消息使用淡入效果类
   const containerClass = isStreaming
