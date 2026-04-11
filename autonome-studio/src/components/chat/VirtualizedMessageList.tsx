@@ -133,17 +133,25 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
   // 渲染
   // ==========================================
 
+  // ✨ 占位动画显示时，不渲染最后一条空 assistant 消息（避免双重头像）
+  const shouldHideLastEmptyAssistant = footer !== null;
+
+  // 计算要渲染的消息范围
+  const messagesToRender = shouldHideLastEmptyAssistant && messages.length >= 2
+    ? messages.slice(0, -1)  // 去掉最后一条
+    : messages;
+
   return (
     <div
       className="w-full md:max-w-4xl md:mx-auto space-y-6"
     >
       <AnimatePresence>
-        {messages.map((msg, index) => (
+        {messagesToRender.map((msg, index) => (
           <MemoizedMessageItem
             key={msg.id}
             msg={msg}
             index={index}
-            isLast={index === messages.length - 1}
+            isLast={index === messagesToRender.length - 1}
             isTyping={isTyping}
             streamingContent={streamingContent}
             currentProjectId={currentProjectId}
