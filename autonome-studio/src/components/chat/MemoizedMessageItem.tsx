@@ -538,9 +538,15 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                 // 流式输出中：使用 StreamingMarkdown（处理未闭合结构 + DOM Diff）
                 if (isLast && isTyping) {
+                  // ✨ 核心修复：流式输出时，强制剥离所有后台用于控制 UI 的半截 JSON 块。
+                  // 这样 StreamingMarkdown 收到空字符后，会自动触发并保持紫色的【深度思考中...】动画
+                  const safeStreamingContent = displayContent.replace(
+                    /```\s*(json_intent|json_strategy|json_battle_report|json_action_menu|blueprint)[\s\S]*?(```|$)/gi,
+                    ''
+                  );
                   return (
                     <StreamingMarkdown
-                      content={displayContent}
+                      content={safeStreamingContent}
                       isStreaming={true}
                     />
                   );
