@@ -226,6 +226,76 @@ def get_skill_detail(
 
 
 # ==========================================
+# GET /api/skills/params/{skill_id} - 获取技能的 StrategyCard 格式参数
+# ==========================================
+@router.get("/params/{skill_id}")
+def get_skill_params(
+    skill_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取技能的参数定义，用于渲染 StrategyCard。
+
+    返回格式：
+    {
+        "status": "success",
+        "data": {
+            "tool_id": "skill_xxx",
+            "title": "技能名称",
+            "description": "技能描述",
+            "parameters": {...}  // JSON Schema 格式
+        }
+    }
+    """
+    from app.core.skill_parser import get_skill_parser
+
+    # 先尝试从数据库获取
+    skill = session.exec(select(SkillAsset).where(SkillAsset.skill_id == skill_id)).first()
+
+    if skill:
+        # 权限检查
+        if skill.status != SkillStatus.PUBLISHED and skill.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="无权访问该私有技能")
+
+        return {
+            "status": "success",
+            "source": "database",
+            "data": {
+                "tool_id": skill.skill_id,
+                "title": skill.name,
+                "description": skill.description or "",
+                "parameters": skill.parameters_schema or {},
+                "executor_type": skill.executor_type,
+                "expert_knowledge": skill.expert_knowledge or "",
+            }
+        }
+
+    # 如果数据库中没有，尝试从文件系统获取
+    parser = get_skill_parser()
+    fs_skill = parser.get_skill_by_id(skill_id)
+
+    if fs_skill:
+        metadata = fs_skill.get("metadata", {})
+        parameters_schema = fs_skill.get("parameters_schema", {})
+
+        return {
+            "status": "success",
+            "source": "filesystem",
+            "data": {
+                "tool_id": skill_id,
+                "title": metadata.get("name", skill_id),
+                "description": metadata.get("description", ""),
+                "parameters": parameters_schema,
+                "executor_type": metadata.get("executor_type", "Python_env"),
+                "expert_knowledge": fs_skill.get("expert_knowledge", ""),
+            }
+        }
+
+    raise HTTPException(status_code=404, detail=f"SKILL not found: {skill_id}")
+
+
+# ==========================================
 # PUT /api/skills/{skill_id} - 更新自己的 SKILL
 # ==========================================
 @router.put("/{skill_id}", response_model=SkillAssetPublic)

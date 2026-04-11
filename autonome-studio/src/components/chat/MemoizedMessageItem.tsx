@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useMemo } from "react";
+import { memo, useState, useMemo, useCallback } from "react";
 import { Bot, User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, FileImage, FileSpreadsheet, ChevronDown, ChevronRight, FolderOpen, Folder, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -16,6 +16,7 @@ import InlineActionMenu from "./InlineActionMenu";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
+import { useSkillParams } from "@/hooks/useSkillParams";
 
 // ==========================================
 // ✨ 辅助函数：复制到剪贴板
@@ -263,6 +264,10 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   // ✨ 编辑状态
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
+
+  // ✨ 技能参数状态（用于 InlineActionMenu 点击后获取参数并渲染 StrategyCard）
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const { data: skillParamsData, loading: skillParamsLoading, fetchParams } = useSkillParams();
 
   // ✨ 流式消息优化：对于最后一条 assistant 消息，使用 streamingContent
   const displayContent = isLast && msg.role === 'assistant' && isTyping ? streamingContent : msg.content;
@@ -652,6 +657,29 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     .replace(/```json_action_menu[\s\S]*?```/g, '')
                     .trim();
 
+                  // 如果用户已选择技能且已获取参数，渲染 StrategyCard
+                  if (selectedSkillId && skillParamsData) {
+                    // 将参数转换为 StrategyCard 格式
+                    const strategyCardData = {
+                      tool_id: skillParamsData.tool_id,
+                      title: skillParamsData.title,
+                      description: skillParamsData.description,
+                      parameters: skillParamsData.parameters || {},
+                    };
+
+                    return (
+                      <>
+                        {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
+                        <StrategyCard
+                          data={strategyCardData}
+                          messageId={msg.id}
+                          messageContent={displayContent}
+                        />
+                      </>
+                    );
+                  }
+
+                  // 否则渲染内联操作菜单
                   return (
                     <>
                       {/* 先渲染 AI 的说明文本 */}
@@ -661,7 +689,10 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                         data={actionMenuData}
                         onSelect={(skillId) => {
                           console.log("[MemoizedMessageItem] 用户选择了技能:", skillId);
-                          // TODO: 静默调用后端 API 获取预填参数，然后展开 StrategyCard
+                          if (skillId !== "live_coding") {
+                            setSelectedSkillId(skillId);
+                            fetchParams(skillId);
+                          }
                         }}
                       />
                     </>
