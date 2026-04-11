@@ -365,18 +365,22 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     return { code: extractedCode, userMessage: extractedUserMessage };
   }, [displayContent]);
 
-  // ✨ 清理后的内容（移除文件路径和隐藏元数据）
-  // 合并所有正则模式为一次遍历处理
+  // ✨ 终极清理函数：防漏、防幻觉、防乱码的系统指令过滤器
   const cleanedContent = useMemo(() => {
     if (!displayContent) return '';
-
-    // 🔧 首先过滤 thinking 标签
     let cleaned = filterThinkingContent(displayContent);
 
-    // ✨ 批量正则替换（合并同类模式减少遍历次数）
     const removePatterns: RegExp[] = [
-      /```json_intent[\s\S]*?```/g,
-      /```json_battle_report[\s\S]*?```/g,
+      // 1. 标准反引号闭合或未闭合的系统控制块 (json_intent, json_strategy 等)
+      /```\s*(json_intent|json_strategy|json_battle_report|json_action_menu|blueprint)[\s\S]*?(```|$)/gi,
+
+      // 2. 只有 ```json 但包含内部系统核心字段的控制块 (大模型写错了标签)
+      /```\s*(json)?\s*\{[\s\S]*?"(intent_type|recommended_action|plan|action)"[\s\S]*?(```|$)/gi,
+
+      // 3. 极度残缺、裸露的 JSON 对象（核心修复：专门针对被切断的 son_intent 或完全没有反引号的裸奔 JSON）
+      /(?:json_intent|s\s*on_inten\s*t|intent)?\s*\{[\s\S]*?"(intent_type|matched_skills|recommended_action)"\s*:[\s\S]*?\}/gi,
+
+      // 4. 后端内部文件路径及其他噪音
       /\/workspace\/project_[a-zA-Z0-9_-]+\/results\/[^\s'"]+\.[a-zA-Z0-9]+/gi,
       /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/results\/[^\s'"]+\.[a-zA-Z0-9]+/gi,
       /\[.*?\]\(\)/g,
@@ -538,15 +542,11 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                 // 流式输出中：使用 StreamingMarkdown（处理未闭合结构 + DOM Diff）
                 if (isLast && isTyping) {
-                  // ✨ 核心修复：流式输出时，强制剥离所有后台用于控制 UI 的半截 JSON 块。
-                  // 这样 StreamingMarkdown 收到空字符后，会自动触发并保持紫色的【深度思考中...】动画
-                  const safeStreamingContent = displayContent.replace(
-                    /```\s*(json_intent|json_strategy|json_battle_report|json_action_menu|blueprint)[\s\S]*?(```|$)/gi,
-                    ''
-                  );
+                  // ✨ 核心修复：流式输出时，直接使用终极清理过的 cleanedContent
+                  // 当后台在输出乱码 JSON 时，cleanedContent 会瞬间变为空，从而完美激活紫色的【深度思考中...】动画
                   return (
                     <StreamingMarkdown
-                      content={safeStreamingContent}
+                      content={cleanedContent}
                       isStreaming={true}
                     />
                   );

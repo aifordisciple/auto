@@ -384,7 +384,7 @@ export function ChatStage() {
                       <div className="flex-1 min-w-0 rounded-2xl px-3 md:px-5 py-3 md:py-4 bg-transparent">
                         <div className="flex items-center gap-2 text-violet-500 dark:text-violet-400 text-sm bg-violet-50 dark:bg-violet-500/10 px-3 py-2 rounded-lg border border-violet-100 dark:border-violet-500/20 w-fit">
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="font-medium tracking-wide">正在分配 Agent 节点...</span>
+                          <span className="font-medium tracking-wide">Processing...</span>
                         </div>
                       </div>
                     </div>
