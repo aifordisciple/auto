@@ -68,6 +68,8 @@ export function ChatStage() {
   const currentSessionId = useWorkspaceStore(state => state.currentSessionId);
   const setCurrentSessionId = useWorkspaceStore(state => state.setCurrentSessionId);
   const pendingChatAttachments = useWorkspaceStore(state => state.pendingChatAttachments);
+  // ✨ 新增：引入更新附件状态的函数
+  const setPendingChatAttachments = useWorkspaceStore(state => state.setPendingChatAttachments);
 
   const messages = useChatStore((state: ChatState) => state.messages);
   const setMessages = useChatStore((state: ChatState) => state.setMessages);
@@ -486,8 +488,10 @@ export function ChatStage() {
         onClose={() => setIsAttachmentPickerOpen(false)}
         projectId={currentProjectId}
         onAddFiles={(paths) => {
+          // 去重并合并新旧附件
           const newPaths = [...new Set([...pendingChatAttachments, ...paths])];
-          // setPendingChatAttachments(newPaths);
+          // ✨ 修复：取消注释，真正触发状态更新
+          setPendingChatAttachments(newPaths);
         }}
       />
 
