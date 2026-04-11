@@ -406,8 +406,8 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     onInterpret(filePaths, interpretMeta.code, interpretMeta.userMessage);
   };
 
-  // ✨ 隐藏空的 assistant 消息（在所有 hooks 之后）
-  if (msg.role === 'assistant' && !displayContent?.trim()) {
+  // ✨ 隐藏空的 assistant 消息（但在流式生成中保留，以显示 Thinking 状态）
+  if (msg.role === 'assistant' && !displayContent?.trim() && !(isLast && isTyping)) {
     return null;
   }
 

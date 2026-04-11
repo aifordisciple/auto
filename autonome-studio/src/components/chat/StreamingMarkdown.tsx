@@ -41,7 +41,9 @@ const copyToClipboard = async (text: string) => {
  * 解决方案：检测未闭合的 <think> 标签，截断其后续内容，并标记为"思考中"状态
  */
 function parseAndFilterThinking(content: string): { cleanContent: string; isThinking: boolean } {
-  if (!content) return { cleanContent: '', isThinking: false };
+  // ✨ 如果内容为空，可能是刚建立连接尚未来得及发送任何内容，
+  //   这种情况应该显示"思考中..."状态
+  if (!content) return { cleanContent: '', isThinking: true };
 
   let cleanContent = content;
   let isThinking = false;
@@ -65,7 +67,8 @@ function parseAndFilterThinking(content: string): { cleanContent: string; isThin
  * 对于未闭合的代码块，自动补全闭合标记
  */
 function preprocessStreamingMarkdown(content: string): { processed: string; isThinking: boolean } {
-  if (!content) return { processed: '', isThinking: false };
+  // ✨ 空内容时处于思考等待状态，直到收到第一个有效字符
+  if (!content) return { processed: '', isThinking: true };
 
   // ✨ 首先处理 think 标签，检测是否处于思考中状态
   const { cleanContent, isThinking } = parseAndFilterThinking(content);
@@ -300,7 +303,9 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
     },
   }), [isDark]);
 
-  if (!content) return null;
+  // ✨ 关键修复：即使 content 为空，流式状态也不能 return null，
+  //   必须渲染组件以便显示 "深度思考中..." UI
+  if (!content && !isStreaming) return null;
 
   // 流式消息使用淡入效果类
   const containerClass = isStreaming
