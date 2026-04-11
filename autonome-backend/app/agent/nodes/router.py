@@ -89,7 +89,7 @@ ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 - EXPLICIT_SKILL: 用户选择了技能或明确指定调用某工具（如"跑一下 FastQC"）
 - VAGUE_ANALYSIS: 模糊的数据分析需求，需要进一步确认（如"对这个矩阵做聚类"）
 - TROUBLESHOOT: 报错排查与故障诊断
-- SYSTEM_ACTION: 系统级指令（如"清空临时文件"）
+- SYSTEM_ACTION: 系统级工作区/文件指令（如"清空临时文件"、"项目文件有哪些"、"列出目录"、"查看当前路径"等对系统文件的操作与查看）
 - PIPELINE_BUILD: 跨越单技能边界的复杂蓝图构建
 - UI_UPDATE: 用户对策略卡片参数的口语化修改（如"把分辨率调到 0.4"、"改成 True"）
 
@@ -101,7 +101,7 @@ ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 1. 如果是打招呼/感谢/再见，直接 CHAT
 2. 如果明确提到技能名（如 FastQC、SCTransform），EXPLICIT_SKILL
 3. 如果提到错误信息/报错/异常，TROUBLESHOOT
-4. 如果提到系统操作/清空/重置，SYSTEM_ACTION
+4. 如果提到系统操作/清空/重置/文件列表，SYSTEM_ACTION（包括"有哪些文件"、"列出目录"、"查看工作区"等）
 5. 如果是多步骤复杂需求（"帮我做一个 RNA-seq 分析流程"），PIPELINE_BUILD
 6. 如果用户在已有策略卡片的情况下发送消息，且消息是参数修改（如"调到xxx"、"改成xxx"、"设置为xxx"），UI_UPDATE
 7. 其他模糊分析需求，VAGUE_ANALYSIS

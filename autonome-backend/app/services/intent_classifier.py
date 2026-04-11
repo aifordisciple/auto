@@ -74,6 +74,14 @@ class IntentClassifier:
         r'(读取|写入|导入|导出|解析|处理)',
         # 数据操作
         r'(处理我的|分析我的|查看我的|检查|质控)',
+        # ✨ 工作区/文件查询（短消息拦截前的关键词检测）
+        r'(文件|目录|文件夹|工作区|路径|路径|项目|列出|查看|有哪些)',
+    ]
+
+    # ✨ 工作区/文件查询关键词（用于短消息时提升为 analytical）
+    WORKSPACE_QUERY_KEYWORDS = [
+        '文件', '目录', '文件夹', '工作区', '项目文件',
+        '有哪些', '列出', '查看', '当前路径', '所有文件'
     ]
 
     def classify(self, message: str) -> Tuple[str, float, str]:
@@ -124,7 +132,12 @@ class IntentClassifier:
         if len(msg) > 10:
             return "analytical", 0.50, "默认判定为分析任务"
 
-        # 5. 短消息默认为 casual
+        # 5. ✨ 短消息但包含工作区/文件查询关键词 -> 提升为 analytical
+        #    解决"项目文件有哪些"等短消息被误判为闲聊的问题
+        if any(kw in msg for kw in self.WORKSPACE_QUERY_KEYWORDS):
+            return "analytical", 0.85, "检测到工作区查询需求"
+
+        # 6. 短消息默认为 casual
         return "casual", 0.60, "短消息默认为闲聊"
 
 
