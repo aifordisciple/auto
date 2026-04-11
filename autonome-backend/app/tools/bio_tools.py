@@ -896,9 +896,78 @@ def run_container_pooled(
         return f"❌ 执行失败: {str(e)}", 1
 
 
+# ✨ Phase 5: 静默重试的错误类型（数据相关错误，可重试）
+SILENT_RETRY_ERRORS = (
+    KeyError,           # 字典键不存在
+    IndexError,         # 列表索引越界
+    TypeError,          # 类型错误（通常是 None 或类型不匹配）
+    ValueError,         # 值错误（通常是空值或类型转换失败）
+    AttributeError,     # 属性不存在
+    NameError,         # 变量名不存在
+    UnicodeDecodeError, # Unicode 解码错误
+)
+
+# ✨ Phase 5: 最大静默重试次数
+MAX_SILENT_RETRIES = 2
+
+
+def _emit_thought_stream(code: str, step: str) -> None:
+    """
+    ✨ Phase 5.1: 科技感迷你终端日志 - 发射思想流
+
+    在执行过程中输出 AI 的"思考"日志，增强用户体验。
+
+    Args:
+        code: 正在执行的代码
+        step: 当前步骤描述
+    """
+    # 根据代码前几行判断操作类型
+    code_preview = code.strip()[:100] if code else ""
+
+    # 根据步骤选择合适的 emoji 和日志级别
+    thought_indicators = {
+        "probe": ("🔍", "正在探查数据结构..."),
+        "parse": ("📊", "正在解析数据维度..."),
+        "transform": ("🔄", "正在进行数据转换..."),
+        "filter": ("🎯", "正在筛选目标数据..."),
+        "aggregate": ("📈", "正在进行聚合计算..."),
+        "plot": ("📉", "正在生成可视化..."),
+        "save": ("💾", "正在保存结果..."),
+        "execute": ("⚡", "正在执行核心逻辑..."),
+    }
+
+    emoji, description = thought_indicators.get(step, ("🤔", f"正在执行: {step}"))
+
+    # 输出科技感思想流日志
+    log.info(f"✨ [Agent-思考] {emoji} {description}")
+    if step == "probe" and len(code) > 50:
+        log.info(f"✨ [Agent-思考] 📋 代码预览: {code_preview[:80]}...")
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    """
+    ✨ Phase 5.2: 判断错误是否可静默重试
+
+    Args:
+        error: 捕获的异常
+
+    Returns:
+        True if the error is data-related and potentially transient
+    """
+    # ✨ KeyError 和 IndexError 通常是数据问题，可能重试后消失（数据已准备好）
+    # ✨ TypeError/ValueError 通常是空值问题，重试可能因为数据已就绪而成功
+    # ✨ 其他错误（语法错误、逻辑错误）不应重试
+    return isinstance(error, SILENT_RETRY_ERRORS)
+
+
 def execute_python_code_pooled(code: str, environment: dict = None) -> str:
     """
     使用预热池执行 Python 代码（LangChain 工具）
+
+    ✨ Phase 5 升级：
+    - 5.1 科技感迷你终端日志：展示 AI 执行过程中的"思考"
+    - 5.2 静默重试机制：对数据相关错误自动重试（最多2次）
+    - 5.3 错误卡片仅在重试耗尽后抛出
 
     Args:
         code: 包含有效 Python 语法的字符串代码
@@ -920,24 +989,70 @@ def execute_python_code_pooled(code: str, environment: dict = None) -> str:
 
     log.info("🛡️ 使用预热容器快速执行...")
 
-    try:
-        result_output, exit_code = run_container_pooled(
-            code=code,
-            language="python",
-            environment=environment
-        )
+    # ✨ Phase 5.1: 发射思想流 - 执行前探查
+    _emit_thought_stream(code, "probe")
 
-        log.info("========== 📦 预热池返回的结果 ==========")
-        log.info(result_output[:500] if len(result_output) > 500 else result_output)
-        log.info("=========================================")
+    # ✨ Phase 5.2: 静默重试机制
+    last_error = None
+    for attempt in range(MAX_SILENT_RETRIES + 1):
+        try:
+            # ✨ Phase 5.1: 根据代码内容发射相关思想流
+            code_lower = code.lower()
+            if "filter" in code_lower or "mask" in code_lower:
+                _emit_thought_stream(code, "filter")
+            elif "groupby" in code_lower or "agg" in code_lower or "sum" in code_lower:
+                _emit_thought_stream(code, "aggregate")
+            elif "plot" in code_lower or "fig" in code_lower or "plt" in code_lower:
+                _emit_thought_stream(code, "plot")
+            elif "save" in code_lower or "to_csv" in code_lower or "to_h5ad" in code_lower:
+                _emit_thought_stream(code, "save")
+            elif "transform" in code_lower or "normalize" in code_lower or "scale" in code_lower:
+                _emit_thought_stream(code, "transform")
+            else:
+                _emit_thought_stream(code, "execute")
 
-        if exit_code == 0:
-            log.info("✅ 代码执行成功")
-        else:
-            log.warning(f"⚠️ 代码执行返回非零退出码: {exit_code}")
+            result_output, exit_code = run_container_pooled(
+                code=code,
+                language="python",
+                environment=environment
+            )
 
-        return result_output
+            log.info("========== 📦 预热池返回的结果 ==========")
+            log.info(result_output[:500] if len(result_output) > 500 else result_output)
+            log.info("=========================================")
 
-    except Exception as e:
-        log.error(f"⚠️ 预热池执行报错: {str(e)}")
-        return f"❌ 代码执行报错:\n{str(e)}\n请根据此报错修正代码。"
+            if exit_code == 0:
+                log.info("✅ 代码执行成功")
+            else:
+                log.warning(f"⚠️ 代码执行返回非零退出码: {exit_code}")
+                # ✨ Phase 5.3: 非零退出码也视为执行失败，尝试重试
+                raise RuntimeError(f"代码执行失败，退出码: {exit_code}")
+
+            # 执行成功，返回结果
+            return result_output
+
+        except Exception as e:
+            last_error = e
+            error_type = type(e).__name__
+
+            # ✨ Phase 5.2: 判断是否可重试
+            if _is_retryable_error(e) and attempt < MAX_SILENT_RETRIES:
+                log.warning(
+                    f"⚡ [静默重试] 第 {attempt + 1} 次尝试失败: {error_type} - {str(e)[:100]}"
+                )
+                log.info(f"🔄 [静默重试] 正在自动重试（第 {attempt + 2} 次 / 共 {MAX_SILENT_RETRIES + 1} 次）...")
+                continue  # 继续重试
+            else:
+                # ✨ Phase 5.3: 重试耗尽或不可重试的错误，不再静默处理
+                if attempt >= MAX_SILENT_RETRIES:
+                    log.error(
+                        f"❌ [最终失败] 已达到最大重试次数 {MAX_SILENT_RETRIES}，"
+                        f"错误类型: {error_type}, 错误信息: {str(e)[:200]}"
+                    )
+                else:
+                    log.error(f"❌ [不可重试] 错误类型: {error_type}, 错误信息: {str(e)[:200]}")
+                break
+
+    # ✨ Phase 5.3: 只有在所有重试都失败后才返回错误信息
+    error_msg = f"❌ 代码执行报错:\n{str(last_error)}\n请根据此报错修正代码。"
+    return error_msg
