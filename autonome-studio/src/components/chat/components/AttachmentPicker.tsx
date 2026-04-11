@@ -58,15 +58,14 @@ const AttachmentTreeNode: React.FC<AttachmentTreeNodeProps> = ({
   return (
     <div className="flex flex-col">
       <div
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/60 rounded cursor-pointer group"
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/60 rounded cursor-pointer group transition-colors"
         onClick={() => {
-          if (isFolder) {
-            setExpandedFolders(prev => {
-              const next = new Set(prev);
-              next.has(node.path) ? next.delete(node.path) : next.add(node.path);
-              return next;
-            });
-          }
+          // ✨ 修复：点击整行即可切换选中状态，大幅提升体验
+          setSelectedPaths((prev: Set<string>) => {
+            const next = new Set(prev);
+            isSelected ? next.delete(node.path) : next.add(node.path);
+            return next;
+          });
         }}
       >
         {/* 复选框 */}
@@ -74,19 +73,32 @@ const AttachmentTreeNode: React.FC<AttachmentTreeNodeProps> = ({
           type="checkbox"
           checked={isSelected}
           onChange={(e) => {
-            e.stopPropagation();
+            // ✨ 复选框单独处理
             setSelectedPaths((prev: Set<string>) => {
               const next = new Set(prev);
-              isSelected ? next.delete(node.path) : next.add(node.path);
+              e.target.checked ? next.add(node.path) : next.delete(node.path);
               return next;
             });
           }}
+          onClick={(e) => e.stopPropagation()} // 防止冒泡触发外层 div 的 onClick
           className="w-4 h-4 rounded border-neutral-600 bg-neutral-800 text-blue-500 focus:ring-blue-500/20 cursor-pointer"
         />
 
-        {/* 文件夹展开图标 */}
+        {/* ✨ 修复：文件夹展开图标拆分为独立点击区域，防止和选中功能冲突 */}
         {isFolder && (
-          isExpanded ? <ChevronDown size={14} className="text-neutral-500" /> : <ChevronRight size={14} className="text-neutral-500" />
+          <div
+            className="p-0.5 hover:bg-neutral-700/80 rounded transition-colors"
+            onClick={(e) => {
+              e.stopPropagation(); // 仅触发展开/折叠，不选中
+              setExpandedFolders(prev => {
+                const next = new Set(prev);
+                next.has(node.path) ? next.delete(node.path) : next.add(node.path);
+                return next;
+              });
+            }}
+          >
+            {isExpanded ? <ChevronDown size={16} className="text-neutral-400 hover:text-white" /> : <ChevronRight size={16} className="text-neutral-400 hover:text-white" />}
+          </div>
         )}
 
         {/* 图标 */}
@@ -97,17 +109,17 @@ const AttachmentTreeNode: React.FC<AttachmentTreeNodeProps> = ({
         )}
 
         {/* 名称 */}
-        <span className="text-sm text-neutral-300 truncate flex-1">{node.name}</span>
+        <span className="text-sm text-neutral-300 truncate flex-1 select-none">{node.name}</span>
 
         {/* 文件夹标签 */}
         {isFolder && (
-          <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0">文件夹</span>
+          <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0 select-none">文件夹</span>
         )}
       </div>
 
       {/* 子节点 */}
       {isFolder && isExpanded && node.children && Object.keys(node.children).length > 0 && (
-        <div className="ml-6 border-l border-neutral-800 pl-2">
+        <div className="ml-6 border-l border-neutral-800 pl-2 mt-0.5 mb-1">
           {Object.values(node.children).map((child: FileNode) => (
             <AttachmentTreeNode
               key={child.path}
@@ -128,35 +140,24 @@ const AttachmentTreeNode: React.FC<AttachmentTreeNodeProps> = ({
 // 附件选择器弹窗组件
 // ==========================================
 interface AttachmentPickerProps {
-  /** 是否打开 */
   isOpen: boolean;
-  /** 关闭回调 */
   onClose: () => void;
-  /** 添加文件回调 */
   onAddFiles: (paths: string[]) => void;
-  /** 项目 ID */
   projectId: string | null;
 }
 
-/**
- * 附件选择器弹窗组件 - 支持项目文件和本地文件
- */
 export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
   isOpen,
   onClose,
   onAddFiles,
   projectId,
 }) => {
-  // Tab 状态: 'project' | 'local'
   const [activeTab, setActiveTab] = useState<'project' | 'local'>('project');
-
-  // 项目文件状态
   const [files, setFiles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results']));
 
-  // 本地文件上传状态
   const [localFiles, setLocalFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
@@ -171,19 +172,34 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
         .then(res => res.json())
-        .then(data => setFiles(data.data || []))
+        .then(data => {
+          // ✨ 增强对不同结构 API 的兼容性
+          if (Array.isArray(data)) setFiles(data);
+          else if (data?.data && Array.isArray(data.data)) setFiles(data.data);
+          else if (data?.files && Array.isArray(data.files)) setFiles(data.files);
+          else setFiles([]);
+        })
+        .catch(err => {
+          console.error('Failed to load project files:', err);
+          setFiles([]);
+        })
         .finally(() => setIsLoading(false));
     }
   }, [isOpen, projectId, activeTab]);
 
   // 构建文件树
   const fileTree = useMemo(() => {
+    if (!Array.isArray(files)) return {};
+
     const root: Record<string, FileNode> = {};
     files.forEach(file => {
-      const filePath = (file as any).path || file.filename;
+      // ✨ 增强属性后备判断
+      const filePath = (file as any).path || (file as any).filename || (file as any).name || '';
+      if (!filePath) return;
+
       const fileType = (file as any).type || 'file';
 
-      const parts = filePath.split('/');
+      const parts = filePath.split('/').filter(Boolean);
       let current = root;
       parts.forEach((part: string, idx: number) => {
         if (!current[part]) {
@@ -210,7 +226,6 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 移除本地文件
   const removeLocalFile = (index: number) => {
     setLocalFiles(prev => prev.filter((_, i) => i !== index));
   };
@@ -247,7 +262,7 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
 
         const response = await new Promise<any>((resolve, reject) => {
           xhr.onload = () => {
-            if (xhr.status === 200) {
+            if (xhr.status >= 200 && xhr.status < 300) {
               resolve(JSON.parse(xhr.responseText));
             } else {
               reject(new Error(`Upload failed: ${xhr.status}`));
@@ -257,17 +272,17 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
           xhr.send(formData);
         });
 
-        if (response.status === 'success' && response.data?.path) {
-          uploadedPaths.push(response.data.path);
+        // ✨ 增强上传结果路径提取健壮性
+        const path = response?.data?.path || response?.path || response?.url || response?.file_path;
+        if (path) {
+          uploadedPaths.push(path);
         }
       }
 
-      // 上传完成后，添加路径到附件
       if (uploadedPaths.length > 0) {
         onAddFiles(uploadedPaths);
       }
 
-      // 清空并关闭
       setLocalFiles([]);
       setUploadProgress({});
       onClose();
@@ -280,14 +295,12 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
     }
   };
 
-  // 确认选择项目文件
   const handleConfirm = () => {
     onAddFiles(Array.from(selectedPaths));
     setSelectedPaths(new Set());
     onClose();
   };
 
-  // 格式化文件大小
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -313,7 +326,7 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
           </button>
         </div>
 
-        {/* Tab 切换 */}
+        {/* Tab */}
         <div className="shrink-0 border-b border-neutral-800 px-4 pt-3">
           <div className="flex gap-1">
             <button
@@ -344,7 +357,6 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-3">
           {activeTab === 'project' ? (
-            // 项目文件选择
             isLoading ? (
               <div className="flex items-center justify-center py-8 text-neutral-500">
                 <Loader2 size={20} className="animate-spin mr-2" />
@@ -368,9 +380,7 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
               ))
             )
           ) : (
-            // 本地文件上传
             <div className="flex flex-col gap-3">
-              {/* 上传区域 */}
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className="border-2 border-dashed border-neutral-700 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-blue-500/50 hover:bg-blue-500/5 transition-all"
@@ -378,44 +388,28 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
                 <CloudUpload size={32} className="text-neutral-500 mb-2" />
                 <span className="text-sm text-neutral-400">点击选择文件或拖拽到此处</span>
                 <span className="text-xs text-neutral-600 mt-1">支持所有文件类型，将上传到 raw_data 目录</span>
-                <input
-                  type="file"
-                  multiple
-                  ref={fileInputRef}
-                  onChange={handleLocalFileSelect}
-                  className="hidden"
-                />
+                <input type="file" multiple ref={fileInputRef} onChange={handleLocalFileSelect} className="hidden" />
               </div>
 
-              {/* 已选择的本地文件列表 */}
               {localFiles.length > 0 && (
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-neutral-500 px-1">已选择 {localFiles.length} 个文件</span>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {localFiles.map((file, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-2 px-3 py-2 bg-neutral-800/50 rounded-lg border border-neutral-700"
-                      >
+                      <div key={index} className="flex items-center gap-2 px-3 py-2 bg-neutral-800/50 rounded-lg border border-neutral-700">
                         <FileText size={14} className="text-neutral-400 shrink-0" />
                         <span className="text-sm text-neutral-300 truncate flex-1">{file.name}</span>
                         <span className="text-xs text-neutral-500">{formatFileSize(file.size)}</span>
                         {uploadProgress[file.name] !== undefined && uploadProgress[file.name] < 100 && (
                           <div className="w-16 h-1.5 bg-neutral-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-blue-500 transition-all"
-                              style={{ width: `${uploadProgress[file.name]}%` }}
-                            />
+                            <div className="h-full bg-blue-500 transition-all" style={{ width: `${uploadProgress[file.name]}%` }} />
                           </div>
                         )}
                         {uploadProgress[file.name] === 100 && (
                           <Check size={14} className="text-green-400" />
                         )}
                         {!isUploading && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); removeLocalFile(index); }}
-                            className="p-1 text-neutral-500 hover:text-red-400 transition-colors"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); removeLocalFile(index); }} className="p-1 text-neutral-500 hover:text-red-400 transition-colors">
                             <X size={12} />
                           </button>
                         )}
