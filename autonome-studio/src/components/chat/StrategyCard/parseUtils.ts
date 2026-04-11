@@ -11,7 +11,7 @@
 import { preprocessLLMResponse } from '@/lib/contentFilter';
 import type { StrategyCardData } from './types';
 import type { InteractivePlotData } from '../InteractivePlotCard/types';
-import type { ActionMenuData } from '../InlineActionMenu/types';
+import type { ActionMenuData, ActionMenuOption } from '../InlineActionMenu/types';
 
 /**
  * 预处理代码块格式
@@ -576,7 +576,38 @@ export function parseInteractivePlotCard(content: string): InteractivePlotData |
  * 解析操作菜单 (json_action_menu)
  *
  * V2 架构：当后端置信度 < 0.90 时，返回操作菜单供用户选择。
+ *
+ * 支持两种格式：
+ * - actions (PLAN 格式): { title, message, actions: [{ id, action_type, label, style }] }
+ * - options (旧格式): { title, message, options: [{ skill_id, name, match_score, match_reason }] }
  */
+
+/**
+ * 从 actions 格式 (PLAN) 转换为 ActionMenuOption 格式
+ *
+ * actions 格式: { id, action_type, label, style }
+ * 映射: id → skill_id, label → name
+ */
+function normalizeActionsFormat(actions: Array<{ id: string; action_type?: string; label?: string; style?: string }>): ActionMenuOption[] {
+  return actions.map((action) => ({
+    skill_id: action.id,
+    name: action.label || action.id,
+    match_score: 0.5, // PLAN 格式不提供置信度，使用默认值
+  }));
+}
+
+/**
+ * 从 options 格式 (旧格式) 提取 ActionMenuOption 数组
+ */
+function normalizeOptionsFormat(options: Array<{ skill_id: string; name?: string; match_score?: number; match_reason?: string }>): ActionMenuOption[] {
+  return options.map((opt) => ({
+    skill_id: opt.skill_id,
+    name: opt.name || opt.skill_id,
+    match_score: opt.match_score || 0.5,
+    match_reason: opt.match_reason,
+  }));
+}
+
 export function parseActionMenu(content: string): ActionMenuData | null {
   if (!content) return null;
 
@@ -593,27 +624,39 @@ export function parseActionMenu(content: string): ActionMenuData | null {
 
     // 清洗并解析 JSON
     const cleaned = sanitizeJsonString(jsonStr);
-    const data = tryRepairAndParseJson(cleaned);
+    const rawData = tryRepairAndParseJson(cleaned);
 
-    if (!data || !Array.isArray(data.options)) {
-      console.warn("[parseActionMenu] 无效的 action_menu 数据:", data);
+    if (!rawData) {
+      console.warn("[parseActionMenu] 无效的 action_menu 数据:", rawData);
       return null;
     }
 
-    // 确保 options 数组有内容
-    if (data.options.length === 0) {
+    // 类型断言：parsed data from JSON will have these properties
+    const data = rawData as {
+      title?: string;
+      message?: string;
+      actions?: Array<{ id: string; action_type?: string; label?: string; style?: string }>;
+      options?: Array<{ skill_id: string; name?: string; match_score?: number; match_reason?: string }>;
+    };
+
+    // 支持两种格式：actions (PLAN 格式) 和 options (旧格式)
+    let options: ActionMenuOption[];
+
+    if (Array.isArray(data.actions) && data.actions.length > 0) {
+      // PLAN 格式: { title, message, actions: [{ id, action_type, label, style }] }
+      options = normalizeActionsFormat(data.actions);
+    } else if (Array.isArray(data.options) && data.options.length > 0) {
+      // 旧格式: { title, message, options: [{ skill_id, name, match_score, match_reason }] }
+      options = normalizeOptionsFormat(data.options);
+    } else {
+      console.warn("[parseActionMenu] 无有效的 actions 或 options 数组:", data);
       return null;
     }
 
     return {
       title: data.title || "请选择操作",
       message: data.message,
-      options: data.options.map((opt: { skill_id: string; name?: string; match_score?: number; match_reason?: string }) => ({
-        skill_id: opt.skill_id,
-        name: opt.name || opt.skill_id,
-        match_score: opt.match_score || 0.5,
-        match_reason: opt.match_reason,
-      })),
+      options,
     };
   } catch (e) {
     console.error("[parseActionMenu] 解析操作菜单失败:", e);
