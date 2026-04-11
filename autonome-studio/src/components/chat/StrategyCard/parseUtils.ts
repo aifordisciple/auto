@@ -27,9 +27,9 @@ export function preprocessCodeBlocks(content: string): string {
   // 例如：```json_strategy{"a":1} -> ```json_strategy\n{"a":1}
   // 使用 (?=[^\s\n]) 防止吞掉实际内容
   // ✨ 添加 json_interactive_plot 和 on_strategy 支持
-  // ✨ V2: 添加 json_action_menu 支持
+  // ✨ V2: 添加 json_action_menu 和 json_param_update 支持
   content = content.replace(
-    /```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|json_action_menu|on_strategy|on_interactive_plot|json)(?=[^\s\n])/g,
+    /```(python|Python|r|R|json_strategy|json_intent|json_blueprint|json_interactive_plot|json_action_menu|json_param_update|on_strategy|on_interactive_plot|json)(?=[^\s\n])/g,
     '```$1\n'
   );
 
@@ -617,6 +617,108 @@ export function parseActionMenu(content: string): ActionMenuData | null {
     };
   } catch (e) {
     console.error("[parseActionMenu] 解析操作菜单失败:", e);
+    return null;
+  }
+}
+
+// ==========================================
+// ✨ V2: ParamUpdate 解析函数
+// ==========================================
+
+export interface ParamUpdate {
+  param_updates: Array<{
+    key: string;
+    value: unknown;
+    operation: string;
+  }>;
+  message?: string;
+}
+
+/**
+ * 从代码块提取 json_param_update
+ */
+function extractParamUpdateFromCodeBlock(content: string): string | null {
+  const patterns = [
+    // 标准格式
+    /```json_param_update\s*([\s\S]*?)```/,
+    // 无换行格式
+    /```json_param_update\s*([{][\s\S]*?[}])\s*```/,
+    // 更宽松的匹配
+    /```json_param_update\s*([\s\S]+)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 解析参数更新 (json_param_update)
+ *
+ * V2 架构：当用户对策略卡片参数进行口语化修改时，前端静默接收并更新卡片状态。
+ */
+export function parseParamUpdate(content: string): ParamUpdate | null {
+  if (!content) return null;
+
+  try {
+    // 预处理代码块格式
+    content = preprocessCodeBlocks(content);
+
+    // 从代码块提取 JSON
+    const jsonStr = extractParamUpdateFromCodeBlock(content);
+
+    if (!jsonStr) {
+      // 尝试直接从全文解析（可能 AI 直接输出 JSON）
+      const toolIndex = content.indexOf('"param_updates"');
+      if (toolIndex === -1) return null;
+
+      const startIndex = content.lastIndexOf('{', toolIndex);
+      if (startIndex === -1) return null;
+
+      // 深度匹配
+      let depth = 0;
+      let endIndex = -1;
+      for (let i = startIndex; i < content.length; i++) {
+        if (content[i] === '{') depth++;
+        else if (content[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            endIndex = i + 1;
+            break;
+          }
+        }
+      }
+
+      if (endIndex === -1) return null;
+      const jsonStr = content.substring(startIndex, endIndex);
+
+      const cleaned = sanitizeJsonString(jsonStr);
+      const data = tryRepairAndParseJson(cleaned);
+
+      if (!data || !Array.isArray(data.param_updates)) {
+        return null;
+      }
+
+      return data as ParamUpdate;
+    }
+
+    // 清洗并解析 JSON
+    const cleaned = sanitizeJsonString(jsonStr);
+    const data = tryRepairAndParseJson(cleaned);
+
+    if (!data || !Array.isArray(data.param_updates)) {
+      console.warn("[parseParamUpdate] 无效的 param_update 数据:", data);
+      return null;
+    }
+
+    return data as ParamUpdate;
+  } catch (e) {
+    console.error("[parseParamUpdate] 解析参数更新失败:", e);
     return null;
   }
 }

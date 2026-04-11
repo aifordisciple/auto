@@ -26,6 +26,7 @@ INTENT_VAGUE_ANALYSIS = "VAGUE_ANALYSIS"
 INTENT_TROUBLESHOOT = "TROUBLESHOOT"
 INTENT_SYSTEM_ACTION = "SYSTEM_ACTION"
 INTENT_PIPELINE_BUILD = "PIPELINE_BUILD"
+INTENT_UI_UPDATE = "UI_UPDATE"  # ✨ V2: UI 参数更新
 
 
 class RouterState(TypedDict):
@@ -90,6 +91,7 @@ ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 - TROUBLESHOOT: 报错排查与故障诊断
 - SYSTEM_ACTION: 系统级指令（如"清空临时文件"）
 - PIPELINE_BUILD: 跨越单技能边界的复杂蓝图构建
+- UI_UPDATE: 用户对策略卡片参数的口语化修改（如"把分辨率调到 0.4"、"改成 True"）
 
 【输出要求】
 必须使用 with_structured_output 输出 IntentClassification JSON。
@@ -101,7 +103,8 @@ ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 3. 如果提到错误信息/报错/异常，TROUBLESHOOT
 4. 如果提到系统操作/清空/重置，SYSTEM_ACTION
 5. 如果是多步骤复杂需求（"帮我做一个 RNA-seq 分析流程"），PIPELINE_BUILD
-6. 其他模糊分析需求，VAGUE_ANALYSIS
+6. 如果用户在已有策略卡片的情况下发送消息，且消息是参数修改（如"调到xxx"、"改成xxx"、"设置为xxx"），UI_UPDATE
+7. 其他模糊分析需求，VAGUE_ANALYSIS
 """
 
 
@@ -285,6 +288,10 @@ def _decide_next_node(intent: IntentClassification) -> str:
     if intent_type == INTENT_PIPELINE_BUILD:
         return "blueprint"
 
+    # ✨ UI_UPDATE -> param_update (参数更新节点)
+    if intent_type == INTENT_UI_UPDATE:
+        return "param_update"
+
     # 默认跳转到 retrieval
     return "retrieval"
 
@@ -305,6 +312,7 @@ def get_intent_routing_edges() -> dict[str, str]:
         INTENT_TROUBLESHOOT: "troubleshooting",
         INTENT_SYSTEM_ACTION: "system_action",
         INTENT_PIPELINE_BUILD: "blueprint",
+        INTENT_UI_UPDATE: "param_update",  # ✨ V2: 参数更新节点
     }
 
 

@@ -16,6 +16,7 @@ IntentType = Literal[
     "TROUBLESHOOT",             # 报错排查与故障诊断
     "SYSTEM_ACTION",            # 系统级指令
     "PIPELINE_BUILD",           # 跨越单技能边界的复杂蓝图构建
+    "UI_UPDATE",                # ✨ V2: UI 参数更新（用户对策略卡片参数的口语化修改）
 ]
 
 
@@ -102,3 +103,24 @@ class ChatResponse(BaseModel):
     """闲聊响应（直接流式输出）"""
     content: str
     is_streaming: bool = True
+
+
+class ParamUpdate(BaseModel):
+    """
+    V2 架构：策略卡片参数更新
+
+    当用户对策略卡片参数进行口语化修改时，
+    后端解析意图后输出此格式，供前端静默更新卡片状态。
+
+    例如用户说"把分辨率调到 0.4"，系统解析后输出：
+    {
+      "param_updates": [
+        {"key": "resolution", "value": 0.4, "operation": "set"}
+      ]
+    }
+    """
+    param_updates: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="参数更新列表，每个元素包含 key/value/operation"
+    )
+    message: str = Field(default="", description="更新说明消息")

@@ -94,6 +94,33 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
     executedTaskNameRef.current = executedTaskName;
   }, [executedTaskName]);
 
+  // ✨ V2: 监听参数更新事件，静默更新参数状态
+  useEffect(() => {
+    const handleParamUpdate = (event: CustomEvent) => {
+      const { param_updates } = event.detail;
+
+      console.log("[StrategyCard] 收到参数更新:", param_updates);
+
+      // 遍历更新列表，应用到 editableParams
+      setEditableParams((prev) => {
+        const updated = { ...prev };
+        for (const update of param_updates) {
+          if (update.key && update.value !== undefined) {
+            updated[update.key] = update.value;
+            console.log(`[StrategyCard] 更新参数: ${update.key} = ${update.value}`);
+          }
+        }
+        return updated;
+      });
+    };
+
+    window.addEventListener('param-update', handleParamUpdate as EventListener);
+
+    return () => {
+      window.removeEventListener('param-update', handleParamUpdate as EventListener);
+    };
+  }, []);
+
   // ✨ 追加交互式图表消息的函数
   const appendVisualizationMessage = (
     visualizationConfig: NonNullable<StrategyCardData['visualization_config']>,

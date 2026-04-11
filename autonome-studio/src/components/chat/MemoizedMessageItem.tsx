@@ -11,7 +11,7 @@ import { BlueprintCard, parseBlueprint } from "./BlueprintCard";
 import { IntentCard, parseIntentCard } from "./IntentCard";
 import { BattleReportCard, parseBattleReport } from "./BattleReportCard";
 import { InteractivePlotCard } from "./InteractivePlotCard";
-import { parseInteractivePlotCard, parseActionMenu } from "./StrategyCard/parseUtils";
+import { parseInteractivePlotCard, parseActionMenu, parseParamUpdate } from "./StrategyCard/parseUtils";
 import InlineActionMenu from "./InlineActionMenu";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
@@ -302,6 +302,12 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   // ✨ V2: 解析操作菜单 (json_action_menu)
   const actionMenuData = useMemo(() =>
     msg.role === 'assistant' ? parseActionMenu(displayContent || '') : null,
+    [msg.role, displayContent]
+  );
+
+  // ✨ V2: 解析参数更新 (json_param_update)
+  const paramUpdateData = useMemo(() =>
+    msg.role === 'assistant' ? parseParamUpdate(displayContent || '') : null,
     [msg.role, displayContent]
   );
 
@@ -644,6 +650,29 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                       />
                     </>
                   );
+                }
+
+                // ✨ V2: 参数更新渲染（静默更新策略卡片，不显示新消息）
+                if (paramUpdateData) {
+                  // 触发参数更新事件
+                  window.dispatchEvent(new CustomEvent('param-update', {
+                    detail: paramUpdateData
+                  }));
+
+                  // 清理 json_param_update 块后的文本
+                  const cleanText = displayContent
+                    .replace(/```json_param_update[\s\S]*?```/g, '')
+                    .trim();
+
+                  // 如果有清理后的文本，渲染它
+                  if (cleanText) {
+                    return (
+                      <MarkdownBlock content={cleanText} projectId={currentProjectId} />
+                    );
+                  }
+
+                  // 如果没有其他内容，返回 null（不渲染任何东西）
+                  return null;
                 }
 
                 // ✨ 修复：检测到策略卡片后，同时渲染清理后的文本和 StrategyCard 组件
