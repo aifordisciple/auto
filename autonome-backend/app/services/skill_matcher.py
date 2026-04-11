@@ -42,7 +42,8 @@ from app.services.skill_keywords_indexer import SkillKeywordsIndexer, get_keywor
 from app.services.skill_matcher_config import (
     expand_synonyms, get_keyword_weight, is_negation_context,
     get_context_boost, get_domain_from_keyword, REVERSE_SYNONYM_MAP,
-    is_code_generation_request  # 新增导入：编程请求检测
+    is_code_generation_request,  # 编程请求检测
+    get_compatible_categories, FILE_TYPE_COMPATIBILITY  # 文件类型兼容性
 )
 from app.services.skill_embedding_service import SkillEmbeddingService
 from app.services.skill_vector_search import SkillVectorSearch
@@ -92,6 +93,11 @@ class SkillMatcher:
     MEDIUM_CONFIDENCE_THRESHOLD = 0.5
     VECTOR_HIGH_THRESHOLD = 0.75
     VECTOR_LOW_THRESHOLD = 0.6
+
+    # ✨ V2 架构阈值：数据感知路由
+    # 当置信度 >= V2_HIGH_CONFIDENCE 时，直接返回 json_strategy
+    # 当置信度 < V2_HIGH_CONFIDENCE 时，返回 json_action_menu
+    V2_HIGH_CONFIDENCE = 0.90
 
     # 候选技能接近阈值（差距小于此值触发 LLM）
     CLOSE_CANDIDATE_THRESHOLD = 0.1
@@ -153,6 +159,83 @@ class SkillMatcher:
             self._available_skills = get_combined_skills(max(1, self.user_id))
         return self._available_skills
 
+    def _extract_file_extensions(self, context: Optional[Dict] = None) -> List[str]:
+        """
+        从上下文提取文件扩展名
+
+        V2 数据感知 RAG：支持从 physical_file_info 或 file_paths 中提取文件类型。
+
+        Args:
+            context: 上下文信息，可能包含 physical_file_info 或 file_paths
+
+        Returns:
+            文件扩展名列表，如 [".h5ad", ".csv"]
+        """
+        if not context:
+            return []
+
+        extensions = set()
+
+        # 方式1：从 physical_file_info 字符串中提取
+        physical_info = context.get("physical_file_info", "")
+        if physical_info and isinstance(physical_info, str):
+            import re
+            # 匹配常见文件扩展名
+            ext_pattern = r'\.([a-zA-Z0-9]+)'
+            found_exts = re.findall(ext_pattern, physical_info)
+            for ext in found_exts:
+                full_ext = f".{ext.lower()}"
+                if full_ext in FILE_TYPE_COMPATIBILITY or ext.lower() in ["h5ad", "loom", "fastq"]:
+                    # 处理特殊情况
+                    if ext.lower() in ["h5ad", "loom"]:
+                        extensions.add(f".{ext.lower()}")
+                    elif ext.lower() == "gz" and len(found_exts) > 0:
+                        # 可能是 .fastq.gz
+                        idx = found_exts.index(ext)
+                        if idx > 0 and found_exts[idx - 1].lower() in ["fastq", "fq"]:
+                            extensions.add(f".{found_exts[idx - 1].lower()}.gz")
+                        extensions.add(".gz")
+                    else:
+                        extensions.add(f".{ext.lower()}")
+
+        # 方式2：从 file_paths 列表中提取
+        file_paths = context.get("file_paths", [])
+        for path in file_paths:
+            if isinstance(path, str):
+                import re
+                ext_pattern = r'\.([a-zA-Z0-9.]+)(?:\.gz)?$'
+                match = re.search(ext_pattern, path.lower())
+                if match:
+                    extensions.add(f".{match.group(1)}")
+
+        return list(extensions)
+
+    def _get_file_type_boost(self, skill_categories: List[str], file_extensions: List[str]) -> float:
+        """
+        计算文件类型兼容性好坏
+
+        Args:
+            skill_categories: 技能所属类别列表
+            file_extensions: 用户文件扩展名列表
+
+        Returns:
+            加成分数 (0.0 - 0.3)
+        """
+        if not skill_categories or not file_extensions:
+            return 0.0
+
+        boost = 0.0
+        for ext in file_extensions:
+            compatible_cats = get_compatible_categories(ext)
+            if compatible_cats:
+                # 检查技能类别是否与文件类型兼容
+                for skill_cat in skill_categories:
+                    if skill_cat in compatible_cats:
+                        boost += 0.1
+                        break
+
+        return min(boost, 0.3)  # 最多加成 0.3
+
     async def match(
         self,
         user_query: str,
@@ -192,6 +275,8 @@ class SkillMatcher:
         if rule_result["confidence"] >= self.HIGH_CONFIDENCE_THRESHOLD:
             log.info(f"[SkillMatcher] 规则高置信度匹配: {rule_result['confidence']:.2f}")
             rule_result["match_mode"] = mode
+            rule_result["routing_decision"] = "direct_strategy"
+            rule_result["reason"] = rule_result.get("reason", "") + f" [高置信度 {rule_result['confidence']:.2f}]"
             await self._record_feedback(user_query, rule_result, "rule")
             return rule_result
 
@@ -200,6 +285,20 @@ class SkillMatcher:
         if rule_result["confidence"] >= self.MEDIUM_CONFIDENCE_THRESHOLD and rule_result.get("matched_skills"):
             log.info(f"[SkillMatcher] 规则中置信度匹配（跳过向量检索）: {rule_result['confidence']:.2f}")
             rule_result["match_mode"] = mode
+            # ✨ V2 路由决策
+            if rule_result["confidence"] >= self.V2_HIGH_CONFIDENCE:
+                rule_result["routing_decision"] = "direct_strategy"
+            else:
+                rule_result["routing_decision"] = "action_menu"
+                matched = rule_result.get("matched_skills", [])
+                rule_result["action_menu_options"] = matched[:2] if len(matched) >= 2 else matched
+                if not any(opt.get("skill_id") == "live_coding" for opt in rule_result.get("action_menu_options", [])):
+                    rule_result["action_menu_options"].append({
+                        "skill_id": "live_coding",
+                        "name": "⚡ 实时编写代码 (Live Coding)",
+                        "match_score": 0.5,
+                        "match_reason": "兜底选项"
+                    })
             await self._record_feedback(user_query, rule_result, "rule")
             return rule_result
 
@@ -217,6 +316,20 @@ class SkillMatcher:
             if combined["confidence"] >= self.VECTOR_HIGH_THRESHOLD:
                 log.info(f"[SkillMatcher] 合并匹配: confidence={combined['confidence']:.2f}")
                 combined["match_mode"] = mode
+                # ✨ V2 路由决策
+                if combined["confidence"] >= self.V2_HIGH_CONFIDENCE:
+                    combined["routing_decision"] = "direct_strategy"
+                else:
+                    combined["routing_decision"] = "action_menu"
+                    matched = combined.get("matched_skills", [])
+                    combined["action_menu_options"] = matched[:2] if len(matched) >= 2 else matched
+                    if not any(opt.get("skill_id") == "live_coding" for opt in combined.get("action_menu_options", [])):
+                        combined["action_menu_options"].append({
+                            "skill_id": "live_coding",
+                            "name": "⚡ 实时编写代码 (Live Coding)",
+                            "match_score": 0.5,
+                            "match_reason": "兜底选项"
+                        })
                 await self._record_feedback(user_query, combined, "hybrid")
                 return combined
         else:
@@ -269,6 +382,33 @@ class SkillMatcher:
 
         # ✨ 应用个性化加成
         combined = await self._apply_personalization_boost(combined)
+
+        # ✨ V2 架构：置信度路由决策
+        # 根据置信度决定返回格式
+        confidence = combined.get("confidence", 0)
+        if confidence >= self.V2_HIGH_CONFIDENCE:
+            combined["routing_decision"] = "direct_strategy"  # 高置信度：直接下发 json_strategy
+            combined["reason"] = combined.get("reason", "") + f" [V2高置信度 {confidence:.2f} ≥ {self.V2_HIGH_CONFIDENCE}]"
+            log.info(f"[SkillMatcher] V2路由: 直接策略卡片 (confidence={confidence:.2f})")
+        else:
+            combined["routing_decision"] = "action_menu"  # 中低置信度：下发 json_action_menu
+            combined["reason"] = combined.get("reason", "") + f" [V2中低置信度 {confidence:.2f} < {self.V2_HIGH_CONFIDENCE}]"
+            log.info(f"[SkillMatcher] V2路由: 操作菜单 (confidence={confidence:.2f})")
+
+            # ✨ 添加备选技能列表（Top 2 + Live Coding 兜底）
+            matched = combined.get("matched_skills", [])
+            if len(matched) >= 2:
+                combined["action_menu_options"] = matched[:2]
+            elif len(matched) == 1:
+                combined["action_menu_options"] = matched[:1]
+            else:
+                combined["action_menu_options"] = []
+            combined["action_menu_options"].append({
+                "skill_id": "live_coding",
+                "name": "⚡ 实时编写代码 (Live Coding)",
+                "match_score": 0.5,
+                "match_reason": "兜底选项：根据需求实时编写代码"
+            })
 
         await self._record_feedback(user_query, combined, "hybrid" if vector_available else "rule")
         return combined
@@ -339,14 +479,42 @@ class SkillMatcher:
                 "reason": "检测到知识问答型需求"
             }
 
+        # ✨ V2 数据感知加成：根据文件类型提升置信度
+        file_extensions = self._extract_file_extensions(context)
+        base_confidence = keyword_matches["confidence"]
+
+        if file_extensions:
+            # 从匹配的技能中提取类别
+            skill_cats = []
+            for skill in keyword_matches["skills"]:
+                skill_id = skill.get("skill_id", "")
+                # 简单根据 skill_id 推断类别（后续可优化为从 SKILL.md 读取）
+                if any(kw in skill_id.lower() for kw in ["fastqc", "multiqc", "quality"]):
+                    skill_cats.append("quality_control")
+                elif any(kw in skill_id.lower() for kw in ["single", "cell", "sc", "seurat", "scanpy"]):
+                    skill_cats.append("single_cell")
+                elif any(kw in skill_id.lower() for kw in ["rna", "count", "express"]):
+                    skill_cats.append("rna_seq")
+                elif any(kw in skill_id.lower() for kw in ["diff", "deseq", "deg"]):
+                    skill_cats.append("differential_expression")
+                elif any(kw in skill_id.lower() for kw in ["cluster", "annot", "celltype"]):
+                    skill_cats.append("cell_clustering")
+
+            file_type_boost = self._get_file_type_boost(skill_cats, file_extensions)
+            base_confidence = min(base_confidence + file_type_boost, 1.0)
+
+            if file_type_boost > 0:
+                log.info(f"[SkillMatcher] 文件类型加成: extensions={file_extensions}, boost={file_type_boost:.2f}, final_confidence={base_confidence:.2f}")
+
         return {
             "intent_type": IntentType.IMPLICIT_SKILL,
             "matched_skills": keyword_matches["skills"],
-            "confidence": keyword_matches["confidence"],
+            "confidence": base_confidence,
             "parameters_suggestion": {},
             "match_source": "rule",
             "matched_domains": keyword_matches.get("matched_domains", []),
-            "reason": self._build_match_reason(keyword_matches)
+            "reason": self._build_match_reason(keyword_matches),
+            "file_extensions": file_extensions if file_extensions else None  # 用于调试
         }
 
     def _check_explicit_trigger(self, query_lower: str) -> List[Dict[str, Any]]:

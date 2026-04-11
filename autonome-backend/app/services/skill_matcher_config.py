@@ -411,6 +411,88 @@ DOMAIN_CATEGORY_MAP: Dict[str, str] = {
 
 
 # ==========================================
+# 文件扩展名到技能类别的映射 (FILE_TYPE_COMPATIBILITY)
+# ==========================================
+# 格式: {文件扩展名: [兼容的技能类别列表]}
+# 用于数据感知 RAG：当用户选中某文件时，优先推荐处理该文件类型的技能
+
+FILE_TYPE_COMPATIBILITY: Dict[str, List[str]] = {
+    # 单细胞数据
+    ".h5ad": ["single_cell", "scanpy", "seurat", "cell_clustering", "cell_annotation", "marker_gene", "pca", "umap", "tsne"],
+    ".loom": ["single_cell", "scanpy", "seurat", "cell_clustering"],
+    ".csv": ["rna_seq", "gene_expression", "differential_expression", "visualization", "heatmap", "scatter_plot", "bar_plot", "boxplot", "violin_plot"],
+    ".tsv": ["rna_seq", "gene_expression", "differential_expression", "visualization", "heatmap", "scatter_plot", "bar_plot", "boxplot", "violin_plot"],
+    ".txt": ["rna_seq", "gene_expression", "quality_control"],
+
+    # FASTQ 文件（原始测序数据）
+    ".fastq.gz": ["fastq_filter", "fastq_trim", "fastq_quality", "quality_control", "fastqc", "multiqc", "reads_processing"],
+    ".fq.gz": ["fastq_filter", "fastq_trim", "fastq_quality", "quality_control", "fastqc", "multiqc", "reads_processing"],
+    ".fastq": ["fastq_filter", "fastq_trim", "fastq_quality", "quality_control", "fastqc", "multiqc", "reads_processing"],
+    ".fq": ["fastq_filter", "fastq_trim", "fastq_quality", "quality_control", "fastqc", "multiqc", "reads_processing"],
+
+    # 变异检测
+    ".vcf": ["variant_calling", "snp", "indel"],
+    ".bam": ["variant_calling", "chip_seq", "atac_seq"],
+    ".bed": ["chip_seq", "atac_seq", "motif_analysis"],
+    ".gtf": ["rna_seq", "gene_expression", "transcriptome"],
+    ".gff": ["rna_seq", "gene_expression", "transcriptome"],
+
+    # 甲基化
+    ".bw": ["methylation", "visualization"],
+    ".bigwig": ["methylation", "visualization"],
+
+    # 通用可视化
+    ".pdf": ["visualization"],
+    ".png": ["visualization"],
+    ".jpg": ["visualization"],
+    ".jpeg": ["visualization"],
+}
+
+# 文件扩展名到显示名称的映射
+FILE_TYPE_DISPLAY: Dict[str, str] = {
+    ".h5ad": "单细胞数据 (h5ad)",
+    ".loom": "单细胞数据 (loom)",
+    ".fastq.gz": "原始测序数据 (FASTQ)",
+    ".fq.gz": "原始测序数据 (FASTQ)",
+    ".fastq": "原始测序数据 (FASTQ)",
+    ".fq": "原始测序数据 (FASTQ)",
+    ".vcf": "变异数据 (VCF)",
+    ".bam": "比对数据 (BAM)",
+    ".gtf": "基因注释 (GTF)",
+    ".gff": "基因注释 (GFF)",
+    ".csv": "表格数据 (CSV)",
+    ".tsv": "表格数据 (TSV)",
+    ".txt": "文本数据 (TXT)",
+}
+
+
+def get_file_type_from_extension(extension: str) -> str:
+    """
+    根据文件扩展名获取文件类型
+
+    Args:
+        extension: 文件扩展名（如 .h5ad）
+
+    Returns:
+        文件类型标识符
+    """
+    return FILE_TYPE_COMPATIBILITY.get(extension.lower(), [])
+
+
+def get_compatible_categories(extension: str) -> List[str]:
+    """
+    获取与文件扩展名兼容的技能类别
+
+    Args:
+        extension: 文件扩展名
+
+    Returns:
+        兼容的技能类别列表
+    """
+    return FILE_TYPE_COMPATIBILITY.get(extension.lower(), [])
+
+
+# ==========================================
 # 辅助函数
 # ==========================================
 
