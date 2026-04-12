@@ -103,6 +103,11 @@ def _prefill_parameters(
     workspace_files = context.get("workspace_files", [])
     workspace_info = context.get("workspace_info", "")
 
+    log.info(f"[SkillFormBuilder.V2] _prefill_parameters 开始: 参数数量={len(parameters_list)}, "
+             f"user_message长度={len(user_message)}, "
+             f"workspace_files数量={len(workspace_files)}, "
+             f"workspace_info长度={len(workspace_info)}")
+
     enhanced_params = []
     for param in parameters_list:
         param_name = param["name"]
@@ -112,6 +117,7 @@ def _prefill_parameters(
         # 级别 1: 显式提及 — 用户消息中直接包含参数值
         explicit_value = _extract_explicit_mention(param_name, param_type, user_message)
         if explicit_value is not None:
+            log.debug(f"[SkillFormBuilder.V2] 参数 '{param_name}' 匹配级别=explicit, value='{explicit_value}', confidence=1.0")
             enhanced_params.append({
                 **param,
                 "value": explicit_value,
@@ -123,6 +129,7 @@ def _prefill_parameters(
         # 级别 2: 实体提取 — 从用户消息中提取相关实体
         entity_value = _extract_entity(param_name, param_type, user_message, workspace_info)
         if entity_value is not None:
+            log.debug(f"[SkillFormBuilder.V2] 参数 '{param_name}' 匹配级别=extracted, value='{entity_value}', confidence=0.8")
             enhanced_params.append({
                 **param,
                 "value": entity_value,
@@ -134,6 +141,7 @@ def _prefill_parameters(
         # 级别 3: 工作区状态 — 从工作区文件推断
         workspace_value = _infer_from_workspace(param_name, param_type, workspace_files, workspace_info)
         if workspace_value is not None:
+            log.debug(f"[SkillFormBuilder.V2] 参数 '{param_name}' 匹配级别=workspace, value='{workspace_value}', confidence=0.6")
             enhanced_params.append({
                 **param,
                 "value": workspace_value,
@@ -144,6 +152,7 @@ def _prefill_parameters(
 
         # 级别 4: 默认值
         if default_value is not None:
+            log.debug(f"[SkillFormBuilder.V2] 参数 '{param_name}' 匹配级别=default, value='{default_value}', confidence=0.3")
             enhanced_params.append({
                 **param,
                 "value": default_value,
@@ -153,6 +162,7 @@ def _prefill_parameters(
             continue
 
         # 无值可填
+        log.debug(f"[SkillFormBuilder.V2] 参数 '{param_name}' 匹配级别=null, 无可用值, confidence=0.0")
         enhanced_params.append({
             **param,
             "value": None,
@@ -174,7 +184,9 @@ def _extract_explicit_mention(param_name: str, param_type: str, user_message: st
     for pattern in patterns:
         match = re.search(pattern, user_message, re.IGNORECASE)
         if match:
-            return match.group(1).strip('"\'')
+            value = match.group(1).strip('"\'')
+            log.debug(f"[SkillFormBuilder.V2] _extract_explicit_mention 命中: param_name='{param_name}', value='{value}', pattern='{pattern}'")
+            return value
     return None
 
 
@@ -191,7 +203,9 @@ def _extract_entity(param_name: str, param_type: str, user_message: str, workspa
         for pattern in file_patterns:
             match = re.search(pattern, user_message)
             if match:
-                return match.group(0)
+                value = match.group(0)
+                log.debug(f"[SkillFormBuilder.V2] _extract_entity 命中(文件路径): param_name='{param_name}', value='{value}'")
+                return value
 
     # 数值提取
     if param_type == "number":

@@ -815,6 +815,7 @@ async def chat_stream(
             if resolved_intent_type == "VAGUE_ANALYSIS":
                 # V2: 检查是否启用沙箱规划器
                 use_sandbox_planner = os.environ.get("AUTONOME_USE_SANDBOX_PLANNER", "false").lower() == "true"
+                log.info(f"[Chat.V2] VAGUE_ANALYSIS 分支: 沙箱规划器决策, AUTONOME_USE_SANDBOX_PLANNER={os.environ.get('AUTONOME_USE_SANDBOX_PLANNER', 'false')}, use_sandbox_planner={use_sandbox_planner}")
 
                 if use_sandbox_planner:
                     log.info(f"📋 [Chat] 沙箱规划器已启用，启动沙箱规划")
@@ -849,6 +850,7 @@ async def chat_stream(
                         if result.success and result.structured_data:
                             # 沙箱规划成功，构建 StrategyCard 输出
                             card = result.structured_data
+                            log.info(f"[Chat.V2] 沙箱规划成功: card_title='{card.get('title', 'N/A')}', skill_id='{card.get('skill_id', 'N/A')}', steps_count={len(card.get('steps', []))}, execution_time_ms={result.execution_time_ms}")
                             raw_plan = card.get("_raw_plan", {})
 
                             output_content = f"""根据您的需求，我制定了以下规划：
@@ -896,6 +898,7 @@ async def chat_stream(
                         else:
                             # 沙箱规划失败，回退到超级执行者 V4
                             log.warning(f"📋 [Chat] 沙箱规划失败: {result.error}，回退到超级执行者 V4")
+                            log.info(f"[Chat.V2] 沙箱规划失败回退: error='{result.error}', fallback=super_executor_v4")
                             yield {
                                 "event": "planner_result",
                                 "data": json.dumps({
@@ -907,6 +910,7 @@ async def chat_stream(
 
                     except Exception as planner_err:
                         log.error(f"❌ [Chat] 沙箱规划器异常: {planner_err}，回退到超级执行者 V4")
+                        log.info(f"[Chat.V2] 沙箱规划器异常回退: error_type={type(planner_err).__name__}, error='{str(planner_err)[:200]}', fallback=super_executor_v4")
                         yield {
                             "event": "planner_result",
                             "data": json.dumps({
@@ -967,6 +971,7 @@ async def chat_stream(
                 else:
                     # 沙箱规划器未启用，直接使用超级执行者 V4
                     log.info(f"🚀 [Chat] 沙箱规划器未启用，直接启动超级执行者 V4")
+                    log.info(f"[Chat.V2] 直接使用 super_executor_v4: 沙箱规划器未启用(AUTONOME_USE_SANDBOX_PLANNER not true), intent=VAGUE_ANALYSIS")
                     try:
                         from app.agent.super_executor_v4 import SuperExecutorV4
                         last_msg = messages[-1] if messages else {}

@@ -204,6 +204,10 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
     # ==========================================
     # ✨ UI 隐式指令硬编码路由 (0延迟，免大模型)
     # ==========================================
+    # 检测 UI_ACTION 前缀的隐式指令
+    if user_message.startswith("[UI_ACTION:"):
+        log.info(f"[Router] UI_ACTION 隐式指令检测: message_prefix={user_message.split(']')[0]}]")
+
     if user_message.startswith("[UI_ACTION:REQUEST_SKILL_PARAMS]"):
         skill_id = user_message.split("]")[1].strip()
         log.info(f"🔀 [Router] 捕获隐式指令: 请求技能参数表单, skill_id={skill_id}")
@@ -296,11 +300,12 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
         # 调用 LLM 获取结构化输出
         intent_result: IntentClassification = await llm_with_output.ainvoke(prompt)
 
-        log.info(f"🔀 [Router] 意图分类: {intent_result.intent}, 置信度: {intent_result.confidence:.2f}")
+        log.info(f"[Router] 意图分类结果: intent={intent_result.intent}, confidence={intent_result.confidence:.2f}, sub_intent={intent_result.sub_intent}, reason={intent_result.reason}")
+        log.debug(f"[Router] 意图分类详情: entities={intent_result.entities}, chat_subtype={intent_result.chat_subtype}")
 
         # V2: 置信度门控 — 低于阈值回退到 CHAT
         if intent_result.confidence < CONFIDENCE_THRESHOLD:
-            log.warning(f"🔀 [Router] 置信度 {intent_result.confidence:.2f} < {CONFIDENCE_THRESHOLD}，回退到 CHAT")
+            log.info(f"[Router] 置信度不足回退: confidence={intent_result.confidence:.2f} < threshold={CONFIDENCE_THRESHOLD}, 原意图={intent_result.intent} → 回退到 CHAT")
             intent_result = IntentClassification(
                 intent=INTENT_CHAT,
                 confidence=intent_result.confidence,
@@ -369,6 +374,8 @@ def _decide_next_node(intent: IntentClassification) -> str:
 
     # VAGUE_ANALYSIS -> super_executor (含原 PIPELINE_BUILD)
     if intent_type == INTENT_VAGUE_ANALYSIS:
+        if intent.sub_intent == "pipeline_build":
+            log.info(f"[Router] sub_intent 分流: intent=VAGUE_ANALYSIS, sub_intent=pipeline_build → super_executor")
         return "super_executor"
 
     # TROUBLESHOOT -> troubleshooting (排错节点)
@@ -379,7 +386,9 @@ def _decide_next_node(intent: IntentClassification) -> str:
     if intent_type == INTENT_SYSTEM_ACTION:
         # V2: 如果 sub_intent 是 ui_update，路由到 param_update
         if intent.sub_intent == "ui_update":
+            log.info(f"[Router] sub_intent 分流: intent=SYSTEM_ACTION, sub_intent=ui_update → param_update")
             return "param_update"
+        log.debug(f"[Router] SYSTEM_ACTION 路由: sub_intent={intent.sub_intent} → system_action")
         return "system_action"
 
     # 默认跳转到 retrieval

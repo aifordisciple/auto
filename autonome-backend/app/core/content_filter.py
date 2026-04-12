@@ -295,10 +295,16 @@ def filter_thinking_content(content: str, debug: bool = False, model_name: str =
             content = pattern.sub("", content)
         # 过滤 json_intent 系统标签（防止内部路由信号泄漏到前端）
         for pattern in SYSTEM_INTENT_TAG_PATTERNS:
+            before_len = len(content)
             content = pattern.sub("", content)
+            if len(content) < before_len:
+                log.info(f"[ContentFilter] 拦截 json_intent 泄漏: 移除 {before_len - len(content)} 字符")
         # V2: 过滤沙箱结构化输出锚点标记（防止 [AUTONOME_RESULT_START/END] 泄漏）
         for pattern in SANDBOX_RESULT_TAG_PATTERNS:
+            before_len = len(content)
             content = pattern.sub("", content)
+            if len(content) < before_len:
+                log.info(f"[ContentFilter] 拦截沙箱锚点标记泄漏: 移除 {before_len - len(content)} 字符")
 
     # 🔧 修复代码块格式问题（某些 LLM 流式输出时换行符丢失）
     # 传递模型名称以支持模型特定的格式修复
@@ -394,6 +400,7 @@ class StreamContentFilter:
 
         # 追加到缓冲区
         self._buffer += chunk
+        original_len = len(chunk)
 
         # 在缓冲区上执行所有过滤
         filtered = self._buffer
@@ -408,7 +415,10 @@ class StreamContentFilter:
 
         # 过滤所有系统标签
         for pattern in ALL_SYSTEM_TAG_PATTERNS:
+            before_len = len(filtered)
             filtered = pattern.sub("", filtered)
+            if len(filtered) < before_len:
+                log.info(f"[StreamFilter] 拦截系统标签泄漏: 模式={pattern.pattern[:50]}, 移除 {before_len - len(filtered)} 字符")
 
         # 修复代码块格式
         filtered = fix_code_block_format(filtered, model_name=self.model_name)
@@ -422,6 +432,9 @@ class StreamContentFilter:
             excess = len(self._buffer) - self.WINDOW_SIZE
             self._buffer = self._buffer[excess:]
             self._filtered_offset = max(0, self._filtered_offset - excess)
+
+        if original_len != len(new_filtered):
+            log.debug(f"[StreamFilter] chunk 过滤: 输入 {original_len} 字符 → 输出 {len(new_filtered)} 字符, 缓冲区 {len(self._buffer)} 字符")
 
         return new_filtered
 
