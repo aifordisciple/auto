@@ -21,9 +21,37 @@ import { parseStrategyCard } from './StrategyCard/parseUtils';
 export type { StrategyCardData, StrategyCardProps } from './StrategyCard/types';
 export { parseStrategyCard } from './StrategyCard/parseUtils';
 
+// ==========================================
+// V2: StrategyCard 状态机
+// ==========================================
+type StrategyCardPhase = "planning" | "ready" | "executing" | "completed" | "failed";
+
+/** 根据当前状态变量派生阶段 */
+function derivePhase(
+  isExecuting: boolean,
+  taskStatus: string | null,
+  error: string | null,
+): StrategyCardPhase {
+  if (error) return "failed";
+  if (isExecuting) return "executing";
+  if (taskStatus === "SUCCESS") return "completed";
+  if (taskStatus === "FAILURE" || taskStatus === "REVOKED") return "failed";
+  if (taskStatus === "PENDING" || taskStatus === "STARTED") return "executing";
+  return "ready";
+}
+
+/** 阶段对应的视觉配置 */
+const PHASE_CONFIG: Record<StrategyCardPhase, { color: string; icon: string; label: string }> = {
+  planning: { color: "#8b5cf6", icon: "sparkles", label: "规划中" },
+  ready: { color: "#3b82f6", icon: "play", label: "就绪" },
+  executing: { color: "#f59e0b", icon: "loader", label: "执行中" },
+  completed: { color: "#22c55e", icon: "check", label: "已完成" },
+  failed: { color: "#ef4444", icon: "error", label: "失败" },
+};
+
 export function StrategyCard({ data, messageId, messageContent, onExecute, onCancel }: StrategyCardProps) {
   const { currentProjectId, currentSessionId } = useWorkspaceStore();
-  const { autoExecuteStrategy, openSkillCenter } = useUIStore();
+  const { autoExecuteStrategy, toggleInlineExpansion } = useUIStore();
   const { updateMessage } = useChatStore();
 
   // ✨ 调试日志：检查 task_mode 和 visualization_config
@@ -226,9 +254,12 @@ export function StrategyCard({ data, messageId, messageContent, onExecute, onCan
       executor_type: data.tool_id === 'execute-r' ? 'R_env' : 'Python_env'
     };
 
-    // 发送自定义事件，让 SkillCenter 接收草稿数据
+    // V2: 使用内联展开替代全局弹窗
+    // 发送自定义事件，让内联技能创建组件接收草稿数据
     window.dispatchEvent(new CustomEvent('transform-to-skill', { detail: draft }));
-    openSkillCenter();
+    // 内联展开技能创建面板（替代 openSkillCenter）
+    const expansionId = `skill-create-${messageId || Date.now()}`;
+    toggleInlineExpansion(expansionId);
   };
 
   // ✨ 从消息内容中提取已存储的 taskId

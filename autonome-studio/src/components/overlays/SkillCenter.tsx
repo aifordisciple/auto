@@ -75,6 +75,10 @@ const COLOR_CLASSES: Record<string, string> = {
 // 主组件
 // ==========================================
 export function SkillCenter() {
+  // V2: 功能标志 - 启用内联技能中心时，全局弹窗不渲染
+  const enableInlineSkillCenter = process.env.NEXT_PUBLIC_ENABLE_INLINE_SKILL_CENTER === 'true';
+  if (enableInlineSkillCenter) return null;
+
   // 状态订阅
   const isSkillCenterOpen = useUIStore(state => state.isSkillCenterOpen);
   const closeAllOverlays = useUIStore(state => state.closeAllOverlays);

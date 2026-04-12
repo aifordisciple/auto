@@ -21,6 +21,14 @@
   gap: 4px;
 }
 
+/* V2: 参数阶段 header 使用行布局 */
+.headerRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .title {
   font-size: 13px;
   font-weight: 500;
@@ -164,4 +172,149 @@
 .hint {
   font-size: 11px;
   color: var(--color-text-tertiary, #6b7280);
+}
+
+/* ==========================================
+   V2: 阶段 2 - 参数配置
+   ========================================== */
+
+.backButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  color: var(--color-text-secondary, #9ca3af);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.backButton:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-text-primary, #ffffff);
+}
+
+.stageIcon {
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+.paramsForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.paramField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paramLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+.required {
+  color: var(--color-error, #ef4444);
+  margin-left: 2px;
+}
+
+.paramInput {
+  padding: 6px 10px;
+  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  color: var(--color-text-primary, #ffffff);
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+
+.paramInput:focus {
+  outline: none;
+  border-color: var(--color-info, #3b82f6);
+}
+
+.paramsLoading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: var(--color-text-secondary, #9ca3af);
+  font-size: 13px;
+}
+
+.executeButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--color-info, #3b82f6);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.executeButton:hover:not(:disabled) {
+  background: var(--color-info-hover, #2563eb);
+}
+
+.executeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==========================================
+   V2: 阶段 3 - 执行中
+   ========================================== */
+
+.executingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+}
+
+.executingSpinner {
+  animation: spin 1s linear infinite;
+  color: var(--color-info, #3b82f6);
+}
+
+.executingText {
+  font-size: 13px;
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+/* ==========================================
+   V2: 阶段 4 - 执行结果
+   ========================================== */
+
+.resultState {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.resultSuccess {
+  color: var(--color-success, #22c55e);
+}
+
+.resultError {
+  color: var(--color-error, #ef4444);
+}
+
+.resultText {
+  font-size: 13px;
+  color: var(--color-text-primary, #ffffff);
 }

@@ -84,6 +84,11 @@ interface UIState {
   globalTaskMode: 'normal' | 'complex' | 'super_executor' | 'interactive';
 
   // ==========================================
+  // V2: 内联展开状态（替代全局弹窗）
+  // ==========================================
+  inlineExpansions: Record<string, boolean>;
+
+  // ==========================================
   // 操作方法
   // ==========================================
   // 移动端菜单
@@ -137,6 +142,11 @@ interface UIState {
   openChatSearch: () => void;
   closeChatSearch: () => void;
   closeAllOverlays: () => void;
+
+  // V2: 内联展开操作
+  toggleInlineExpansion: (id: string) => void;
+  setInlineExpansion: (id: string, expanded: boolean) => void;
+  isInlineExpanded: (id: string) => boolean;
 }
 
 // ==========================================
@@ -175,6 +185,7 @@ export const useUIStore = create<UIState>()(
       theme: 'dark',
       skillFilterMode: 'all',
       globalTaskMode: 'normal',
+      inlineExpansions: {},
 
       // ==========================================
       // 移动端菜单
@@ -287,6 +298,21 @@ export const useUIStore = create<UIState>()(
         state.claudeSessionId = null;
         Object.assign(state, getOverlayFlags(null));
       })),
+
+      // V2: 内联展开操作
+      toggleInlineExpansion: (id) => set(produce((state) => {
+        state.inlineExpansions = {
+          ...state.inlineExpansions,
+          [id]: !state.inlineExpansions[id],
+        };
+      })),
+      setInlineExpansion: (id, expanded) => set(produce((state) => {
+        state.inlineExpansions = {
+          ...state.inlineExpansions,
+          [id]: expanded,
+        };
+      })),
+      isInlineExpanded: (id) => get().inlineExpansions[id] ?? false,
     }),
     {
       name: 'autonome-ui-storage',

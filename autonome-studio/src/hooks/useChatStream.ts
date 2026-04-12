@@ -291,6 +291,14 @@ export function useChatStream(config: ChatStreamConfig) {
             console.log('[Chat] 推荐卡片:', data.options?.length, '个选项');
             // 发送自定义事件供其他组件监听
             window.dispatchEvent(new CustomEvent('recommendation-card', { detail: data }));
+          } else if (event.event === 'strategy_card_update') {
+            // V2: 策略卡片原地更新事件（不闪烁）
+            const data = JSON.parse(event.data);
+            window.dispatchEvent(new CustomEvent('strategy-card-update', { detail: data }));
+          } else if (event.event === 'planner_status' || event.event === 'planner_log' || event.event === 'planner_result') {
+            // V2: 沙箱规划器 SSE 事件
+            const data = JSON.parse(event.data);
+            window.dispatchEvent(new CustomEvent(event.event, { detail: data }));
           } else if (event.event === 'message') {
             const data = JSON.parse(event.data);
             onContentUpdate(data.content);
