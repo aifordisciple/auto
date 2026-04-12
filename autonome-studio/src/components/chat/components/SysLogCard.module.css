@@ -178,3 +178,93 @@
   animation: pulse 1s infinite;
   color: #3b82f6;
 }
+
+/* ==========================================
+   V2: 搜索和展开增强
+   ========================================== */
+
+.searchButton {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.searchButton:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #e5e7eb;
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.searchIcon {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #e5e7eb;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: #6b7280;
+}
+
+.searchClear {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  color: #e5e7eb;
+}
+
+.execId {
+  padding: 2px 6px;
+  background: rgba(139, 92, 246, 0.2);
+  border-radius: 4px;
+  font-size: 10px;
+  color: #c4b5fd;
+}
+
+.expandButton {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: #93c5fd;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s ease;
+}
+
+.expandButton:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
