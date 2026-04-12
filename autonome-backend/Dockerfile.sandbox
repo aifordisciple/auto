@@ -1,0 +1,29 @@
+# Autonome Sandbox Dockerfile
+# 用于沙箱规划器的隔离执行环境
+# 包含 Claude Code CLI + MCP 依赖
+
+FROM python:3.11-slim
+
+# 系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# Python 依赖（MCP + 语义搜索）
+RUN pip install --no-cache-dir \
+    mcp \
+    sentence-transformers \
+    faiss-cpu \
+    numpy
+
+# 工作目录
+WORKDIR /workspace
+
+# 入口：保持容器运行（供 Warm Pool 使用）
+ENTRYPOINT ["sleep", "infinity"]

@@ -407,9 +407,14 @@ class PTYManager:
         mcp_config: Optional[dict] = None,
         timeout: int = 300,
         callback: Optional[Callable[[str], None]] = None,
+        container_id: Optional[str] = None,
     ) -> str:
         """
         V2: 在 PTY 中启动 Claude Code 并流式读取输出
+
+        支持两种模式：
+        1. 本地 PTY 模式（默认）：直接在主机启动 Claude Code
+        2. 容器模式（container_id 非空）：通过 docker exec 在容器内执行
 
         Args:
             workspace_path: 工作区路径（只读挂载）
@@ -417,10 +422,22 @@ class PTYManager:
             mcp_config: MCP 服务器配置
             timeout: 超时时间（秒）
             callback: 流式输出回调
+            container_id: 可选的容器 ID，提供时通过 docker exec 执行
 
         Returns:
             完整的 Claude Code 输出
         """
+        # V2: 容器模式 - 通过 docker exec 执行
+        if container_id:
+            return await self._launch_claude_code_in_container(
+                container_id=container_id,
+                workspace_path=workspace_path,
+                prompt=prompt,
+                mcp_config=mcp_config,
+                timeout=timeout,
+                callback=callback,
+            )
+
         # 构建 Claude Code 命令
         claude_cmd = ["claude", "--print", prompt]
 
@@ -458,6 +475,86 @@ class PTYManager:
         # 超时处理
         if self.is_alive():
             log.warning(f"⚠️ [PTY] Claude Code 超时 ({timeout}s)，发送中断")
+            self.send_interrupt()
+            await asyncio.sleep(1.0)
+            if self.is_alive():
+                self._cleanup()
+
+        return full_output
+
+    async def _launch_claude_code_in_container(
+        self,
+        container_id: str,
+        workspace_path: str,
+        prompt: str,
+        mcp_config: Optional[dict] = None,
+        timeout: int = 300,
+        callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """
+        V2: 在容器内通过 docker exec 启动 Claude Code
+
+        使用容器预热池中的容器执行 Claude Code，
+        实现沙箱化隔离规划。
+
+        Args:
+            container_id: 容器 ID
+            workspace_path: 工作区路径（容器内路径）
+            prompt: 发送给 Claude Code 的提示
+            mcp_config: MCP 服务器配置
+            timeout: 超时时间（秒）
+            callback: 流式输出回调
+
+        Returns:
+            完整的 Claude Code 输出
+        """
+        # 构建 docker exec 命令
+        exec_cmd = [
+            "docker", "exec",
+            "-i",
+            container_id,
+            "claude", "--print", prompt,
+        ]
+
+        # 设置环境变量（通过 -e 传递）
+        env_vars = []
+        if mcp_config:
+            env_vars.extend(["-e", f"CLAUDE_MCP_CONFIG={json.dumps(mcp_config)}"])
+
+        # 插入环境变量到 docker exec 命令
+        if env_vars:
+            exec_cmd = ["docker", "exec", "-i"] + env_vars + [container_id, "claude", "--print", prompt]
+
+        log.info(f"🐳 [PTY] 在容器 {container_id[:12]} 中启动 Claude Code")
+
+        # 启动 PTY 会话
+        if not self.start_session(exec_cmd, cwd=workspace_path):
+            raise RuntimeError(f"Failed to start Claude Code in container {container_id[:12]}")
+
+        # 流式读取输出直到完成或超时
+        full_output = ""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            if not self.is_alive():
+                remaining = self.read_output(timeout=1.0)
+                if remaining:
+                    full_output += remaining
+                    if callback:
+                        callback(remaining)
+                break
+
+            chunk = self.read_output(timeout=1.0)
+            if chunk:
+                full_output += chunk
+                if callback:
+                    callback(chunk)
+
+            await asyncio.sleep(0.05)
+
+        # 超时处理
+        if self.is_alive():
+            log.warning(f"⚠️ [PTY] 容器内 Claude Code 超时 ({timeout}s)，发送中断")
             self.send_interrupt()
             await asyncio.sleep(1.0)
             if self.is_alive():

@@ -201,6 +201,7 @@ class SandboxPlanner:
                     mcp_config=mcp_config,
                     timeout=attempt_timeout,
                     callback=pty_stream_callback,
+                    container_id=container_id,
                 )
 
                 # 提取结构化结果
@@ -361,6 +362,9 @@ async def sandbox_planner_node(state: dict) -> dict:
     通过沙箱化的 Claude Code 进行规划。
     失败时返回 fallback=True 标记，供调用方回退到 super_executor_v4。
 
+    容器池集成：当 AUTONOME_USE_CONTAINER_POOL=true 时，
+    从预热池获取容器执行规划，完成后归还。
+
     Args:
         state: 包含 messages, intent, physical_file_info 的状态
 
@@ -385,11 +389,30 @@ async def sandbox_planner_node(state: dict) -> dict:
 
     log.info(f"📋 [SandboxPlanner] 开始规划: {user_message[:50]}...")
 
+    # V2: 容器池集成
+    container_id = None
+    pooled_container = None
+    use_container_pool = os.environ.get("AUTONOME_USE_CONTAINER_POOL", "false").lower() == "true"
+
+    if use_container_pool:
+        try:
+            from app.services.container_pool_service import get_container_pool
+            pool = get_container_pool()
+            pooled_container = pool.acquire_container(container_type="general")
+            if pooled_container:
+                container_id = pooled_container.container_id
+                log.info(f"📋 [SandboxPlanner] 从容器池获取容器: {container_id[:12]}")
+            else:
+                log.warning("📋 [SandboxPlanner] 容器池无可用容器，使用本地模式")
+        except Exception as pool_err:
+            log.warning(f"📋 [SandboxPlanner] 容器池获取失败: {pool_err}，使用本地模式")
+
     try:
         planner = get_sandbox_planner()
         result = await planner.plan(
             user_message=user_message,
-            workspace_info=physical_file_info
+            workspace_info=physical_file_info,
+            container_id=container_id,
         )
 
         if result.success and result.structured_data:
@@ -434,6 +457,17 @@ async def sandbox_planner_node(state: dict) -> dict:
             "fallback": True,
             "planner_error": str(e)[:200]
         }
+
+    finally:
+        # V2: 归还容器到池中
+        if pooled_container:
+            try:
+                from app.services.container_pool_service import get_container_pool
+                pool = get_container_pool()
+                pool.release_container(pooled_container)
+                log.info(f"📋 [SandboxPlanner] 容器已归还: {container_id[:12] if container_id else 'N/A'}")
+            except Exception as release_err:
+                log.warning(f"📋 [SandboxPlanner] 容器归还失败: {release_err}")
 
 
 log.info(f"📋 [SandboxPlanner] 沙箱规划节点已加载 (enabled={USE_SANDBOX_PLANNER})")
