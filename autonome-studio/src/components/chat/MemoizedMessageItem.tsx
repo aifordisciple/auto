@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useMemo, useCallback } from "react";
+import { memo, useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Bot, User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, FileImage, FileSpreadsheet, ChevronDown, ChevronRight, FolderOpen, Folder, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -316,6 +316,20 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     msg.role === 'assistant' ? parseParamUpdate(displayContent || '') : null,
     [msg.role, displayContent]
   );
+
+  // V2: 将 param-update 事件从渲染阶段移到 useEffect，避免 React StrictMode 双重触发
+  const lastParamUpdateRef = useRef<string>('');
+  useEffect(() => {
+    if (paramUpdateData) {
+      const key = JSON.stringify(paramUpdateData);
+      if (key !== lastParamUpdateRef.current) {
+        lastParamUpdateRef.current = key;
+        window.dispatchEvent(new CustomEvent('param-update', {
+          detail: paramUpdateData
+        }));
+      }
+    }
+  }, [paramUpdateData]);
 
   // ✨ 文件资产检测：从消息内容中提取文件路径
   const fileAssets = useMemo(() => {
@@ -715,10 +729,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                 // ✨ V2: 参数更新渲染（静默更新策略卡片，不显示新消息）
                 if (paramUpdateData) {
-                  // 触发参数更新事件
-                  window.dispatchEvent(new CustomEvent('param-update', {
-                    detail: paramUpdateData
-                  }));
+                  // 事件已在 useEffect 中触发，此处仅负责渲染清理后的文本
 
                   // 清理 json_param_update 块后的文本
                   const cleanText = displayContent
@@ -896,9 +907,6 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
       )}
     </motion.div>
   );
-}, (prevProps, nextProps) => {
-  // ✨ 调试模式：禁用 memoization，始终重新渲染以排除 memo 导致的重叠问题
-  return false;
 });
 
 export { MemoizedMessageItem };

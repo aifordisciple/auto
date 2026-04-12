@@ -12,7 +12,7 @@
  * 阶段 4→StrategyCard 使用 framer-motion 平滑过渡动画
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, Zap, ChevronRight, Play, CheckCircle, XCircle, ArrowLeft, Settings2 } from "lucide-react";
 import styles from "./InlineActionMenu.module.css";
@@ -134,6 +134,17 @@ export default function InlineActionMenu({
   const [loadingSkillId, setLoadingSkillId] = useState<string | null>(null);
   const [selectedOption, setSelectedOption] = useState<ActionMenuOption | null>(null);
   const [editedParams, setEditedParams] = useState<Record<string, unknown>>({});
+
+  // V2: 当 paramsData 变化时，用预填值初始化 editedParams
+  useEffect(() => {
+    if (paramsData && paramsData.length > 0) {
+      const initial: Record<string, unknown> = {};
+      for (const field of paramsData) {
+        initial[field.key] = field.value ?? field.default;
+      }
+      setEditedParams(initial);
+    }
+  }, [paramsData]);
 
   // ==========================================
   // 阶段 1: 选择技能

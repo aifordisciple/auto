@@ -169,12 +169,16 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
         },
       ],
     })),
-  // 新增实现：找到最后一条消息，把新传来的字符拼接到末尾
+  // 新增实现：找到最后一条消息，把新传来的字符拼接到末尾（不可变更新）
   appendLastMessage: (contentChunk: string) =>
     set((state) => {
       const newMessages = [...state.messages];
       if (newMessages.length > 0) {
-        newMessages[newMessages.length - 1].content += contentChunk;
+        const lastIndex = newMessages.length - 1;
+        newMessages[lastIndex] = {
+          ...newMessages[lastIndex],
+          content: newMessages[lastIndex].content + contentChunk,
+        };
       }
       return { messages: newMessages };
     }),

@@ -175,7 +175,6 @@ def _extract_explicit_mention(param_name: str, param_type: str, user_message: st
     patterns = [
         rf'{param_name}\s*[=:]\s*([^\s,，]+)',
         rf'--{param_name}\s+([^\s,，]+)',
-        rf'-{param_name[0]}\s+([^\s,，]+)',  # 短选项
     ]
     for pattern in patterns:
         match = re.search(pattern, user_message, re.IGNORECASE)
@@ -203,13 +202,19 @@ def _extract_entity(param_name: str, param_type: str, user_message: str, workspa
                 log.debug(f"[SkillFormBuilder.V2] _extract_entity 命中(文件路径): param_name='{param_name}', value='{value}'")
                 return value
 
-    # 数值提取
+    # 数值提取 — 仅当参数名在用户消息附近出现时才提取
     if param_type == "number":
-        num_match = re.search(r'\b(\d+\.?\d*)\b', user_message)
-        if num_match:
-            value = num_match.group(1)
-            log.debug(f"[SkillFormBuilder.V2] _extract_entity 命中(数值): param_name='{param_name}', value='{value}'")
-            return value
+        # 检查参数名是否在用户消息中被提及
+        param_mentioned = (
+            param_name.lower() in user_message.lower()
+            or f"--{param_name}" in user_message
+        )
+        if param_mentioned:
+            num_match = re.search(r'\b(\d+\.?\d*)\b', user_message)
+            if num_match:
+                value = num_match.group(1)
+                log.debug(f"[SkillFormBuilder.V2] _extract_entity 命中(数值): param_name='{param_name}', value='{value}'")
+                return value
 
     return None
 

@@ -14,7 +14,7 @@ THINKING_TAG_PATTERNS = [
     # DeepSeek R1 韩文格式
     re.compile(r"심풀.*?심풀", re.DOTALL),
     # DeepSeek R1 变体: <think>...</think>
-    re.compile(r"<think>.*?</think>|《.*?》|<think[^>]*>.*?</think[^>]*>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<think>.*?</think>|<think[^>]*>.*?</think[^>]*>", re.DOTALL | re.IGNORECASE),
     # Claude extended thinking
     re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE),
     # 其他模型变体

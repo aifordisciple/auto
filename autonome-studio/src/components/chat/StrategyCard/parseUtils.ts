@@ -738,9 +738,9 @@ export function parseParamUpdate(content: string): ParamUpdate | null {
       }
 
       if (endIndex === -1) return null;
-      const jsonStr = content.substring(startIndex, endIndex);
+      const fallbackJsonStr = content.substring(startIndex, endIndex);
 
-      const cleaned = sanitizeJsonString(jsonStr);
+      const cleaned = sanitizeJsonString(fallbackJsonStr);
       const data = tryRepairAndParseJson(cleaned);
 
       if (!data || !Array.isArray(data.param_updates)) {

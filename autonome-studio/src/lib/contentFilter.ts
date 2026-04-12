@@ -145,19 +145,6 @@ export function filterThinkingContent(content: string, debug: boolean = false): 
         result = '';
       }
     }
-
-    // 处理未闭合的 <think> 标签（DeepSeek R1 等模型）
-    // 如果字符串中有 <think> 但没有 </think>，则截断从 <think> 到末尾的内容
-    const incompleteThinkColonPattern = /<think>(?![\s\S]*<\/think>)[\s\S]*$/gi;
-    const thinkColonMatch = result.match(incompleteThinkColonPattern);
-    if (thinkColonMatch) {
-      const startIndex = result.search(incompleteThinkColonPattern);
-      if (startIndex > 0) {
-        result = result.substring(0, startIndex);
-      } else {
-        result = '';
-      }
-    }
   }
 
   // 清理可能产生的多余空行（连续 3 个以上换行变成 2 个）
