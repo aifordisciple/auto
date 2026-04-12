@@ -3,14 +3,13 @@
 
 融合常规 Agent 模式与超级执行者模式，根据意图自动选择执行路径。
 
-执行路径：
+V2 执行路径：
 ├── CHAT → 闲聊节点 (直接响应)
 ├── EXPLICIT_SKILL → 技能执行节点 → 技能表单构建
-├── VAGUE_ANALYSIS → 超级执行者 V4 (探查 → 安装 → 执行)
+├── VAGUE_ANALYSIS → 沙箱规划器 (V2, 门控) → 超级执行者 V4 (回退)
 ├── TROUBLESHOOT → 排错节点
 ├── SYSTEM_ACTION → 系统操作节点
-├── PIPELINE_BUILD → 超级执行者 V4 (探查 → 安装 → 执行)
-└── UI_UPDATE → 参数更新节点
+│   └── sub_intent="ui_update" → 参数更新节点
 """
 
 import os
@@ -40,6 +39,16 @@ except ImportError as e:
     log.warning(f"⚠️ [UnifiedExecutor] 无法导入 SuperExecutorV4: {e}")
     SUPER_EXECUTOR_AVAILABLE = False
 
+# V2: 沙箱规划器导入
+try:
+    from app.agent.nodes.sandbox_planner import (
+        SandboxPlanner, is_sandbox_planner_enabled, sandbox_planner_node
+    )
+    SANDBOX_PLANNER_AVAILABLE = True
+except ImportError as e:
+    log.warning(f"⚠️ [UnifiedExecutor] 无法导入 SandboxPlanner: {e}")
+    SANDBOX_PLANNER_AVAILABLE = False
+
 
 def add_messages(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
     """消息合并"""
@@ -58,8 +67,8 @@ class UnifiedExecutorState(TypedDict):
     user_id: int
 
 
-# ✨ 需要使用超级执行者的意图类型
-SUPER_EXECUTOR_INTENTS = {"VAGUE_ANALYSIS", "PIPELINE_BUILD"}
+# V2: VAGUE_ANALYSIS 统一走超级执行者（沙箱规划器在 chat.py 层分流）
+SUPER_EXECUTOR_INTENTS = {"VAGUE_ANALYSIS"}
 
 
 async def super_executor_node(state: UnifiedExecutorState) -> dict:
@@ -150,10 +159,11 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
     """
     统一执行器主节点
 
-    内联完成意图分类和路由执行：
-    - VAGUE_ANALYSIS / PIPELINE_BUILD → 超级执行者 V4
+    V2: 内联完成意图分类和路由执行：
+    - VAGUE_ANALYSIS → 沙箱规划器 (门控) → 超级执行者 V4 (回退)
     - CHAT → 闲聊节点
     - EXPLICIT_SKILL → 技能执行节点
+    - SYSTEM_ACTION + sub_intent="ui_update" → 参数更新节点
     - 其他 → 相应专业节点
 
     Args:
@@ -177,7 +187,8 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
 
         if intent:
             intent_type = intent.intent if hasattr(intent, "intent") else str(intent)
-            log.info(f"🤖 [UnifiedExecutor] 意图类型: {intent_type}, 路由到: {next_node}")
+            sub_intent = getattr(intent, 'sub_intent', None)
+            log.info(f"🤖 [UnifiedExecutor] 意图类型: {intent_type}, sub_intent: {sub_intent}, 路由到: {next_node}")
 
             # 检查是否有闲聊响应（提前返回）
             if "messages" in intent_result and intent_result["messages"]:
@@ -198,7 +209,19 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
                 return result
 
             elif intent_type in SUPER_EXECUTOR_INTENTS:
-                # 超级执行者 V4 - 单独处理
+                # V2: VAGUE_ANALYSIS → 沙箱规划器 (门控) → 超级执行者 V4 (回退)
+                if SANDBOX_PLANNER_AVAILABLE and is_sandbox_planner_enabled():
+                    log.info(f"📋 [UnifiedExecutor] 沙箱规划器已启用，尝试沙箱规划")
+                    planner_result = await sandbox_planner_node(state)
+
+                    # 沙箱规划成功
+                    if not planner_result.get("fallback"):
+                        return planner_result
+
+                    # 沙箱规划失败，回退到超级执行者 V4
+                    log.warning(f"📋 [UnifiedExecutor] 沙箱规划失败，回退到超级执行者 V4: {planner_result.get('planner_error', '')}")
+
+                # 超级执行者 V4（直接或回退）
                 return await super_executor_node(state)
 
             elif intent_type == "TROUBLESHOOT":
@@ -206,15 +229,11 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
                 return result
 
             elif intent_type == "SYSTEM_ACTION":
+                # V2: SYSTEM_ACTION + sub_intent="ui_update" → 参数更新节点
+                if sub_intent == "ui_update":
+                    result = await param_update_node(state)
+                    return result
                 result = await system_action_node(state)
-                return result
-
-            elif intent_type == "PIPELINE_BUILD":
-                result = await blueprint_node(state)
-                return result
-
-            elif intent_type == "UI_UPDATE":
-                result = await param_update_node(state)
                 return result
 
             else:
@@ -248,11 +267,11 @@ def build_unified_agent(
     """
     构建统一执行器
 
-    融合常规 Agent 模式与超级执行者模式：
+    V2 融合常规 Agent 模式与超级执行者模式：
     - CHAT → 闲聊节点
     - EXPLICIT_SKILL → 技能执行节点
-    - VAGUE_ANALYSIS → 超级执行者 V4
-    - PIPELINE_BUILD → 超级执行者 V4
+    - VAGUE_ANALYSIS → 沙箱规划器 (门控) → 超级执行者 V4 (回退)
+    - SYSTEM_ACTION + sub_intent="ui_update" → 参数更新节点
     - 其他 → 相应专业节点
 
     Args:
@@ -308,11 +327,9 @@ def get_executor_mode_description(intent_type: str) -> str:
     descriptions = {
         "CHAT": "闲聊模式 - 直接响应",
         "EXPLICIT_SKILL": "技能执行模式 - 执行指定技能",
-        "VAGUE_ANALYSIS": "超级执行者模式 - 三步执行（探查→安装→执行）",
+        "VAGUE_ANALYSIS": "沙箱规划模式 - 智能规划（回退到超级执行者）",
         "TROUBLESHOOT": "排错模式 - 诊断并解决问题",
         "SYSTEM_ACTION": "系统操作模式 - 执行系统命令",
-        "PIPELINE_BUILD": "蓝图构建模式 - 规划复杂任务流程",
-        "UI_UPDATE": "参数更新模式 - 更新表单参数",
     }
     return descriptions.get(intent_type, "未知模式")
 

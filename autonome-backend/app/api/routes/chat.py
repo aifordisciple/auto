@@ -40,7 +40,7 @@ from app.core.logger import log
 from app.api.deps import get_current_user
 from app.services.experience_recommender import ExperienceRecommender
 from app.services.intent_recognition import IntentRecognitionService, is_plotting_request, get_plotting_guidelines
-from app.core.content_filter import filter_thinking_content
+from app.core.content_filter import filter_thinking_content, StreamContentFilter
 
 # ✨ 消息分类前置服务 - 判断是否需要技能推荐
 from app.services.message_classifier import classify_message
@@ -324,13 +324,8 @@ async def chat_stream(
             try:
                 log.info(f"💬 [Chat] 开始调用 LLM 生成闲聊回复...")
 
-                # ✨ 简单直接的 thinking 标签过滤正则（兼容多种格式）
-                import re
-                # 匹配: <think>...</think> 或 <thinking>...</thinking> 或 <think>...</think>
-                think_tag_pattern = re.compile(
-                    r'<think>.*?</think>|《.*?》|<think[^>]*>.*?</think[^>]*>|<thinking>.*?</thinking>',
-                    re.DOTALL | re.IGNORECASE
-                )
+                # V2: 跨块有状态内容过滤器，防止 json_intent 等系统标签跨 chunk 边界泄漏
+                stream_filter = StreamContentFilter()
 
                 ai_response = ""
                 async for chunk in direct_llm.astream([
@@ -339,13 +334,21 @@ async def chat_stream(
                 ]):
                     # ✨ LangChain 的 AIMessageChunk 有 content 属性
                     raw_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                    # ✨ 先用简单正则过滤 thinking 标签
-                    filtered_content = think_tag_pattern.sub('', raw_content)
-                    # ✨ 再用标准过滤器处理其他情况
-                    content = filter_thinking_content(filtered_content, model_name=model_name, is_streaming=True)
+                    # V2: 使用有状态过滤器处理跨块边界
+                    content = stream_filter.filter_chunk(raw_content)
+                    # ✨ 再用标准过滤器处理 thinking 标签等
+                    content = filter_thinking_content(content, model_name=model_name, is_streaming=True)
                     if content:
                         ai_response += content
                         yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
+
+                # V2: 刷新过滤器缓冲区（处理尾部残留）
+                final_chunk = stream_filter.flush()
+                if final_chunk:
+                    final_content = filter_thinking_content(final_chunk, model_name=model_name, is_streaming=True)
+                    if final_content:
+                        ai_response += final_content
+                        yield {"event": "message", "data": json.dumps({"type": "text", "content": final_content})}
 
                 log.info(f"💬 [Chat] LLM 流式回复完成，长度: {len(ai_response)}")
                 # ✨ 闲聊也需要发送 done 事件
@@ -808,56 +811,206 @@ async def chat_stream(
                 yield {"event": "done", "data": "[DONE]"}
                 return
 
-            # V2: PIPELINE_BUILD 已合并到 VAGUE_ANALYSIS，不再单独判断
+            # V2: VAGUE_ANALYSIS → 沙箱规划器 (门控) → 超级执行者 V4 (回退)
             if resolved_intent_type == "VAGUE_ANALYSIS":
-                log.info(f"🚀 [Chat] 启动超级执行者 V4，意图类型: {resolved_intent_type}")
+                # V2: 检查是否启用沙箱规划器
+                use_sandbox_planner = os.environ.get("AUTONOME_USE_SANDBOX_PLANNER", "false").lower() == "true"
 
-                try:
-                    from app.agent.super_executor_v4 import SuperExecutorV4
-                    # 从 messages 中提取用户消息内容
-                    last_msg = messages[-1] if messages else {}
-                    if isinstance(last_msg, dict):
-                        raw_input_text = last_msg.get("content", "")
-                    else:
-                        raw_input_text = getattr(last_msg, 'content', "")
-                    executor = SuperExecutorV4(
-                        raw_input=raw_input_text,
-                        project_id=str(request.project_id),
-                        user_id=user_id,
-                        api_key=api_key,
-                        base_url=base_url,
-                        model_name=model_name
-                    )
+                if use_sandbox_planner:
+                    log.info(f"📋 [Chat] 沙箱规划器已启用，启动沙箱规划")
+                    try:
+                        from app.agent.nodes.sandbox_planner import SandboxPlanner
+                        planner = SandboxPlanner()
 
-                    async for event in executor.run():
-                        event_type = event.get("event", "")
-                        event_data = event.get("data", {})
+                        # 由于 event_callback 不能直接 yield SSE，
+                        # 我们改用收集事件的方式，plan() 完成后统一发送
+                        collected_planner_events = []
 
-                        if event_type == "message":
-                            # event_data 可能是 dict 或 string
-                            if isinstance(event_data, str):
-                                content = json.loads(event_data).get("content", "")
-                            else:
-                                content = event_data.get("content", "")
-                            if content:
-                                ai_full_response += content
-                                yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
-                        elif event_type == "status_update":
-                            yield {"event": "status", "data": json.dumps(event_data)}
-                        elif event_type == "phase_change":
-                            yield {"event": "phase_change", "data": json.dumps(event_data)}
-                        elif event_type == "error":
-                            error_msg = event_data.get("error", "Unknown error") if isinstance(event_data, dict) else str(event_data)
-                            yield {"event": "error", "data": json.dumps({"error": error_msg})}
+                        def collect_planner_event(event_type: str, event_data: dict):
+                            collected_planner_events.append((event_type, event_data))
 
-                    yield {"event": "done", "data": "[DONE]"}
-                    return
+                        # 从 messages 中提取用户消息
+                        last_msg = messages[-1] if messages else {}
+                        if isinstance(last_msg, dict):
+                            raw_input_text = last_msg.get("content", "")
+                        else:
+                            raw_input_text = getattr(last_msg, 'content', "")
 
-                except Exception as super_err:
-                    log.error(f"❌ [Chat] 超级执行者错误: {super_err}")
-                    yield {"event": "error", "data": json.dumps({"error": str(super_err)})}
-                    yield {"event": "done", "data": "[DONE]"}
-                    return
+                        result = await planner.plan(
+                            user_message=raw_input_text,
+                            workspace_info=physical_file_info,
+                            event_callback=collect_planner_event,
+                        )
+
+                        # 发送收集到的规划器事件
+                        for evt_type, evt_data in collected_planner_events:
+                            yield {"event": evt_type, "data": json.dumps(evt_data)}
+
+                        if result.success and result.structured_data:
+                            # 沙箱规划成功，构建 StrategyCard 输出
+                            card = result.structured_data
+                            raw_plan = card.get("_raw_plan", {})
+
+                            output_content = f"""根据您的需求，我制定了以下规划：
+
+**{card.get('title', '分析规划')}**
+
+{card.get('description', '')}
+
+步骤：
+{chr(10).join([f"{i+1}. **{step.get('name', '')}**: {step.get('instruction', '')}" for i, step in enumerate(raw_plan.get('steps', []))])}
+
+预计时间：{card.get('estimated_time', '未知')}
+
+```json_strategy
+{json.dumps(card, ensure_ascii=False, indent=2)}
+```"""
+
+                            ai_full_response = output_content
+                            yield {"event": "message", "data": json.dumps({"type": "text", "content": output_content})}
+
+                            # 发送策略卡片事件
+                            yield {
+                                "event": "strategy_card",
+                                "data": json.dumps({
+                                    "card": card,
+                                    "source": "sandbox_planner",
+                                    "execution_time_ms": result.execution_time_ms
+                                })
+                            }
+
+                            # 发送规划结果事件
+                            yield {
+                                "event": "planner_result",
+                                "data": json.dumps({
+                                    "success": True,
+                                    "plan": card.get("task_summary", ""),
+                                    "skill_id": card.get("skill_id", ""),
+                                    "steps_count": len(card.get("steps", [])),
+                                    "execution_time_ms": result.execution_time_ms,
+                                })
+                            }
+
+                            yield {"event": "done", "data": "[DONE]"}
+                            return
+                        else:
+                            # 沙箱规划失败，回退到超级执行者 V4
+                            log.warning(f"📋 [Chat] 沙箱规划失败: {result.error}，回退到超级执行者 V4")
+                            yield {
+                                "event": "planner_result",
+                                "data": json.dumps({
+                                    "success": False,
+                                    "error": result.error,
+                                    "fallback": "super_executor_v4"
+                                })
+                            }
+
+                    except Exception as planner_err:
+                        log.error(f"❌ [Chat] 沙箱规划器异常: {planner_err}，回退到超级执行者 V4")
+                        yield {
+                            "event": "planner_result",
+                            "data": json.dumps({
+                                "success": False,
+                                "error": str(planner_err)[:200],
+                                "fallback": "super_executor_v4"
+                            })
+                        }
+
+                    # 回退到超级执行者 V4
+                    log.info(f"🚀 [Chat] 回退到超级执行者 V4")
+                    try:
+                        from app.agent.super_executor_v4 import SuperExecutorV4
+                        # 从 messages 中提取用户消息内容
+                        last_msg = messages[-1] if messages else {}
+                        if isinstance(last_msg, dict):
+                            raw_input_text = last_msg.get("content", "")
+                        else:
+                            raw_input_text = getattr(last_msg, 'content', "")
+                        executor = SuperExecutorV4(
+                            raw_input=raw_input_text,
+                            project_id=str(request.project_id),
+                            user_id=user_id,
+                            api_key=api_key,
+                            base_url=base_url,
+                            model_name=model_name
+                        )
+
+                        async for event in executor.run():
+                            event_type = event.get("event", "")
+                            event_data = event.get("data", {})
+
+                            if event_type == "message":
+                                if isinstance(event_data, str):
+                                    content = json.loads(event_data).get("content", "")
+                                else:
+                                    content = event_data.get("content", "")
+                                if content:
+                                    ai_full_response += content
+                                    yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
+                            elif event_type == "status_update":
+                                yield {"event": "status", "data": json.dumps(event_data)}
+                            elif event_type == "phase_change":
+                                yield {"event": "phase_change", "data": json.dumps(event_data)}
+                            elif event_type == "error":
+                                error_msg = event_data.get("error", "Unknown error") if isinstance(event_data, dict) else str(event_data)
+                                yield {"event": "error", "data": json.dumps({"error": error_msg})}
+
+                        yield {"event": "done", "data": "[DONE]"}
+                        return
+
+                    except Exception as super_err:
+                        log.error(f"❌ [Chat] 超级执行者错误: {super_err}")
+                        yield {"event": "error", "data": json.dumps({"error": str(super_err)})}
+                        yield {"event": "done", "data": "[DONE]"}
+                        return
+
+                else:
+                    # 沙箱规划器未启用，直接使用超级执行者 V4
+                    log.info(f"🚀 [Chat] 沙箱规划器未启用，直接启动超级执行者 V4")
+                    try:
+                        from app.agent.super_executor_v4 import SuperExecutorV4
+                        last_msg = messages[-1] if messages else {}
+                        if isinstance(last_msg, dict):
+                            raw_input_text = last_msg.get("content", "")
+                        else:
+                            raw_input_text = getattr(last_msg, 'content', "")
+                        executor = SuperExecutorV4(
+                            raw_input=raw_input_text,
+                            project_id=str(request.project_id),
+                            user_id=user_id,
+                            api_key=api_key,
+                            base_url=base_url,
+                            model_name=model_name
+                        )
+
+                        async for event in executor.run():
+                            event_type = event.get("event", "")
+                            event_data = event.get("data", {})
+
+                            if event_type == "message":
+                                if isinstance(event_data, str):
+                                    content = json.loads(event_data).get("content", "")
+                                else:
+                                    content = event_data.get("content", "")
+                                if content:
+                                    ai_full_response += content
+                                    yield {"event": "message", "data": json.dumps({"type": "text", "content": content})}
+                            elif event_type == "status_update":
+                                yield {"event": "status", "data": json.dumps(event_data)}
+                            elif event_type == "phase_change":
+                                yield {"event": "phase_change", "data": json.dumps(event_data)}
+                            elif event_type == "error":
+                                error_msg = event_data.get("error", "Unknown error") if isinstance(event_data, dict) else str(event_data)
+                                yield {"event": "error", "data": json.dumps({"error": error_msg})}
+
+                        yield {"event": "done", "data": "[DONE]"}
+                        return
+
+                    except Exception as super_err:
+                        log.error(f"❌ [Chat] 超级执行者错误: {super_err}")
+                        yield {"event": "error", "data": json.dumps({"error": str(super_err)})}
+                        yield {"event": "done", "data": "[DONE]"}
+                        return
 
             # ✨ 其他意图类型走 LangGraph Agent 工作流
             async for event in agent_executor.astream_events({"messages": messages}, config={"recursion_limit": 20}, version="v2"):
