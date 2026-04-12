@@ -9,14 +9,15 @@ from pydantic import BaseModel, Field
 
 
 # 意图类型字面量（用于 Pydantic Literal）
+# V2: 从 7 种精简为 5 种
+# - 合并 PIPELINE_BUILD → VAGUE_ANALYSIS（sub_intent="pipeline_build" 保留语义）
+# - 合并 UI_UPDATE → SYSTEM_ACTION（sub_intent="ui_update" 保留语义）
 IntentType = Literal[
     "CHAT",                    # 纯理论问答、概念解释、打招呼
     "EXPLICIT_SKILL",          # 选择了技能或明确指定调用某工具
-    "VAGUE_ANALYSIS",           # 模糊的数据分析需求
+    "VAGUE_ANALYSIS",           # 模糊的数据分析需求（含原 PIPELINE_BUILD）
     "TROUBLESHOOT",             # 报错排查与故障诊断
-    "SYSTEM_ACTION",            # 系统级指令
-    "PIPELINE_BUILD",           # 跨越单技能边界的复杂蓝图构建
-    "UI_UPDATE",                # ✨ V2: UI 参数更新（用户对策略卡片参数的口语化修改）
+    "SYSTEM_ACTION",            # 系统级指令（含原 UI_UPDATE）
 ]
 
 
@@ -31,6 +32,16 @@ class IntentClassification(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="分类置信度 0-1")
     entities: dict[str, Any] = Field(default_factory=dict, description="提取的关键实体，如文件名、算法名")
     reason: str = Field(default="", max_length=200, description="简短判断理由")
+    # V2: 闲聊/理论子类型，供快速路径使用
+    chat_subtype: Optional[Literal["casual", "theory"]] = Field(
+        default=None, description="CHAT 意图子类型：casual=闲聊(硬编码响应), theory=理论(LLM流式)"
+    )
+    # V2: 子意图 — 保留被合并意图的语义
+    # pipeline_build: 原 PIPELINE_BUILD，VAGUE_ANALYSIS 的子类型
+    # ui_update: 原 UI_UPDATE，SYSTEM_ACTION 的子类型
+    sub_intent: Optional[Literal["pipeline_build", "ui_update"]] = Field(
+        default=None, description="子意图：保留被合并意图的语义（pipeline_build/ui_update）"
+    )
 
 
 class RouteQuery(BaseModel):

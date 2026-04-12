@@ -10,10 +10,13 @@ import pty
 import select
 import subprocess
 import time
+import re
+import json
 import fcntl
 import struct
 import termios
-from typing import Tuple, Optional, Callable
+import asyncio
+from typing import Tuple, Optional, Callable, AsyncIterator, Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -35,6 +38,38 @@ class PTYConfig:
     cols: int = 80
     timeout: float = 1.0  # 读取超时（秒）
     max_retries: int = 3
+
+
+class PTYExtractionError(Exception):
+    """PTY 结果提取错误（细粒度）"""
+
+    class ErrorType(Enum):
+        MARKER_NOT_FOUND = "marker_not_found"      # 未找到锚点标记
+        JSON_INVALID = "json_invalid"              # JSON 格式无效
+        JSON_TRUNCATED = "json_truncated"          # JSON 被截断
+        EMPTY_OUTPUT = "empty_output"              # 输出为空
+
+    def __init__(self, error_type: "PTYExtractionError.ErrorType", message: str, raw_snippet: str = ""):
+        self.error_type = error_type
+        self.message = message
+        self.raw_snippet = raw_snippet
+        super().__init__(message)
+
+
+@dataclass
+class PTYResult:
+    """
+    V2: PTY 执行结果（结构化返回）
+
+    替代原来的 Optional[dict] 返回，提供更丰富的错误信息和执行统计。
+    """
+    success: bool
+    raw_output: str = ""
+    structured_data: Optional[dict] = None
+    error: Optional[str] = None
+    error_type: Optional[str] = None  # PTYExtractionError.ErrorType value
+    timed_out: bool = False
+    execution_time_ms: int = 0
 
 
 class PTYManager:
@@ -357,9 +392,141 @@ class PTYManager:
                 pass
             self.pid = None
 
-    def __del__(self):
-        """析构函数，确保资源被释放"""
-        self._cleanup()
+    # ==========================================
+    # V2: 沙箱化规划支持
+    # ==========================================
+
+    # 结构化输出锚点标记
+    RESULT_START_MARKER = "[AUTONOME_RESULT_START]"
+    RESULT_END_MARKER = "[AUTONOME_RESULT_END]"
+
+    async def launch_claude_code(
+        self,
+        workspace_path: str,
+        prompt: str,
+        mcp_config: Optional[dict] = None,
+        timeout: int = 300,
+        callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """
+        V2: 在 PTY 中启动 Claude Code 并流式读取输出
+
+        Args:
+            workspace_path: 工作区路径（只读挂载）
+            prompt: 发送给 Claude Code 的提示
+            mcp_config: MCP 服务器配置
+            timeout: 超时时间（秒）
+            callback: 流式输出回调
+
+        Returns:
+            完整的 Claude Code 输出
+        """
+        # 构建 Claude Code 命令
+        claude_cmd = ["claude", "--print", prompt]
+
+        # 设置环境变量
+        env = os.environ.copy()
+        if mcp_config:
+            env["CLAUDE_MCP_CONFIG"] = json.dumps(mcp_config)
+
+        # 启动 PTY 会话
+        if not self.start_session(claude_cmd, cwd=workspace_path):
+            raise RuntimeError("Failed to start Claude Code PTY session")
+
+        # 流式读取输出直到完成或超时
+        full_output = ""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            if not self.is_alive():
+                # 进程已结束，读取剩余输出
+                remaining = self.read_output(timeout=1.0)
+                if remaining:
+                    full_output += remaining
+                    if callback:
+                        callback(remaining)
+                break
+
+            chunk = self.read_output(timeout=1.0)
+            if chunk:
+                full_output += chunk
+                if callback:
+                    callback(chunk)
+
+            await asyncio.sleep(0.05)
+
+        # 超时处理
+        if self.is_alive():
+            log.warning(f"⚠️ [PTY] Claude Code 超时 ({timeout}s)，发送中断")
+            self.send_interrupt()
+            await asyncio.sleep(1.0)
+            if self.is_alive():
+                self._cleanup()
+
+        return full_output
+
+    @classmethod
+    def extract_structured_result(cls, raw_output: str) -> Optional[dict]:
+        """
+        V2: 从 PTY 输出中提取结构化 JSON 结果
+
+        查找 [AUTONOME_RESULT_START] { JSON } [AUTONOME_RESULT_END] 标记，
+        提取并解析其中的 JSON。
+
+        Args:
+            raw_output: Claude Code 的原始输出
+
+        Returns:
+            解析后的 dict，如果未找到标记则返回 None
+
+        Raises:
+            PTYExtractionError: 细粒度错误（标记未找到/JSON无效/JSON截断）
+        """
+        if not raw_output:
+            raise PTYExtractionError(
+                PTYExtractionError.ErrorType.EMPTY_OUTPUT,
+                "PTY 输出为空"
+            )
+
+        # 1. ANSI 清洗
+        cleaned = ANSICleaner.clean(raw_output)
+
+        # 2. 查找锚点标记
+        start_idx = cleaned.find(cls.RESULT_START_MARKER)
+        end_idx = cleaned.find(cls.RESULT_END_MARKER)
+
+        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+            # 细粒度错误：区分"完全没标记"和"只有开始标记"（JSON被截断）
+            if start_idx != -1 and end_idx == -1:
+                raise PTYExtractionError(
+                    PTYExtractionError.ErrorType.JSON_TRUNCATED,
+                    "找到 [AUTONOME_RESULT_START] 但未找到 [AUTONOME_RESULT_END]，JSON 可能被截断",
+                    raw_snippet=cleaned[start_idx:start_idx + 200]
+                )
+            raise PTYExtractionError(
+                PTYExtractionError.ErrorType.MARKER_NOT_FOUND,
+                "未找到结构化输出锚点标记",
+                raw_snippet=cleaned[:200]
+            )
+
+        # 3. 提取 JSON 字符串
+        json_str = cleaned[start_idx + len(cls.RESULT_START_MARKER):end_idx].strip()
+
+        # 4. 解析 JSON（带修复）
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            # 尝试 json_repair
+            try:
+                from json_repair import repair_json
+                repaired = repair_json(json_str)
+                return json.loads(repaired)
+            except Exception:
+                raise PTYExtractionError(
+                    PTYExtractionError.ErrorType.JSON_INVALID,
+                    f"JSON 解析失败: {str(e)}",
+                    raw_snippet=json_str[:200]
+                )
 
     def __enter__(self):
         """上下文管理器入口"""

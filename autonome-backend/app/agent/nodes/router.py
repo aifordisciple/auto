@@ -20,13 +20,15 @@ from app.agent.schemas import IntentClassification, IntentType
 
 
 # 意图类型常量（与 IntentType Literal 对应）
+# V2: 精简为 5 种（PIPELINE_BUILD→VAGUE_ANALYSIS, UI_UPDATE→SYSTEM_ACTION）
 INTENT_CHAT = "CHAT"
 INTENT_EXPLICIT_SKILL = "EXPLICIT_SKILL"
 INTENT_VAGUE_ANALYSIS = "VAGUE_ANALYSIS"
 INTENT_TROUBLESHOOT = "TROUBLESHOOT"
 INTENT_SYSTEM_ACTION = "SYSTEM_ACTION"
-INTENT_PIPELINE_BUILD = "PIPELINE_BUILD"
-INTENT_UI_UPDATE = "UI_UPDATE"  # ✨ V2: UI 参数更新
+
+# V2: 置信度阈值 — 低于此值回退到 CHAT
+CONFIDENCE_THRESHOLD = float(os.environ.get("AUTONOME_ROUTER_CONFIDENCE_THRESHOLD", "0.6"))
 
 
 class RouterState(TypedDict):
@@ -56,6 +58,15 @@ CASUAL_RESPONSES = {
     "default": "明白，请说。",
 }
 
+# 理论问答模式关键词（用于区分 casual 和 theory）
+THEORY_KEYWORDS = [
+    "什么是", "怎么理解", "如何理解", "解释一下", "告诉我", "帮我理解",
+    "是什么意思", "是指", "定义", "原理", "概念",
+    "有什么区别", "有什么不同", "为什么", "怎样理解", "如何选择",
+    "介绍一下", "简单介绍", "简述", "概述", "说明",
+    "what is", "how to understand", "explain", "tell me about",
+]
+
 
 def _detect_casual_type(message: str) -> str:
     """
@@ -76,6 +87,7 @@ def _detect_casual_type(message: str) -> str:
 
 
 # 极简路由 Prompt（<200 tokens）
+# V2: 精简为 5 种意图类型
 ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 
 【核心职责】根据用户输入和当前上下文，判断其核心意图。
@@ -84,14 +96,12 @@ ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 - 用户消息：{user_message}
 - 当前高亮文件：{physical_file_info}
 
-【意图类型定义】
+【意图类型定义】（5 种）
 - CHAT: 纯理论问答、概念解释、打招呼（直接流式输出，无中断）
 - EXPLICIT_SKILL: 用户选择了技能或明确指定调用某工具（如"跑一下 FastQC"）
-- VAGUE_ANALYSIS: 模糊的数据分析需求，需要进一步确认（如"对这个矩阵做聚类"）
+- VAGUE_ANALYSIS: 模糊的数据分析需求或复杂蓝图构建（如"对这个矩阵做聚类"、"帮我做一个 RNA-seq 分析流程"）
 - TROUBLESHOOT: 报错排查与故障诊断
-- SYSTEM_ACTION: 系统级工作区/文件指令（如"清空临时文件"、"项目文件有哪些"、"列出目录"、"查看当前路径"等对系统文件的操作与查看）
-- PIPELINE_BUILD: 跨越单技能边界的复杂蓝图构建
-- UI_UPDATE: 用户对策略卡片参数的口语化修改（如"把分辨率调到 0.4"、"改成 True"）
+- SYSTEM_ACTION: 系统级指令或 UI 参数修改（如"清空临时文件"、"把分辨率调到 0.4"）
 
 【输出要求】
 必须使用 with_structured_output 输出 IntentClassification JSON。
@@ -101,9 +111,9 @@ ROUTER_PROMPT = """你是一个生信系统的极速路由网关。
 1. 如果是打招呼/感谢/再见，直接 CHAT
 2. 如果明确提到技能名（如 FastQC、SCTransform），EXPLICIT_SKILL
 3. 如果提到错误信息/报错/异常，TROUBLESHOOT
-4. 如果提到系统操作/清空/重置/文件列表，SYSTEM_ACTION（包括"有哪些文件"、"列出目录"、"查看工作区"等）
-5. 如果是多步骤复杂需求（"帮我做一个 RNA-seq 分析流程"），PIPELINE_BUILD
-6. 如果用户在已有策略卡片的情况下发送消息，且消息是参数修改（如"调到xxx"、"改成xxx"、"设置为xxx"），UI_UPDATE
+4. 如果提到系统操作/清空/重置/文件列表，SYSTEM_ACTION
+5. 如果用户对策略卡片参数做口语化修改（如"调到xxx"、"改成xxx"），SYSTEM_ACTION（sub_intent=ui_update）
+6. 如果是多步骤复杂需求（"帮我做一个 RNA-seq 分析流程"），VAGUE_ANALYSIS（sub_intent=pipeline_build）
 7. 其他模糊分析需求，VAGUE_ANALYSIS
 """
 
@@ -242,10 +252,26 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
                 intent=INTENT_CHAT,
                 confidence=1.0,
                 entities={"casual_type": casual_type},
-                reason=f"闲聊类型: {casual_type}"
+                reason=f"闲聊类型: {casual_type}",
+                chat_subtype="casual"
             ),
             "next": "chat",
             "messages": [AIMessage(content=CASUAL_RESPONSES[casual_type])]
+        }
+
+    # ✨ V2: 检测理论问答模式（无需全量 Agent，走轻量 LLM 流式）
+    msg_lower = user_message.strip().lower()
+    if any(kw in msg_lower for kw in THEORY_KEYWORDS):
+        log.info(f"🔀 [Router] 理论问答检测，走轻量 LLM 流式")
+        return {
+            "intent": IntentClassification(
+                intent=INTENT_CHAT,
+                confidence=0.85,
+                entities={"chat_subtype": "theory"},
+                reason="检测到理论知识问答需求",
+                chat_subtype="theory"
+            ),
+            "next": "chat"
         }
 
     # ========== LLM 结构化意图分类 ==========
@@ -271,6 +297,17 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
         intent_result: IntentClassification = await llm_with_output.ainvoke(prompt)
 
         log.info(f"🔀 [Router] 意图分类: {intent_result.intent}, 置信度: {intent_result.confidence:.2f}")
+
+        # V2: 置信度门控 — 低于阈值回退到 CHAT
+        if intent_result.confidence < CONFIDENCE_THRESHOLD:
+            log.warning(f"🔀 [Router] 置信度 {intent_result.confidence:.2f} < {CONFIDENCE_THRESHOLD}，回退到 CHAT")
+            intent_result = IntentClassification(
+                intent=INTENT_CHAT,
+                confidence=intent_result.confidence,
+                entities=intent_result.entities,
+                reason=f"置信度不足({intent_result.confidence:.2f})，原意图: {intent_result.intent}",
+                chat_subtype="theory"
+            )
 
         # 根据意图决定下一个节点
         next_node = _decide_next_node(intent_result)
@@ -312,6 +349,8 @@ def _decide_next_node(intent: IntentClassification) -> str:
     """
     根据意图类型决定下一个节点
 
+    V2: 5 种意图类型，PIPELINE_BUILD 和 UI_UPDATE 通过 sub_intent 保留语义
+
     Args:
         intent: 意图分类结果
 
@@ -328,7 +367,7 @@ def _decide_next_node(intent: IntentClassification) -> str:
     if intent_type == INTENT_EXPLICIT_SKILL:
         return "skill_execute"
 
-    # ✨ VAGUE_ANALYSIS -> super_executor (超级执行者 V4)
+    # VAGUE_ANALYSIS -> super_executor (含原 PIPELINE_BUILD)
     if intent_type == INTENT_VAGUE_ANALYSIS:
         return "super_executor"
 
@@ -336,17 +375,12 @@ def _decide_next_node(intent: IntentClassification) -> str:
     if intent_type == INTENT_TROUBLESHOOT:
         return "troubleshooting"
 
-    # SYSTEM_ACTION -> system_action (系统操作节点)
+    # SYSTEM_ACTION -> system_action (含原 UI_UPDATE，通过 sub_intent 区分)
     if intent_type == INTENT_SYSTEM_ACTION:
+        # V2: 如果 sub_intent 是 ui_update，路由到 param_update
+        if intent.sub_intent == "ui_update":
+            return "param_update"
         return "system_action"
-
-    # ✨ PIPELINE_BUILD -> super_executor (超级执行者 V4)
-    if intent_type == INTENT_PIPELINE_BUILD:
-        return "super_executor"
-
-    # ✨ UI_UPDATE -> param_update (参数更新节点)
-    if intent_type == INTENT_UI_UPDATE:
-        return "param_update"
 
     # 默认跳转到 retrieval
     return "retrieval"
@@ -357,6 +391,7 @@ def get_intent_routing_edges() -> dict[str, str]:
     获取意图到节点的映射
 
     用于 LangGraph conditional_edges。
+    V2: 5 种意图类型
 
     Returns:
         dict: intent -> node_name 映射
@@ -364,11 +399,9 @@ def get_intent_routing_edges() -> dict[str, str]:
     return {
         INTENT_CHAT: "chat",
         INTENT_EXPLICIT_SKILL: "skill_execute",
-        INTENT_VAGUE_ANALYSIS: "super_executor",  # ✨ 路由到超级执行者
+        INTENT_VAGUE_ANALYSIS: "super_executor",
         INTENT_TROUBLESHOOT: "troubleshooting",
-        INTENT_SYSTEM_ACTION: "system_action",
-        INTENT_PIPELINE_BUILD: "super_executor",  # ✨ 路由到超级执行者
-        INTENT_UI_UPDATE: "param_update",  # ✨ V2: 参数更新节点
+        INTENT_SYSTEM_ACTION: "system_action",  # sub_intent=ui_update 时由 _decide_next_node 路由到 param_update
     }
 
 

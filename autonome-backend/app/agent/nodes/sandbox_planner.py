@@ -85,70 +85,73 @@ class SandboxPlanner:
         self,
         user_message: str,
         workspace_info: str,
+        workspace_path: Optional[str] = None,
         container_id: Optional[str] = None,
-        timeout: int = 60
+        timeout: int = 300
     ) -> Optional[dict]:
         """
-        执行沙箱规划
+        V2: 执行沙箱规划
+
+        流程：
+        1. 从 Warm Pool 提取容器（或使用指定容器）
+        2. 只读挂载用户工作区
+        3. PTY 启动 Claude Code
+        4. Claude Code 探查数据 + 调用 MCP search_skills
+        5. Claude Code 输出 [AUTONOME_RESULT_START] JSON
+        6. 提取 JSON，销毁容器
+        7. 异步补充新容器入池
 
         Args:
             user_message: 用户消息
             workspace_info: 工作区信息
-            container_id: 可选的容器 ID
+            workspace_path: 工作区路径（用于只读挂载）
+            container_id: 可选的容器 ID（从 Warm Pool 获取）
             timeout: 超时时间（秒）
 
         Returns:
             规划结果字典，如果失败则返回 None
         """
-        # 构建 Prompt
         prompt = SANDBOX_PLANNER_PROMPT.format(
             user_message=user_message,
             workspace_info=workspace_info or "无"
         )
 
         try:
-            # 启动 PTY 会话
             self.pty = PTYManager(PTYConfig(timeout=5.0))
-            if container_id:
-                # 在指定容器中执行
-                command = ["docker", "exec", "-it", container_id, "claude", "--print"]
-            else:
-                # 本地执行
-                command = ["claude", "--print"]
 
-            # 启动会话
-            if not self.pty.start_session(command):
-                log.error("❌ [SandboxPlanner] PTY 会话启动失败")
-                return None
+            # V2: 使用 launch_claude_code 方法
+            mcp_config = None
+            try:
+                from app.mcp.autonome_skills_mcp import generate_claude_mcp_config
+                mcp_config = generate_claude_mcp_config()
+            except Exception:
+                pass
 
-            # 等待 Claude Code 启动
-            await asyncio.sleep(2)
+            output = await self.pty.launch_claude_code(
+                workspace_path=workspace_path or os.getcwd(),
+                prompt=prompt,
+                mcp_config=mcp_config,
+                timeout=timeout,
+            )
 
-            # 发送规划 Prompt
-            self.pty.write(prompt + "\n")
+            # V2: 使用 extract_structured_result 提取结果
+            result = PTYManager.extract_structured_result(output)
 
-            # 读取输出直到找到结果或超时
-            output = ""
-            start_time = asyncio.get_event_loop().time()
+            if result:
+                log.info("✅ [SandboxPlanner] 成功提取结构化结果")
+                return result
 
-            while asyncio.get_event_loop().time() - start_time < timeout:
-                chunk = self.pty.read_output(timeout=2.0)
-                output += chunk
-
-                # 检查是否找到结果
+            # 回退：尝试 ResultExtractor
+            try:
+                from app.utils.result_extractor import ResultExtractor
                 result = ResultExtractor.extract(output)
                 if result:
-                    log.info("✅ [SandboxPlanner] 成功提取结果")
+                    log.info("✅ [SandboxPlanner] 通过 ResultExtractor 提取结果")
                     return result
+            except Exception:
+                pass
 
-                # 检查进程是否还在运行
-                if not self.pty.is_alive():
-                    break
-
-                await asyncio.sleep(0.5)
-
-            # 超时或进程结束，返回累积的输出
-            log.warning(f"⚠️ [SandboxPlanner] 规划未完成，输出长度: {len(output)}")
+            log.warning(f"⚠️ [SandboxPlanner] 未能提取结构化结果，输出长度: {len(output)}")
             return None
 
         except Exception as e:
@@ -156,7 +159,6 @@ class SandboxPlanner:
             return None
 
         finally:
-            # 清理
             if self.pty:
                 self.pty.close()
                 self.pty = None

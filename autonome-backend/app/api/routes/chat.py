@@ -34,7 +34,6 @@ from app.models.domain import (
     ChatSession, ChatMessage, DataFile, SystemConfig, RoleEnum, Project, User,
     SkillAsset, SkillStatus
 )
-from app.agent.bot import build_bio_agent
 from app.agent.unified_executor import build_unified_agent
 from app.agent.planning_coordinator import execute_planning
 from app.core.logger import log
@@ -45,9 +44,6 @@ from app.core.content_filter import filter_thinking_content
 
 # ✨ 消息分类前置服务 - 判断是否需要技能推荐
 from app.services.message_classifier import classify_message
-
-# ✨ 轻量级意图分类器
-from app.services.intent_classifier import classify_intent_with_log
 
 # ✨ 导入拆分后的服务模块
 from app.services.chat_skill_recommendation import (
@@ -251,8 +247,26 @@ async def chat_stream(
             yield {"event": "done", "data": "[DONE]"}
             return
 
-        # ✨ 前置意图判断 - <5ms 完成，决定后续处理路径
-        intent_type, intent_confidence, intent_reason = classify_intent_with_log(request.message)
+        # ✨ V2: 统一单次路由 - 使用 router_node_logic 进行意图分类
+        # 合并了原 IntentClassifier (3-type) 和 Router (7-type) 为单次调用
+        from app.agent.nodes.router import router_node_logic
+
+        router_messages = [{"role": "user", "content": request.message}]
+
+        try:
+            router_result = await router_node_logic(router_messages, physical_file_info)
+            intent_obj = router_result.get("intent")
+            intent_type = intent_obj.intent if intent_obj else "VAGUE_ANALYSIS"
+            chat_subtype = getattr(intent_obj, 'chat_subtype', None) if intent_obj else None
+            intent_confidence = intent_obj.confidence if intent_obj else 0.0
+            intent_reason = intent_obj.reason if intent_obj else ""
+        except Exception as router_err:
+            log.warning(f"⚠️ [Chat] 路由器调用失败: {router_err}，默认 VAGUE_ANALYSIS")
+            intent_type = "VAGUE_ANALYSIS"
+            chat_subtype = None
+            intent_confidence = 0.0
+            intent_reason = "路由失败"
+            router_result = {}
 
         # ✨ 发送意图检测事件
         yield {
@@ -260,19 +274,34 @@ async def chat_stream(
             "data": json.dumps({
                 "intent_type": intent_type,
                 "confidence": intent_confidence,
-                "reason": intent_reason
+                "reason": intent_reason,
+                "chat_subtype": chat_subtype
             })
         }
 
-        # ✨ 闲聊/理论：使用主 LLM 直接回复，跳过项目扫描等耗时操作
-        if intent_type in ("casual", "theory"):
-            log.info(f"💬 [Chat] {intent_type} 类型消息，使用主 LLM 直接回复")
+        # ✨ CHAT 意图：根据 chat_subtype 分流
+        if intent_type == "CHAT":
+            # casual 子类型：硬编码快速响应
+            if chat_subtype == "casual":
+                casual_msg = router_result.get("messages", [])
+                if casual_msg:
+                    response_text = casual_msg[-1].content if hasattr(casual_msg[-1], 'content') else str(casual_msg[-1])
+                else:
+                    response_text = "你好！有什么我可以帮助你的吗？"
+                log.info(f"💬 [Chat] 闲聊快速响应")
+                yield {"event": "message", "data": json.dumps({"type": "text", "content": response_text})}
+                yield {"event": "done", "data": json.dumps({})}
+                yield {"event": "ai_message_content", "data": json.dumps({"content": response_text})}
+                return
+
+            # theory 子类型：轻量 LLM 流式回复
+            log.info(f"💬 [Chat] 理论问答，使用主 LLM 直接回复")
 
             # ✨ 先发送一个提示消息
             yield {"event": "message", "data": json.dumps({"type": "text", "content": "💬 正在思考..."})}
 
             # 构建简单上下文（不扫描项目目录）
-            casual_system_prompt = """你是一个友好的 AI 生物信息学助手。
+            theory_system_prompt = """你是一个友好的 AI 生物信息学助手。
 
 回答原则：
 1. 简洁友好，像和朋友聊天
@@ -305,7 +334,7 @@ async def chat_stream(
 
                 ai_response = ""
                 async for chunk in direct_llm.astream([
-                    {"role": "system", "content": casual_system_prompt},
+                    {"role": "system", "content": theory_system_prompt},
                     {"role": "user", "content": request.message}
                 ]):
                     # ✨ LangChain 的 AIMessageChunk 有 content 属性
@@ -768,38 +797,19 @@ async def chat_stream(
 
             log.info("📡 正在等待 Agent 流式事件响应...")
 
-            # ✨ 优先使用技能匹配的意图结果，避免重复调用 LLM 路由器
-            # intent_result 在前面已经通过技能匹配获取
-            resolved_intent_type = None
-            if intent_result and intent_result.get("intent_type"):
-                resolved_intent_type = intent_result.get("intent_type")
-                log.info(f"🎯 [Chat] 使用技能匹配结果: intent={resolved_intent_type}")
-
-            # ✨ 如果技能匹配没有确定意图，才调用路由器
-            if not resolved_intent_type:
-                from app.agent.nodes.router import router_node_logic
-                try:
-                    router_result = await router_node_logic(messages, physical_file_info)
-                    if router_result.get("intent"):
-                        resolved_intent_type = router_result["intent"].intent if hasattr(router_result["intent"], "intent") else str(router_result["intent"])
-                        log.info(f"🔀 [Chat] 路由器意图: {resolved_intent_type}")
-
-                        # 如果有闲聊响应（提前返回）
-                        if "messages" in router_result and router_result["messages"]:
-                            for msg in router_result["messages"]:
-                                if hasattr(msg, 'content') and msg.content:
-                                    ai_full_response = msg.content
-                                    yield {"event": "message", "data": json.dumps({"type": "text", "content": ai_full_response})}
-                            yield {"event": "done", "data": "[DONE]"}
-                            return
-                except Exception as router_err:
-                    log.warning(f"⚠️ [Chat] 路由器调用失败: {router_err}")
-                    resolved_intent_type = "VAGUE_ANALYSIS"  # 默认
-
+            # ✨ V2: 意图已在顶部统一路由，直接使用 intent_type 分流
+            resolved_intent_type = intent_type
             log.info(f"🎯 [Chat] 最终意图: {resolved_intent_type}")
 
             # ✨ 根据意图类型分流处理
-            if resolved_intent_type in {"VAGUE_ANALYSIS", "PIPELINE_BUILD"}:
+            # explicit_skill 意图：推荐卡片已经在前面发送了，这里只需要等待用户确认
+            if resolved_intent_type == "explicit_skill":
+                log.info(f"🎯 [Chat] explicit_skill 意图，推荐卡片已发送，等待用户确认")
+                yield {"event": "done", "data": "[DONE]"}
+                return
+
+            # V2: PIPELINE_BUILD 已合并到 VAGUE_ANALYSIS，不再单独判断
+            if resolved_intent_type == "VAGUE_ANALYSIS":
                 log.info(f"🚀 [Chat] 启动超级执行者 V4，意图类型: {resolved_intent_type}")
 
                 try:

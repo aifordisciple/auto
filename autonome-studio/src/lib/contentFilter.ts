@@ -50,6 +50,21 @@ const PARAMETER_TAG_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * V2: 系统标签安全网过滤模式
+ * 与后端 SYSTEM_INTENT_TAG_PATTERNS + SANDBOX_RESULT_TAG_PATTERNS 同步
+ * 防止内部路由信号和沙箱结构化输出泄漏到前端
+ */
+const SYSTEM_TAG_PATTERNS: RegExp[] = [
+  // json_intent 系统标签
+  /```json_intent[\s\S]*?```/g,
+  // 沙箱结构化输出锚点标记
+  /\[AUTONOME_RESULT_START\][\s\S]*?\[AUTONOME_RESULT_END\]/g,
+  // 单独出现的锚点标记（跨 chunk 分割情况）
+  /\[AUTONOME_RESULT_START\]/g,
+  /\[AUTONOME_RESULT_END\]/g,
+];
+
+/**
  * 过滤 LLM 输出中的 thinking 标签内容
  *
  * @param content - 原始内容字符串
@@ -79,6 +94,13 @@ export function filterThinkingContent(content: string, debug: boolean = false): 
         return `\n[DEBUG-PARAMETER]: ${match.slice(0, 50)}...[/DEBUG-PARAMETER]\n`;
       });
     });
+    // V2: 系统标签也标记
+    SYSTEM_TAG_PATTERNS.forEach((pattern) => {
+      pattern.lastIndex = 0;
+      result = result.replace(pattern, (match) => {
+        return `\n[DEBUG-SYSTEM]: ${match.slice(0, 50)}...[/DEBUG-SYSTEM]\n`;
+      });
+    });
   } else {
     // 正常模式：删除 thinking 内容
     THINKING_TAG_PATTERNS.forEach((pattern) => {
@@ -88,6 +110,11 @@ export function filterThinkingContent(content: string, debug: boolean = false): 
     });
     // 过滤 parameter 标签
     PARAMETER_TAG_PATTERNS.forEach((pattern) => {
+      pattern.lastIndex = 0;
+      result = result.replace(pattern, '');
+    });
+    // V2: 过滤系统标签（json_intent + 沙箱锚点标记）
+    SYSTEM_TAG_PATTERNS.forEach((pattern) => {
       pattern.lastIndex = 0;
       result = result.replace(pattern, '');
     });
@@ -153,6 +180,32 @@ export function filterThinkingContent(content: string, debug: boolean = false): 
  */
 export function preprocessLLMResponse(content: string): string {
   return filterThinkingContent(content);
+}
+
+/**
+ * V2: 流式 chunk 快速过滤（客户端安全网）
+ *
+ * 在 StreamingMarkdown 渲染前调用，捕获后端过滤器可能遗漏的跨 chunk 边界标签。
+ * 使用快速字符串检查避免不必要的正则匹配。
+ *
+ * @param chunk - 流式内容块
+ * @returns 过滤后的内容
+ */
+export function filterStreamChunkSafe(chunk: string): string {
+  if (!chunk) return chunk;
+
+  // 快速检查：如果 chunk 中不包含任何特殊标记，直接返回
+  const markers = ['json_intent', '[AUTONOME_RESULT_START]', '[AUTONOME_RESULT_END]'];
+  if (!markers.some(m => chunk.includes(m))) return chunk;
+
+  // 执行系统标签过滤
+  let result = chunk;
+  SYSTEM_TAG_PATTERNS.forEach((pattern) => {
+    pattern.lastIndex = 0;
+    result = result.replace(pattern, '');
+  });
+
+  return result;
 }
 
 /**

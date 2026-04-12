@@ -78,6 +78,35 @@ class AutonomeSkillsMCP:
         """
         搜索技能
 
+        V2: 默认使用增强搜索（关键词 + 语义双轨），
+        当 AUTONOME_USE_SEMANTIC_SEARCH=false 时降级为纯关键词搜索。
+
+        Args:
+            query: 搜索查询
+            limit: 返回结果数量限制
+            category: 可选的分类过滤
+
+        Returns:
+            匹配的技能列表
+        """
+        # V2: 检查是否启用语义搜索
+        use_semantic = os.environ.get("AUTONOME_USE_SEMANTIC_SEARCH", "false").lower() == "true"
+
+        if use_semantic:
+            return self.search_skills_enhanced(query, limit, category)
+
+        # 原有关键词搜索逻辑
+        return self._search_skills_keyword(query, limit, category)
+
+    def _search_skills_keyword(
+        self,
+        query: str,
+        limit: int = 5,
+        category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        纯关键词搜索（原 search_skills 逻辑）
+
         Args:
             query: 搜索查询
             limit: 返回结果数量限制
@@ -261,6 +290,111 @@ class AutonomeSkillsMCP:
 
         return results
 
+    def search_skills_enhanced(
+        self,
+        query: str,
+        limit: int = 5,
+        category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        V2: 增强搜索（关键词 + 语义双轨加权合并）
+
+        搜索策略：
+        1. 运行关键词搜索 → keyword_results (score 0-1)
+        2. 运行语义搜索 → semantic_results (score 0-1)
+        3. 合并：final_score = 0.4 * keyword_score + 0.6 * semantic_score
+        4. 返回 top-k by final_score
+
+        Args:
+            query: 搜索查询
+            limit: 返回结果数量限制
+            category: 可选的分类过滤
+
+        Returns:
+            匹配的技能列表
+        """
+        self.initialize()
+
+        if not query:
+            return []
+
+        # 1. 关键词搜索
+        keyword_results = self._search_skills_keyword(query, limit=limit * 2, category=category)
+        keyword_scores: Dict[str, float] = {
+            r['skill_id']: r['match_score'] for r in keyword_results
+        }
+
+        # 2. 语义搜索
+        semantic_scores: Dict[str, float] = {}
+        try:
+            from app.mcp.semantic_search import get_semantic_engine, is_semantic_available
+            if is_semantic_available():
+                engine = get_semantic_engine()
+                if not engine._initialized:
+                    # 首次使用，构建索引
+                    all_skills = self.get_all_skills()
+                    # 转换为 skill_parser 格式
+                    skills_for_index = []
+                    for sid, skill in self._skill_cache.items():
+                        skills_for_index.append(skill)
+                    engine.initialize(skills_for_index)
+
+                semantic_results = engine.search(query, top_k=limit * 2)
+                semantic_scores = {sid: score for sid, score in semantic_results}
+        except Exception as e:
+            log.warning(f"📦 [MCP] 语义搜索失败，降级为纯关键词: {e}")
+
+        # 3. 合并分数
+        # 收集所有候选技能 ID
+        all_candidate_ids = set(keyword_scores.keys()) | set(semantic_scores.keys())
+
+        # 加权合并：关键词 0.4 + 语义 0.6
+        KEYWORD_WEIGHT = 0.4
+        SEMANTIC_WEIGHT = 0.6
+
+        merged_results: List[Dict[str, Any]] = []
+        for skill_id in all_candidate_ids:
+            # 分类过滤
+            if category:
+                skill = self._skill_cache.get(skill_id, {})
+                skill_category = skill.get('metadata', {}).get('category', '')
+                if skill_category != category:
+                    continue
+
+            keyword_score = keyword_scores.get(skill_id, 0.0)
+            semantic_score = semantic_scores.get(skill_id, 0.0)
+            final_score = KEYWORD_WEIGHT * keyword_score + SEMANTIC_WEIGHT * semantic_score
+
+            # 获取技能元数据
+            skill = self._skill_cache.get(skill_id, {})
+            metadata = skill.get('metadata', {})
+
+            # 确定匹配原因
+            match_reasons = []
+            if keyword_score > 0:
+                match_reasons.append("关键词匹配")
+            if semantic_score > 0:
+                match_reasons.append("语义匹配")
+
+            merged_results.append({
+                "skill_id": skill_id,
+                "name": metadata.get('name', ''),
+                "description": metadata.get('description', ''),
+                "executor_type": metadata.get('executor_type', ''),
+                "match_score": min(final_score, 1.0),
+                "match_reason": " + ".join(match_reasons),
+                "category": metadata.get('category', ''),
+                "tags": metadata.get('tags', []),
+                # V2: 搜索详情
+                "_keyword_score": keyword_score,
+                "_semantic_score": semantic_score,
+            })
+
+        # 按合并分数排序
+        merged_results.sort(key=lambda x: x['match_score'], reverse=True)
+
+        return merged_results[:limit]
+
 
 # 全局 MCP 实例
 _mcp_instance: Optional[AutonomeSkillsMCP] = None
@@ -273,3 +407,24 @@ def get_mcp_server() -> AutonomeSkillsMCP:
         _mcp_instance = AutonomeSkillsMCP()
         log.info("📦 [MCP] MCP 服务已初始化")
     return _mcp_instance
+
+
+def generate_claude_mcp_config() -> dict:
+    """
+    V2: 生成 Claude Code 的 MCP 配置
+
+    在 Warm Pool 容器启动时，自动注入 .claude.json 配置，
+    使 Claude Code 能够通过本地 MCP 调用技能检索功能。
+
+    Returns:
+        MCP 服务器配置 dict，可直接写入 .claude.json
+    """
+    return {
+        "mcpServers": {
+            "autonome-skills": {
+                "command": "python",
+                "args": ["-m", "app.mcp.autonome_skills_mcp"],
+                "description": "Autonome 技能检索服务 - 搜索和查询生信分析技能"
+            }
+        }
+    }
