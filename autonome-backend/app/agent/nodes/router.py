@@ -38,11 +38,6 @@ class RouterState(TypedDict):
     next: str
 
 
-def add_messages(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
-    """消息合并"""
-    return left + right
-
-
 # 闲聊快速响应映射（无需调用 LLM）
 CASUAL_RESPONSES = {
     "greeting": "你好！有什么我可以帮助你的吗？可以问我关于数据分析、代码编写、SKILL 执行等问题。",
@@ -81,7 +76,7 @@ def _detect_casual_type(message: str) -> str:
         return "thanks"
     if any(kw in msg for kw in ["再见", "bye", "拜拜"]):
         return "bye"
-    if any(kw in msg for kw in ["帮忙", "help", "帮帮我", "请问", "question"]):
+    if any(kw in msg for kw in ["帮忙", "help", "帮帮我"]):
         return "help"
     return "default"
 
@@ -194,7 +189,7 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
         log.warning("🔀 [Router] 收到空消息，跳转到 VAGUE_ANALYSIS")
         return {
             "intent": IntentClassification(intent=INTENT_VAGUE_ANALYSIS, reason="空消息"),
-            "next": "retrieval"
+            "next": "super_executor"
         }
 
     # ========== 闲聊快速检测 ==========
@@ -206,7 +201,7 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
     # ==========================================
     # 检测 UI_ACTION 前缀的隐式指令
     if user_message.startswith("[UI_ACTION:"):
-        log.info(f"[Router] UI_ACTION 隐式指令检测: message_prefix={user_message.split(']')[0]}]")
+        log.info(f"[Router] UI_ACTION 隐式指令检测: message_prefix={user_message.split(']')[0]}")
 
     if user_message.startswith("[UI_ACTION:REQUEST_SKILL_PARAMS]"):
         skill_id = user_message.split("]")[1].strip()
@@ -263,9 +258,9 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
             "messages": [AIMessage(content=CASUAL_RESPONSES[casual_type])]
         }
 
-    # ✨ V2: 检测理论问答模式（无需全量 Agent，走轻量 LLM 流式）
+    # ✨ V2: 检测理论问答模式（仅对短消息，避免误判分析请求为理论问答）
     msg_lower = user_message.strip().lower()
-    if any(kw in msg_lower for kw in THEORY_KEYWORDS):
+    if len(user_message) <= 30 and any(kw in msg_lower for kw in THEORY_KEYWORDS):
         log.info(f"🔀 [Router] 理论问答检测，走轻量 LLM 流式")
         return {
             "intent": IntentClassification(
@@ -287,7 +282,12 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
         context_user_msgs = []
         for msg in recent_messages:
             if hasattr(msg, "content"):
-                context_user_msgs.append(msg.content)
+                # 区分角色：仅人类消息作为用户输入，AI 消息标注角色
+                role = getattr(msg, "type", "unknown")
+                if role == "human":
+                    context_user_msgs.append(msg.content)
+                else:
+                    context_user_msgs.append(f"[AI] {msg.content}")
 
         user_message_combined = "\n".join(context_user_msgs)
 
@@ -331,7 +331,7 @@ async def router_node_logic(messages: list, physical_file_info: str) -> dict:
                 entities={},
                 reason=f"路由失败: {str(e)[:50]}"
             ),
-            "next": "retrieval"
+            "next": "super_executor"
         }
 
 

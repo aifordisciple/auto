@@ -142,6 +142,11 @@ class SandboxPlanner:
         timeout = timeout or SANDBOX_TIMEOUT
         max_retries = max_retries if max_retries is not None else SANDBOX_MAX_RETRIES
 
+        log.info(f"[SandboxPlanner.V2] plan() 启动: user_message='{user_message[:80]}...', "
+                 f"timeout={timeout}s, max_retries={max_retries}, "
+                 f"container_id={'有' if container_id else '无'}, "
+                 f"event_callback={'有' if event_callback else '无'}")
+
         last_error = None
         last_error_type = None
 
@@ -194,6 +199,9 @@ class SandboxPlanner:
 
                 # 每次尝试递增超时
                 attempt_timeout = timeout + attempt * 30
+                log.info(f"[SandboxPlanner.V2] 第 {attempt + 1} 次尝试: attempt_timeout={attempt_timeout}s, "
+                         f"container_id={container_id[:12] if container_id else 'local'}, "
+                         f"mcp_config={'有' if mcp_config else '无'}")
 
                 output = await self.pty.launch_claude_code(
                     workspace_path=workspace_path or os.getcwd(),
@@ -204,9 +212,13 @@ class SandboxPlanner:
                     container_id=container_id,
                 )
 
+                log.info(f"[SandboxPlanner.V2] PTY 输出完成: 输出长度={len(output)} 字符, "
+                         f"前100字符='{output[:100]}'")
+
                 # 提取结构化结果
                 try:
                     result = PTYManager.extract_structured_result(output)
+                    log.info(f"[SandboxPlanner.V2] extract_structured_result: result={'有' if result else '无'}")
                     if result:
                         execution_time_ms = int((time.time() - attempt_start) * 1000)
 

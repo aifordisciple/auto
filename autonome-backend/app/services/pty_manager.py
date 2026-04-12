@@ -560,6 +560,7 @@ class PTYManager:
             if self.is_alive():
                 self._cleanup()
 
+        log.info(f"[PTY.V2] 容器执行完成: container={container_id[:12]}, output_len={len(full_output)}, timed_out={self.is_alive()}")
         return full_output
 
     @classmethod

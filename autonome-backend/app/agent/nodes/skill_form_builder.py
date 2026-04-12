@@ -28,11 +28,7 @@ class SkillFormBuilderState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     skill_id: str
     skill_params: dict
-
-
-def add_messages(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
-    """消息合并"""
-    return left + right
+    physical_file_info: str
 
 
 def _build_parameters_list(parameters_schema: dict) -> list[dict]:
@@ -211,7 +207,9 @@ def _extract_entity(param_name: str, param_type: str, user_message: str, workspa
     if param_type == "number":
         num_match = re.search(r'\b(\d+\.?\d*)\b', user_message)
         if num_match:
-            return num_match.group(1)
+            value = num_match.group(1)
+            log.debug(f"[SkillFormBuilder.V2] _extract_entity 命中(数值): param_name='{param_name}', value='{value}'")
+            return value
 
     return None
 
@@ -224,6 +222,7 @@ def _infer_from_workspace(param_name: str, param_type: str, workspace_files: lis
         bio_extensions = {".csv", ".tsv", ".txt", ".h5ad", ".fastq", ".bam", ".fq", ".bed", ".gff", ".vcf"}
         for f in workspace_files:
             if any(f.lower().endswith(ext) for ext in bio_extensions):
+                log.debug(f"[SkillFormBuilder.V2] _infer_from_workspace 命中: param_name='{param_name}', value='{f}'")
                 return f
     return None
 
@@ -296,6 +295,18 @@ async def skill_form_builder_node(state: SkillFormBuilderState) -> dict:
         "workspace_info": physical_file_info,
     }
     enhanced_params = _prefill_parameters(parameters_list, context)
+
+    # V2: 统计各级别预填数量
+    source_counts = {}
+    for p in enhanced_params:
+        src = p.get("source", "unknown")
+        source_counts[src] = source_counts.get(src, 0) + 1
+    log.info(f"[SkillFormBuilder.V2] 预填结果统计: 总参数={len(enhanced_params)}, "
+             f"explicit={source_counts.get('explicit', 0)}, "
+             f"extracted={source_counts.get('extracted', 0)}, "
+             f"workspace={source_counts.get('workspace', 0)}, "
+             f"default={source_counts.get('default', 0)}, "
+             f"null={source_counts.get('null', 0)}")
 
     # 构建 steps 列表（基于 executor_type）
     if executor_type == "Python_env":

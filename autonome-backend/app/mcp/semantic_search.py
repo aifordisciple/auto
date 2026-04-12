@@ -157,11 +157,14 @@ class SemanticSearchEngine:
             (skill_id, score) 元组列表，score 为余弦相似度 0-1
         """
         if not self._initialized or self._embeddings_matrix is None:
+            log.debug(f"[SemanticSearch.V2] search() 跳过: initialized={self._initialized}, embeddings={'有' if self._embeddings_matrix is not None else '无'}")
             return []
 
         model = self._get_model()
         if not model:
             return []
+
+        log.info(f"[SemanticSearch.V2] search() 开始: query='{query[:60]}', top_k={top_k}, 索引技能数={len(self._skill_ids)}")
 
         try:
             # 计算查询向量
@@ -185,6 +188,8 @@ class SemanticSearchEngine:
                     if score > 0.1:
                         results.append((skill_id, score))
 
+            log.info(f"[SemanticSearch.V2] search() 完成: 返回 {len(results)} 个结果, "
+                     f"top_scores=[{', '.join(f'{s:.3f}' for _, s in results[:3])}]")
             return results
 
         except Exception as e:

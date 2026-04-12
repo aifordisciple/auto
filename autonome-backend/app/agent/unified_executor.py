@@ -18,6 +18,7 @@ from typing import Annotated, Optional, AsyncGenerator, Dict, Any, TypedDict
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langgraph.graph import StateGraph
 from langgraph.constants import START, END
+from langgraph.graph.message import add_messages
 
 from app.core.logger import log
 from app.agent.schemas import IntentClassification
@@ -48,11 +49,6 @@ try:
 except ImportError as e:
     log.warning(f"⚠️ [UnifiedExecutor] 无法导入 SandboxPlanner: {e}")
     SANDBOX_PLANNER_AVAILABLE = False
-
-
-def add_messages(left: list[BaseMessage], right: list[BaseMessage]) -> list[BaseMessage]:
-    """消息合并"""
-    return left + right
 
 
 class UnifiedExecutorState(TypedDict):
@@ -128,10 +124,18 @@ async def super_executor_node(state: UnifiedExecutorState) -> dict:
         # 从事件中提取最终结果
         final_content = "执行完成，请查看结果。"
         for event in reversed(all_events):
-            if event.get("event") == "message":
-                final_content = json.loads(event.get("data", "{}")).get("content", final_content)
-                break
-            elif event.get("event") == "battle_report":
+            event_type = event.get("event", "")
+            # SuperExecutorV4 使用 execution_output / status_update / battle_report 事件类型
+            if event_type in ("execution_output", "status_update", "message"):
+                try:
+                    data = json.loads(event.get("data", "{}"))
+                    content = data.get("content", "")
+                    if content:
+                        final_content = content
+                        break
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            elif event_type == "battle_report":
                 # 如果有战报，格式化输出
                 battle_data = json.loads(event.get("data", "{}"))
                 final_content = f"""✅ 执行完成！
@@ -178,6 +182,7 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
     physical_file_info = state.get("physical_file_info", "")
     project_id = state.get("project_id", 0)
     user_id = state.get("user_id", 0)
+    intent = None  # 初始化，确保异常处理中可安全引用
 
     try:
         # 1. 意图分类
@@ -199,9 +204,13 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
 
             # 2. 根据意图类型执行相应逻辑
             if intent_type == "CHAT":
-                # 闲聊节点
-                result = await chat_node(state)
-                return result
+                # 闲聊节点 — chat_node 是同步函数，直接调用
+                user_msg = messages[-1].content if messages and hasattr(messages[-1], "content") else ""
+                result_text = chat_node(user_msg)
+                return {
+                    "messages": [AIMessage(content=result_text)],
+                    "intent": intent
+                }
 
             elif intent_type == "EXPLICIT_SKILL":
                 # 技能执行节点
@@ -249,7 +258,7 @@ async def unified_agent_node(state: UnifiedExecutorState) -> dict:
         log.error(f"❌ [UnifiedExecutor] 执行异常: {e}")
         return {
             "messages": [AIMessage(content=f"抱歉，执行过程中出现错误：{str(e)[:200]}")],
-            "intent": intent if 'intent' in dir() else None
+            "intent": intent
         }
 
 

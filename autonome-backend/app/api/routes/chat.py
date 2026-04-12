@@ -326,6 +326,7 @@ async def chat_stream(
 
                 # V2: 跨块有状态内容过滤器，防止 json_intent 等系统标签跨 chunk 边界泄漏
                 stream_filter = StreamContentFilter()
+                log.info(f"[Chat.V2] CHAT/theory 路径: StreamContentFilter 已初始化, 防止系统标签跨 chunk 边界泄漏")
 
                 ai_response = ""
                 async for chunk in direct_llm.astream([

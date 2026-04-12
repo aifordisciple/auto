@@ -323,6 +323,7 @@ class AutonomeSkillsMCP:
         keyword_scores: Dict[str, float] = {
             r['skill_id']: r['match_score'] for r in keyword_results
         }
+        log.info(f"[MCP.V2] 双轨搜索: query='{query[:50]}', 关键词候选={len(keyword_results)}")
 
         # 2. 语义搜索
         semantic_scores: Dict[str, float] = {}
@@ -341,6 +342,7 @@ class AutonomeSkillsMCP:
 
                 semantic_results = engine.search(query, top_k=limit * 2)
                 semantic_scores = {sid: score for sid, score in semantic_results}
+                log.info(f"[MCP.V2] 双轨搜索: 语义候选={len(semantic_results)}")
         except Exception as e:
             log.warning(f"📦 [MCP] 语义搜索失败，降级为纯关键词: {e}")
 

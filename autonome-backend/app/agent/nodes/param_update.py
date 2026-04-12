@@ -10,9 +10,10 @@ V2 架构：当 Router 判断为 UI_UPDATE 意图时，
 """
 
 import os
+import json
 from typing import Annotated
 
-from langchain_core.messages import BaseMessage, AIMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.logger import log
@@ -110,15 +111,17 @@ async def param_update_node(state: dict) -> dict:
 
         prompt = PARAM_UPDATE_PROMPT.format(user_message=user_message)
 
-        result: ParamUpdate = await llm_with_output.ainvoke(prompt)
+        messages = [HumanMessage(content=prompt)]
+        result: ParamUpdate = await llm_with_output.ainvoke(messages)
 
         log.info(f"🔄 [ParamUpdate] 参数更新: {result.param_updates}")
 
-        # 构建返回消息
-        response_text = f"参数已更新：{result.message}"
+        # V2: 输出 json_param_update 代码块，供前端 parseParamUpdate 解析
+        param_update_json = json.dumps(result.model_dump(), ensure_ascii=False, indent=2)
+        response_content = f"参数已更新：{result.message}\n\n```json_param_update\n{param_update_json}\n```"
 
         return {
-            "messages": [AIMessage(content=response_text)],
+            "messages": [AIMessage(content=response_content)],
             "param_update": result.model_dump(),  # ✨ 传递参数更新数据
             "next": "end"
         }
