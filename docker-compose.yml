@@ -46,6 +46,18 @@ services:
       - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
       # ✨ 关键修复：容器内使用 /workspace 而非默认的 uploads
       - UPLOAD_DIR=/workspace
+      # V2: 沙箱规划器（启用后 VAGUE_ANALYSIS 意图先走沙箱规划，失败回退超级执行者）
+      - AUTONOME_USE_SANDBOX_PLANNER=true
+      # V2: 容器预热池（沙箱规划器在容器内执行 Claude Code）
+      - AUTONOME_USE_CONTAINER_POOL=true
+      # V2: MCP 语义搜索（双轨：keyword 0.4 + semantic 0.6）
+      - AUTONOME_USE_SEMANTIC_SEARCH=true
+      # V2: 沙箱最大静默重试次数
+      - AUTONOME_SANDBOX_MAX_RETRIES=2
+      # V2: 沙箱超时（秒）
+      - AUTONOME_SANDBOX_TIMEOUT=120
+      # V2: 路由器置信度阈值（低于此值回退到 CHAT）
+      - AUTONOME_ROUTER_CONFIDENCE_THRESHOLD=0.6
     volumes:
       # ✨ 修复2：改为绝对直连的 Bind Mount，容器侧路径改为 /workspace
       - ./uploads:/workspace
@@ -72,6 +84,13 @@ services:
       - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
       # ✨ 关键修复：Worker 同样需要使用 /workspace
       - UPLOAD_DIR=/workspace
+      # V2: Worker 同步启用沙箱规划器
+      - AUTONOME_USE_SANDBOX_PLANNER=true
+      - AUTONOME_USE_CONTAINER_POOL=true
+      - AUTONOME_USE_SEMANTIC_SEARCH=true
+      - AUTONOME_SANDBOX_MAX_RETRIES=2
+      - AUTONOME_SANDBOX_TIMEOUT=120
+      - AUTONOME_ROUTER_CONFIDENCE_THRESHOLD=0.6
     volumes:
       # ✨ 同步修复：Worker也必须挂载同一个物理目录
       - ./uploads:/workspace
@@ -92,6 +111,9 @@ services:
     container_name: autonome-web
     ports:
       - "3001:3000"
+    environment:
+      # V2: 启用内联技能中心（替代全局弹窗）
+      - NEXT_PUBLIC_ENABLE_INLINE_SKILL_CENTER=true
     depends_on:
       - backend-api
     restart: unless-stopped
