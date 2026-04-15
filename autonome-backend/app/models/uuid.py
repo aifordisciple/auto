@@ -46,8 +46,3 @@ def generate_experience_id() -> str:
 def generate_package_id() -> str:
     """生成用户包唯一 ID"""
     return f"pkg_{uuid.uuid4().hex[:8]}"
-
-
-def generate_system_skill_id() -> str:
-    """生成系统技能唯一 ID"""
-    return f"sys_skill_{uuid.uuid4().hex[:8]}"

@@ -17,9 +17,7 @@ Models package - 数据模型导出
 - package.py: 用户包管理模型
 - genome.py: 参考基因组模型
 - database.py: 分析数据库模型
-- claude_executor.py: Claude 执行器模型
 - domain.py: 保留原有入口（向后兼容）
-- system_skill.py: 系统级学习技能模型
 """
 
 # ==========================================
@@ -29,7 +27,7 @@ from app.models.domain import (
     # 枚举
     RoleEnum, SkillStatus, SkillVisibility, ExecutionMode,
     ExperienceType, PermissionLevel, PackageLanguage, PackageStatus,
-    DatabaseType, ClaudeCodeSessionStatus,
+    DatabaseType,
     # UUID 生成函数
     generate_project_id, generate_session_id, generate_msg_id,
     generate_skill_id, generate_share_token, generate_experience_id,
@@ -62,10 +60,6 @@ from app.models.domain import (
     GenomeAsset, GenomeAssetCreate, GenomeAssetUpdate, GenomeAssetPublic,
     # 分析数据库
     AnalysisDatabase, AnalysisDatabaseCreate, AnalysisDatabaseUpdate, AnalysisDatabasePublic,
-    # Claude 执行器
-    ClaudeExecutorPermission, ClaudeExecutorPermissionCreate,
-    ClaudeExecutorPermissionUpdate, ClaudeExecutorPermissionPublic,
-    ClaudeCodeSession, ClaudeCodeSessionCreate, ClaudeCodeSessionUpdate, ClaudeCodeSessionPublic,
 )
 
 # 技能模板
@@ -78,22 +72,11 @@ from app.models.forge_session import (
     ForgeStatus, ForgeChatRequest, SkillDraftUpdate, SkillDraftSchema
 )
 
-# 系统级学习技能
-from app.models.system_skill import (
-    SystemSkillStatus,
-    MethodType,
-    SystemSkill,
-    SystemSkillCreate,
-    SystemSkillUpdate,
-    SystemSkillPublic,
-    generate_system_skill_id,
-)
-
 __all__ = [
     # 枚举
     "RoleEnum", "SkillStatus", "SkillVisibility", "ExecutionMode",
     "ExperienceType", "PermissionLevel", "PackageLanguage", "PackageStatus",
-    "DatabaseType", "ClaudeCodeSessionStatus",
+    "DatabaseType",
 
     # UUID 生成函数
     "generate_project_id", "generate_session_id", "generate_msg_id",
@@ -134,22 +117,8 @@ __all__ = [
     # Database
     "AnalysisDatabase", "AnalysisDatabaseCreate", "AnalysisDatabaseUpdate", "AnalysisDatabasePublic",
 
-    # Claude Executor
-    "ClaudeExecutorPermission", "ClaudeExecutorPermissionCreate",
-    "ClaudeExecutorPermissionUpdate", "ClaudeExecutorPermissionPublic",
-    "ClaudeCodeSession", "ClaudeCodeSessionCreate", "ClaudeCodeSessionUpdate", "ClaudeCodeSessionPublic",
-
     # Forge Session
     "ForgeSession", "ForgeSessionCreate", "ForgeSessionUpdate", "ForgeSessionPublic",
     "ForgeMessage", "ForgeMessageCreate", "ForgeMessagePublic",
     "ForgeStatus", "ForgeChatRequest", "SkillDraftUpdate", "SkillDraftSchema",
-
-    # System Skill (系统级学习技能)
-    "SystemSkillStatus",
-    "MethodType",
-    "SystemSkill",
-    "SystemSkillCreate",
-    "SystemSkillUpdate",
-    "SystemSkillPublic",
-    "generate_system_skill_id",
 ]

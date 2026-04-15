@@ -8,9 +8,6 @@ from sqlmodel import SQLModel
 from app.core.config import settings
 from app.models.domain import *  # 必须引入，否则 Alembic 扫描不到表结构
 
-# ✨ 1.1 引入系统级学习技能模型（确保表结构被 Alembic 扫描）
-from app.models.system_skill import SystemSkill  # noqa: F401
-
 # ✨ 2. 修改 target_metadata
 target_metadata = SQLModel.metadata
 
