@@ -32,6 +32,7 @@ interface LooseJSONSchema {
 export interface ParameterInfo {
   key: string;
   type: string;
+  format?: string;
   description?: string;
   required: boolean;
   defaultValue?: unknown;
@@ -125,6 +126,7 @@ export function groupParameters(schema: LooseJSONSchema): ParameterGroup[] {
     const paramInfo: ParameterInfo = {
       key,
       type: inferType(prop),
+      format: prop.format,
       description: prop.description,
       required: required.has(key),
       defaultValue: prop.default,

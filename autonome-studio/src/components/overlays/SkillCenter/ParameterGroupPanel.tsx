@@ -232,6 +232,7 @@ function ParameterField({ param, renderParamInput }: ParameterFieldProps) {
   // 构建 prop 对象用于 renderParamInput
   const prop: ParameterProperty = {
     type: param.type,
+    format: param.format,
     description: param.description,
     default: param.defaultValue,
     enum: param.enum,
