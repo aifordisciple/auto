@@ -137,12 +137,13 @@ export function SkillDetailDrawer({ skillId, onClose, onUse }: SkillDetailDrawer
   const fetchSkillDetail = async () => {
     setIsLoading(true);
     try {
-      const data = await fetchAPI(`/api/market/skills/${skillId}/full`);
+      const data = await fetchAPI(`/api/skills/market/skills/${skillId}/full`);
       setSkill(data);
       setUserRating(data.user_rating);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : '未知错误';
       console.error('Failed to fetch skill detail:', e);
-      toast.error('加载技能详情失败');
+      toast.error(`加载技能详情失败: ${msg}`);
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +154,7 @@ export function SkillDetailDrawer({ skillId, onClose, onUse }: SkillDetailDrawer
     if (!skill || isFavoriting) return;
     setIsFavoriting(true);
     try {
-      const data = await fetchAPI(`/api/market/skills/${skillId}/favorite`, {
+      const data = await fetchAPI(`/api/skills/market/skills/${skillId}/favorite`, {
         method: 'POST'
       });
       setSkill({ ...skill, is_favorited: data.is_favorited, favorite_count: data.favorite_count });
@@ -170,7 +171,7 @@ export function SkillDetailDrawer({ skillId, onClose, onUse }: SkillDetailDrawer
     if (!skill || isRating) return;
     setIsRating(true);
     try {
-      const data = await fetchAPI(`/api/market/skills/${skillId}/rate`, {
+      const data = await fetchAPI(`/api/skills/market/skills/${skillId}/rate`, {
         method: 'POST',
         body: JSON.stringify({ rating })
       });
