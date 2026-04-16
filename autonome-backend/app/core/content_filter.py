@@ -27,25 +27,8 @@ PARAMETER_TAG_PATTERNS = [
     re.compile(r"<parameter[^>]*>.*?</parameter>", re.DOTALL | re.IGNORECASE),
 ]
 
-# 系统标签过滤模式 - 防止内部结构化输出泄漏到前端
-# json_intent 是纯内部路由信号，绝不应暴露给用户
-# json_strategy / json_blueprint / json_interactive_plot 由前端解析，不过滤
-SYSTEM_INTENT_TAG_PATTERNS = [
-    re.compile(r"```json_intent\s*.*?```", re.DOTALL),
-]
-
-# V2: 沙箱结构化输出锚点标记过滤
-# [AUTONOME_RESULT_START] ... [AUTONOME_RESULT_END] 是沙箱规划器的内部输出，
-# 绝不应暴露给用户
-SANDBOX_RESULT_TAG_PATTERNS = [
-    re.compile(r"\[AUTONOME_RESULT_START\][\s\S]*?\[AUTONOME_RESULT_END\]", re.DOTALL),
-    # 也过滤单独出现的标记（可能跨 chunk 被分割）
-    re.compile(r"\[AUTONOME_RESULT_START\]", re.DOTALL),
-    re.compile(r"\[AUTONOME_RESULT_END\]", re.DOTALL),
-]
-
-# V2: 所有需要过滤的系统标签模式（合并）
-ALL_SYSTEM_TAG_PATTERNS = SYSTEM_INTENT_TAG_PATTERNS + SANDBOX_RESULT_TAG_PATTERNS
+# 系统标签过滤模式 - 已移除 Agent 相关标签
+ALL_SYSTEM_TAG_PATTERNS = []
 
 # 支持的代码块类型列表（可扩展）
 # 用于修复不同 LLM 模型输出中代码块格式问题
@@ -56,8 +39,6 @@ SUPPORTED_CODE_BLOCK_TYPES = [
     "bash", "shell", "sh", "zsh",
     "javascript", "js", "typescript", "ts",
     "java", "c", "cpp", "go", "rust",
-    # 自定义类型（策略卡片相关）
-    "json_strategy", "json_intent", "json_blueprint",
     # 数据格式
     "json", "yaml", "xml", "html", "css",
     # 文档格式
@@ -293,18 +274,6 @@ def filter_thinking_content(content: str, debug: bool = False, model_name: str =
         # 过滤 parameter 标签
         for pattern in PARAMETER_TAG_PATTERNS:
             content = pattern.sub("", content)
-        # 过滤 json_intent 系统标签（防止内部路由信号泄漏到前端）
-        for pattern in SYSTEM_INTENT_TAG_PATTERNS:
-            before_len = len(content)
-            content = pattern.sub("", content)
-            if len(content) < before_len:
-                log.info(f"[ContentFilter] 拦截 json_intent 泄漏: 移除 {before_len - len(content)} 字符")
-        # V2: 过滤沙箱结构化输出锚点标记（防止 [AUTONOME_RESULT_START/END] 泄漏）
-        for pattern in SANDBOX_RESULT_TAG_PATTERNS:
-            before_len = len(content)
-            content = pattern.sub("", content)
-            if len(content) < before_len:
-                log.info(f"[ContentFilter] 拦截沙箱锚点标记泄漏: 移除 {before_len - len(content)} 字符")
 
     # 🔧 修复代码块格式问题（某些 LLM 流式输出时换行符丢失）
     # 传递模型名称以支持模型特定的格式修复

@@ -20,15 +20,6 @@ def get_utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ==========================================
-# pgvector Vector 类型导入
-# ==========================================
-try:
-    from pgvector.sqlalchemy import Vector
-except ImportError:
-    class Vector:
-        def __init__(self, dimension=None):
-            self.dimension = dimension
 
 
 # ==========================================
@@ -62,10 +53,7 @@ class ExperienceAsset(SQLModel, table=True):
     solution_strategy: Optional[str] = Field(default=None, description="解决策略描述")
     debug_iterations: int = Field(default=0, description="调试迭代次数")
 
-    # 向量化（使用 pgvector）
-    summary_embedding: Optional[List[float]] = Field(
-        default=None, sa_column=Column(Vector(1536)), description="摘要向量嵌入"
-    )
+    # 向量化已移除（pgvector 不再使用）
 
     # 元数据
     category: str = Field(default="general", max_length=50, description="经验分类: qc/analysis/visualization/pipeline/general")

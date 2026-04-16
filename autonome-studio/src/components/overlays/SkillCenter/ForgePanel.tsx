@@ -14,7 +14,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useForgeStore, ExecutorType } from '@/store/useForgeStore';
 import { SkillDraftEditor } from '@/app/skill-forge/components/SkillDraftEditor';
-import { ForgeChatStage } from '@/app/skill-forge/components/ForgeChatStage';
 import { skillForgeApi, forgeSessionApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { PendingDraftsList } from './PendingDraftsList';
@@ -492,17 +491,9 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
         }}
       />
 
-      {/* 双栏布局 */}
-      <div className="flex-1 flex min-h-0 h-full overflow-hidden">
-        {/* 左栏：AI 对话区 */}
-        <div className="w-1/2 flex flex-col min-h-0 h-full border-r border-neutral-800 bg-neutral-900/30">
-          <ForgeChatStage />
-        </div>
-
-        {/* 右栏：技能编辑/预览区 */}
-        <div className="w-1/2 min-h-0 h-full overflow-y-auto">
-          <SkillDraftEditor />
-        </div>
+      {/* 技能编辑/预览区 */}
+      <div className="flex-1 min-h-0 h-full overflow-y-auto">
+        <SkillDraftEditor />
       </div>
     </div>
   );

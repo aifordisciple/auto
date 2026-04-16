@@ -4,17 +4,20 @@
 核心端点:
 - POST /session: 创建锻造会话
 - GET /session/{id}: 获取会话详情
-- POST /session/{id}/chat: 对话锻造 (SSE流式)
 - PUT /session/{id}/draft: 手动更新草稿
 - POST /session/{id}/commit: 确认保存技能
+- POST /session/{id}/submit: 提交审核
+- POST /infer_parameters: 参数推断（仅规则提取，无 LLM）
+- POST /review_code: 代码审查
+- GET /test_file: 读取测试输出文件
+
+注意: 对话锻造 (SSE流式) 端点已移除 LLM 依赖
 """
 
 import os
 import json
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Header
-from fastapi.responses import StreamingResponse
-from sse_starlette.sse import EventSourceResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
@@ -27,8 +30,6 @@ from app.models.forge_session import (
     ForgeMessage, ForgeMessagePublic,
     ForgeStatus, ForgeChatRequest, SkillDraftUpdate
 )
-from app.agent.forge_agent import build_forge_agent
-from app.core.config import settings
 from app.services.code_reviewer import review_skill_code, CodeReviewResult
 
 
@@ -38,18 +39,6 @@ router = APIRouter()
 # ==========================================
 # 辅助函数
 # ==========================================
-def get_api_config(session: Session) -> tuple:
-    """获取 API 配置"""
-    from app.models.domain import SystemConfig
-    config = session.get(SystemConfig, 1)
-    if not config:
-        raise HTTPException(status_code=500, detail="系统配置未初始化")
-
-    api_key = config.openai_api_key or settings.OPENAI_API_KEY
-    base_url = config.openai_base_url or settings.OPENAI_BASE_URL
-    model_name = config.default_model or settings.DEFAULT_MODEL
-
-    return api_key, base_url, model_name
 
 
 def session_to_public(session: ForgeSession, messages: List[ForgeMessage] = None) -> dict:
@@ -210,149 +199,10 @@ async def delete_forge_session(
 
 
 # ==========================================
-# POST /session/{session_id}/chat - 对话锻造 (SSE)
+# POST /session/{session_id}/chat - 对话锻造已移除 LLM 依赖
+# 对话式锻造功能需要 LLM 支持，现已移除。
+# 如需恢复，请重新集成 build_forge_agent 和 SSE 流式响应。
 # ==========================================
-@router.post("/session/{session_id}/chat")
-async def forge_chat_stream(
-    session_id: str,
-    request: ForgeChatRequest,
-    db: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    对话式锻造 - SSE流式响应
-
-    核心逻辑：
-    1. 保存用户消息
-    2. 加载历史上下文
-    3. 调用锻造Agent
-    4. 流式返回文本 + 技能更新事件
-    5. 保存AI消息
-    """
-
-    # 验证会话
-    forge_session = db.get(ForgeSession, session_id)
-    if not forge_session:
-        raise HTTPException(status_code=404, detail="会话不存在")
-
-    if forge_session.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权访问此会话")
-
-    # 获取API配置
-    api_key, base_url, model_name = get_api_config(db)
-
-    async def event_generator():
-        try:
-            # 1. 保存用户消息
-            user_msg = ForgeMessage(
-                session_id=session_id,
-                role="user",
-                content=request.message,
-                attachments=request.attachments
-            )
-            db.add(user_msg)
-            db.commit()
-            db.refresh(user_msg)
-
-            log.info(f"💬 [Forge] 用户消息已保存: {user_msg.id}")
-
-            # 2. 加载历史消息
-            history_msgs = db.exec(
-                select(ForgeMessage).where(
-                    ForgeMessage.session_id == session_id
-                ).order_by(ForgeMessage.created_at)
-            ).all()
-
-            # 排除刚保存的用户消息
-            history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in history_msgs[:-1]  # 排除最后一条（刚保存的）
-            ]
-
-            # 3. 构建锻造Agent
-            agent = build_forge_agent(
-                api_key=api_key,
-                base_url=base_url,
-                model_name=model_name,
-                executor_type=forge_session.executor_type,
-                skill_draft=forge_session.skill_draft
-            )
-
-            # 4. 流式处理
-            ai_response = ""
-            skill_update_data = None
-
-            async for event in agent.chat_stream(
-                message=request.message,
-                history=history,
-                attachments=request.attachments
-            ):
-                if event["type"] == "text":
-                    ai_response += event["content"]
-                    yield {
-                        "event": "message",
-                        "data": json.dumps({
-                            "type": "text",
-                            "content": event["content"]
-                        }, ensure_ascii=False)
-                    }
-
-                elif event["type"] == "skill_update":
-                    skill_update_data = event["data"]
-                    log.info(f"📤 [Forge] 发送 skill_update 事件: {json.dumps(event['data'], ensure_ascii=False)[:500]}")
-                    yield {
-                        "event": "skill_update",
-                        "data": json.dumps({
-                            "type": "draft",
-                            "data": event["data"]
-                        }, ensure_ascii=False)
-                    }
-
-                elif event["type"] == "error":
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({
-                            "type": "error",
-                            "content": event["content"]
-                        }, ensure_ascii=False)
-                    }
-
-            # 5. 保存AI消息
-            ai_msg = ForgeMessage(
-                session_id=session_id,
-                role="assistant",
-                content=ai_response
-            )
-            db.add(ai_msg)
-
-            # 6. 更新会话草稿（如果有技能更新）
-            if skill_update_data:
-                forge_session.skill_draft.update(skill_update_data)
-                forge_session.updated_at = get_utc_now()
-
-            forge_session.updated_at = get_utc_now()
-            db.add(forge_session)
-            db.commit()
-
-            log.info(f"💬 [Forge] AI 消息已保存, 会话已更新")
-
-            # 7. 发送完成事件
-            yield {
-                "event": "done",
-                "data": json.dumps({"type": "done"}, ensure_ascii=False)
-            }
-
-        except Exception as e:
-            log.error(f"🔥 [Forge] 对话处理失败: {e}")
-            yield {
-                "event": "error",
-                "data": json.dumps({
-                    "type": "error",
-                    "content": str(e)
-                }, ensure_ascii=False)
-            }
-
-    return EventSourceResponse(event_generator())
 
 
 # ==========================================
@@ -704,7 +554,6 @@ class InferParametersRequest(BaseModel):
     """参数推断请求"""
     code: str
     executor_type: str = "Python_env"
-    force_llm: bool = False  # 强制使用 LLM（跳过快速提取）
 
 
 def _extract_python_argparse_params(code: str) -> Optional[Dict]:
@@ -930,25 +779,16 @@ async def infer_parameters(
     current_user: User = Depends(get_current_user)
 ):
     """
-    从代码推断参数定义
+    从代码推断参数定义（仅规则提取，无 LLM 依赖）
 
-    优化策略：
-    1. 快速提取：优先使用正则规则提取 argparse/optparse 参数（毫秒级）
-    2. LLM 推断：快速提取失败时才调用 LLM（秒级）
-
-    分析 Python argparse 或 R commandArgs 代码，返回 JSON Schema
-
-    增强的错误反馈：
-    - 返回具体的错误类型（json_parse_error / llm_error / validation_error）
-    - 返回原始响应内容（前500字符）
-    - 返回用户友好的建议
+    解析 Python argparse 或 R optparse 代码，返回 JSON Schema。
+    如果规则提取失败，返回空结果并建议用户手动添加参数。
     """
     import re
     import json
 
     code = request.code
     executor_type = request.executor_type
-    force_llm = request.force_llm
 
     # 前置检查：代码是否有效
     if not code or len(code.strip()) < 10:
@@ -961,178 +801,32 @@ async def infer_parameters(
         }
 
     # ==========================================
-    # 策略1: 快速提取（基于规则，毫秒级）
+    # 规则提取：基于正则，毫秒级
     # ==========================================
-    if not force_llm:
-        quick_result = None
+    quick_result = None
 
-        if executor_type == "Python_env":
-            quick_result = _extract_python_argparse_params(code)
-        elif executor_type == "R_env":
-            quick_result = _extract_r_optparse_params(code)
+    if executor_type == "Python_env":
+        quick_result = _extract_python_argparse_params(code)
+    elif executor_type == "R_env":
+        quick_result = _extract_r_optparse_params(code)
 
-        if quick_result and quick_result.get("properties"):
-            log.info(f"✅ [Forge] 快速提取成功，跳过 LLM 调用")
-            return {
-                "status": "success",
-                "parameters_schema": quick_result,
-                "extraction_method": "quick_regex"
-            }
-
-    # ==========================================
-    # 策略2: LLM 智能推断（秒级）
-    # ==========================================
-    log.info(f"🤖 [Forge] 快速提取未成功，启动 LLM 智能推断...")
-
-    # 使用 LLM 进行智能推断
-    api_key, base_url, model_name = get_api_config(session)
-
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import HumanMessage
-
-    llm = ChatOpenAI(
-        api_key=api_key,
-        base_url=base_url,
-        model=model_name,
-        temperature=0.1
-    )
-
-    prompt = f"""分析以下{'Python' if executor_type == 'Python_env' else 'R' if executor_type == 'R_env' else 'Nextflow'}代码，提取所有参数定义，返回 JSON Schema 格式。
-
-代码:
-```
-{code}
-```
-
-请返回符合以下格式的 JSON Schema:
-{{
-  "type": "object",
-  "properties": {{
-    "param_name": {{
-      "type": "string|number|integer|boolean",
-      "description": "参数描述",
-      "default": "默认值"
-    }}
-  }},
-  "required": ["必填参数列表"]
-}}
-
-注意:
-1. type 必须是 string, number, integer, boolean 之一
-2. 对于文件路径参数，添加 "format": "filepath"
-3. 对于目录路径参数，添加 "format": "directorypath"
-4. 必须包含 description 字段
-5. 只返回 JSON，不要有其他内容"""
-
-    try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content
-
-        # ==========================================
-        # 增强的 JSON 提取逻辑 - 多策略容错
-        # ==========================================
-        json_str = None
-        extraction_method = None
-
-        # 策略1: 匹配 ```json ... ``` 代码块
-        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
-        if json_match:
-            json_str = json_match.group(1).strip()
-            extraction_method = "json_code_block"
-            log.info(f"[Forge] 使用策略1 (json_code_block) 提取 JSON")
-
-        # 策略2: 匹配 ``` ... ``` 代码块（无语言标记）
-        if not json_str:
-            code_match = re.search(r'```\s*([\s\S]*?)\s*```', content)
-            if code_match:
-                extracted = code_match.group(1).strip()
-                # 检查是否以 { 开头（可能是 JSON）
-                if extracted.startswith('{'):
-                    json_str = extracted
-                    extraction_method = "generic_code_block"
-                    log.info(f"[Forge] 使用策略2 (generic_code_block) 提取 JSON")
-
-        # 策略3: 查找第一个 { 到最后一个 } 之间的内容
-        if not json_str:
-            start_idx = content.find('{')
-            end_idx = content.rfind('}')
-            if start_idx != -1 and end_idx > start_idx:
-                json_str = content[start_idx:end_idx + 1].strip()
-                extraction_method = "bracket_extraction"
-                log.info(f"[Forge] 使用策略3 (bracket_extraction) 提取 JSON")
-
-        # 如果所有策略都失败
-        if not json_str:
-            log.error(f"🔥 [Forge] JSON 提取失败，LLM 返回内容不包含有效 JSON 结构")
-            return {
-                "status": "error",
-                "error_type": "json_parse_error",
-                "parameters_schema": {"type": "object", "properties": {}, "required": []},
-                "message": "AI 返回的内容不包含有效的 JSON 结构",
-                "raw_response": content[:500],
-                "suggestion": "请检查代码是否包含清晰的参数定义（如 argparse 参数），或手动在下方参数面板中添加参数"
-            }
-
-        # 解析 JSON
-        try:
-            parameters_schema = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            log.error(f"🔥 [Forge] JSON 解析失败: {e}, 提取方法: {extraction_method}")
-            return {
-                "status": "error",
-                "error_type": "json_parse_error",
-                "parameters_schema": {"type": "object", "properties": {}, "required": []},
-                "message": f"JSON 解析失败: {str(e)}",
-                "raw_response": content[:500],
-                "extracted_json": json_str[:300] if len(json_str) > 300 else json_str,
-                "suggestion": "AI 返回的 JSON 格式不正确，请手动在下方参数面板中添加参数"
-            }
-
-        # 验证 JSON Schema 结构
-        if not isinstance(parameters_schema, dict):
-            return {
-                "status": "error",
-                "error_type": "validation_error",
-                "parameters_schema": {"type": "object", "properties": {}, "required": []},
-                "message": "解析结果不是有效的 JSON Schema 对象",
-                "raw_response": content[:500],
-                "suggestion": "请检查代码格式，或手动添加参数"
-            }
-
-        # 确保 properties 字段存在
-        if "properties" not in parameters_schema:
-            parameters_schema["properties"] = {}
-        if "type" not in parameters_schema:
-            parameters_schema["type"] = "object"
-        if "required" not in parameters_schema:
-            parameters_schema["required"] = []
-
-        log.info(f"✅ [Forge] 参数推断完成，发现 {len(parameters_schema.get('properties', {}))} 个参数")
-
+    if quick_result and quick_result.get("properties"):
+        log.info(f"✅ [Forge] 规则提取成功，发现 {len(quick_result.get('properties', {}))} 个参数")
         return {
             "status": "success",
-            "parameters_schema": parameters_schema,
-            "extraction_method": extraction_method
+            "parameters_schema": quick_result,
+            "extraction_method": "quick_regex"
         }
 
-    except json.JSONDecodeError as e:
-        log.error(f"🔥 [Forge] JSON 解析失败: {e}")
-        return {
-            "status": "error",
-            "error_type": "json_parse_error",
-            "parameters_schema": {"type": "object", "properties": {}, "required": []},
-            "message": f"参数推断失败：JSON 解析错误 - {str(e)}",
-            "suggestion": "请检查代码是否包含 argparse 参数定义，或手动填写参数"
-        }
-    except Exception as e:
-        log.error(f"🔥 [Forge] 参数推断失败: {e}")
-        return {
-            "status": "error",
-            "error_type": "llm_error",
-            "parameters_schema": {"type": "object", "properties": {}, "required": []},
-            "message": f"LLM 调用失败: {str(e)}",
-            "suggestion": "请检查网络连接和 API 配置，或手动填写参数"
-        }
+    # 规则提取失败，返回提示（不再使用 LLM 回退）
+    log.info(f"⚠️ [Forge] 规则提取未找到参数，建议用户手动添加")
+    return {
+        "status": "error",
+        "error_type": "no_params_found",
+        "parameters_schema": {"type": "object", "properties": {}, "required": []},
+        "message": "未在代码中发现 argparse/optparse 参数定义",
+        "suggestion": "请手动在下方参数面板中添加参数，或在代码中添加 argparse 参数定义后重试"
+    }
 
 
 log.info("✅ 技能锻造会话 API 已加载")

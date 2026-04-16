@@ -8,10 +8,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# ✅ 安装 Docker CLI（用于容器内执行 docker 命令）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    docker.io \
-    && rm -rf /var/lib/apt/lists/*
+# ✅ 从 Docker 官方镜像复制 Docker CLI（用于容器内执行 docker 命令）
+COPY --from=docker:24.0.7-cli /usr/local/bin/docker /usr/local/bin/docker
 
 # ✅ 配置清华 PyPI 镜像加速（国内环境）
 ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple

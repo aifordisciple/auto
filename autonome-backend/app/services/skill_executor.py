@@ -784,16 +784,12 @@ class SkillExecutor:
         """
         记录技能执行监控数据
 
-        整合两种记录方式：
-        1. SkillMonitor - 原有监控记录
-        2. BehaviorTracker - 新的行为埋点（EXECUTE, SUCCESS, FAILURE）
-
         Args:
             status: 执行状态
             execution_time: 执行时间（秒）
             error_message: 错误信息（可选）
         """
-        # 1. 原有监控记录
+        # 监控记录
         try:
             from app.services.skill_monitor import record_skill_execution
 
@@ -810,61 +806,6 @@ class SkillExecutor:
             )
         except Exception as e:
             log.warning(f"[SkillExecutor] 记录监控数据失败: {e}")
-
-        # 2. 新的行为埋点 - 记录 EXECUTE, SUCCESS, FAILURE 事件
-        if not self.user_id or self.user_id <= 0:
-            log.debug(f"[SkillExecutor] 跳过匿名用户行为埋点: user_id={self.user_id}")
-            return
-
-        try:
-            from sqlmodel import Session
-            from app.core.database import engine
-            from app.services.behavior_tracker import (
-                BehaviorTracker, BehaviorType, BehaviorEvent
-            )
-
-            with Session(engine) as session:
-                tracker = BehaviorTracker(session)
-
-                # 获取技能名称
-                skill_name = self.skill_def.get("metadata", {}).get("name", self.skill_id)
-
-                # 记录执行事件
-                tracker.track(BehaviorEvent(
-                    user_id=self.user_id,
-                    session_id=getattr(self, "session_id", "unknown"),
-                    event_type=BehaviorType.EXECUTE,
-                    skill_id=self.skill_id,
-                    skill_name=skill_name,
-                    parameters=self.params,
-                    execution_time=execution_time,
-                ))
-
-                # 根据状态记录成功或失败事件
-                if status == "success":
-                    tracker.track(BehaviorEvent(
-                        user_id=self.user_id,
-                        session_id=getattr(self, "session_id", "unknown"),
-                        event_type=BehaviorType.SUCCESS,
-                        skill_id=self.skill_id,
-                        skill_name=skill_name,
-                        execution_time=execution_time,
-                    ))
-                else:
-                    tracker.track(BehaviorEvent(
-                        user_id=self.user_id,
-                        session_id=getattr(self, "session_id", "unknown"),
-                        event_type=BehaviorType.FAILURE,
-                        skill_id=self.skill_id,
-                        skill_name=skill_name,
-                        error_message=error_message,
-                        execution_time=execution_time,
-                    ))
-
-                log.debug(f"[SkillExecutor] 行为埋点成功: {self.skill_id}, status={status}")
-
-        except Exception as e:
-            log.warning(f"[SkillExecutor] 行为埋点失败: {e}")
 
     def _get_execution_mode(self) -> str:
         """

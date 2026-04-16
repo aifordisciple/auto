@@ -1,23 +1,14 @@
 "use client";
 
-import { memo, useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Bot, User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, FileImage, FileSpreadsheet, ChevronDown, ChevronRight, FolderOpen, Folder, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
+import { memo, useState, useMemo } from "react";
+import { User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, FileImage, FileSpreadsheet, ChevronDown, ChevronRight, FolderOpen, Folder, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { Message, MessageAttachments } from "@/store/useChatStore";
 import { MarkdownBlock } from "../MarkdownBlock";
-import { StrategyCard, parseStrategyCard } from "./StrategyCard";
-import { BlueprintCard, parseBlueprint } from "./BlueprintCard";
-import { IntentCard, parseIntentCard } from "./IntentCard";
-import { BattleReportCard, parseBattleReport } from "./BattleReportCard";
-import { InteractivePlotCard } from "./InteractivePlotCard";
-import { parseInteractivePlotCard, parseActionMenu, parseParamUpdate } from "./StrategyCard/parseUtils";
-import InlineActionMenu from "./InlineActionMenu";
-import { RecommendationCard } from "./RecommendationCard";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
-import { useSkillParams } from "@/hooks/useSkillParams";
 
 // ==========================================
 // ✨ 辅助函数：复制到剪贴板
@@ -266,10 +257,6 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
 
-  // ✨ 技能参数状态（用于 InlineActionMenu 点击后获取参数并渲染 StrategyCard）
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-  const { data: skillParamsData, loading: skillParamsLoading, fetchParams } = useSkillParams();
-
   // ✨ 流式消息优化：对于最后一条 assistant 消息，使用 streamingContent
   const displayContent = isLast && msg.role === 'assistant' && isTyping ? streamingContent : msg.content;
 
@@ -282,54 +269,6 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  // ✨ 解析卡片数据（useMemo 避免每次渲染重复解析）
-  const strategyCard = useMemo(() =>
-    msg.role === 'assistant' ? parseStrategyCard(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-  const blueprintData = useMemo(() =>
-    msg.role === 'assistant' ? parseBlueprint(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-  const intentData = useMemo(() =>
-    msg.role === 'assistant' ? parseIntentCard(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-  const battleReportData = useMemo(() =>
-    msg.role === 'assistant' ? parseBattleReport(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-  const interactivePlotData = useMemo(() =>
-    msg.role === 'assistant' ? parseInteractivePlotCard(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-
-  // ✨ V2: 解析操作菜单 (json_action_menu)
-  const actionMenuData = useMemo(() =>
-    msg.role === 'assistant' ? parseActionMenu(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-
-  // ✨ V2: 解析参数更新 (json_param_update)
-  const paramUpdateData = useMemo(() =>
-    msg.role === 'assistant' ? parseParamUpdate(displayContent || '') : null,
-    [msg.role, displayContent]
-  );
-
-  // V2: 将 param-update 事件从渲染阶段移到 useEffect，避免 React StrictMode 双重触发
-  const lastParamUpdateRef = useRef<string>('');
-  useEffect(() => {
-    if (paramUpdateData) {
-      const key = JSON.stringify(paramUpdateData);
-      if (key !== lastParamUpdateRef.current) {
-        lastParamUpdateRef.current = key;
-        window.dispatchEvent(new CustomEvent('param-update', {
-          detail: paramUpdateData
-        }));
-      }
-    }
-  }, [paramUpdateData]);
 
   // ✨ 文件资产检测：从消息内容中提取文件路径
   const fileAssets = useMemo(() => {
@@ -391,16 +330,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     let cleaned = filterThinkingContent(displayContent);
 
     const removePatterns: RegExp[] = [
-      // 1. 标准反引号闭合或未闭合的系统控制块 (json_intent, json_strategy 等)
-      /```\s*(json_intent|json_strategy|json_battle_report|json_action_menu|blueprint)[\s\S]*?(```|$)/gi,
-
-      // 2. 只有 ```json 但包含内部系统核心字段的控制块 (大模型写错了标签)
-      /```\s*(json)?\s*\{[\s\S]*?"(intent_type|recommended_action|plan|action)"[\s\S]*?(```|$)/gi,
-
-      // 3. 极度残缺、裸露的 JSON 对象（核心修复：专门针对被切断的 son_intent 或完全没有反引号的裸奔 JSON）
-      /(?:json_intent|s\s*on_inten\s*t|intent)?\s*\{[\s\S]*?"(intent_type|matched_skills|recommended_action)"\s*:[\s\S]*?\}/gi,
-
-      // 4. 后端内部文件路径及其他噪音
+      // 1. 后端内部文件路径及其他噪音
       /\/workspace\/project_[a-zA-Z0-9_-]+\/results\/[^\s'"]+\.[a-zA-Z0-9]+/gi,
       /\/app\/uploads\/project_[a-zA-Z0-9_-]+\/results\/[^\s'"]+\.[a-zA-Z0-9]+/gi,
       /\[.*?\]\(\)/g,
@@ -562,251 +492,11 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                 // 流式输出中：使用 StreamingMarkdown（处理未闭合结构 + DOM Diff）
                 if (isLast && isTyping) {
-                  // ✨ 核心修复：流式输出时，直接使用终极清理过的 cleanedContent
-                  // 当后台在输出乱码 JSON 时，cleanedContent 会瞬间变为空，从而完美激活紫色的【深度思考中...】动画
                   return (
                     <StreamingMarkdown
                       content={cleanedContent}
                       isStreaming={true}
                     />
-                  );
-                }
-
-                // 非流式：处理策略卡片、Blueprint卡片、文件资产等
-
-                // ✨ InteractivePlotCard 交互式图表卡片 - 最高优先级
-                // 用户选择"交互式"模式时，同时显示代码块和图表卡片
-                if (interactivePlotData) {
-                  // 提取代码块（用于用户执行）
-                  const codeBlockMatch = displayContent.match(/```(?:python|r|Python|R)\s*\n([\s\S]*?)```/);
-                  const hasCodeBlock = !!codeBlockMatch;
-
-                  // 提取清理后的文本（移除特殊块，保留代码块）
-                  const cleanText = displayContent
-                    .replace(/```json_interactive_plot[\s\S]*?(```|$)/g, '')
-                    .replace(/```on_interactive_plot[\s\S]*?(```|$)/g, '')
-                    .replace(/```interactive_plot[\s\S]*?(```|$)/g, '')
-                    .replace(/```json_strategy[\s\S]*?(```|$)/g, '')
-                    .replace(/```json_intent[\s\S]*?```/g, '')
-                    .trim();
-
-                  return (
-                    <>
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      <InteractivePlotCard
-                        data={interactivePlotData}
-                        messageId={msg.id}
-                        projectId={currentProjectId}
-                      />
-                    </>
-                  );
-                }
-
-                // ✨ 意图识别卡片渲染
-                if (intentData) {
-                  // 提取清理后的文本（移除 json_intent 块）
-                  const cleanText = displayContent
-                    .replace(/```json_intent[\s\S]*?```/g, '')
-                    .trim();
-
-                  // 如果同时有策略卡片，继续渲染
-                  if (strategyCard) {
-                    const cleanTextForStrategy = cleanText
-                      .replace(/```json_strategy[\s\S]*?(```|$)/g, '')
-                      .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
-                      .trim();
-                    return (
-                      <>
-                        <IntentCard data={intentData} />
-                        {cleanTextForStrategy && <MarkdownBlock content={cleanTextForStrategy} projectId={currentProjectId} />}
-                        <StrategyCard data={strategyCard} messageId={msg.id} messageContent={displayContent} />
-                      </>
-                    );
-                  }
-
-                  // 如果同时有 Blueprint 卡片
-                  if (blueprintData) {
-                    const cleanTextForBlueprint = cleanText
-                      .replace(/```blueprint[\s\S]*?(```|$)/g, '')
-                      .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
-                      .trim();
-                    return (
-                      <>
-                        <IntentCard data={intentData} />
-                        {cleanTextForBlueprint && <MarkdownBlock content={cleanTextForBlueprint} projectId={currentProjectId} />}
-                        <BlueprintCard data={blueprintData} />
-                      </>
-                    );
-                  }
-
-                  // 如果有文件资产
-                  if (fileAssets.length > 0) {
-                    return (
-                      <>
-                        <IntentCard data={intentData} />
-                        {cleanedContent && <MarkdownBlock content={cleanedContent} projectId={currentProjectId} />}
-                        <AssetTreeCard
-                          files={fileAssets}
-                          onPreview={onPreviewAsset}
-                          onDownload={onDownloadAsset}
-                          onInterpret={handleInterpret}
-                          currentProjectId={currentProjectId}
-                        />
-                      </>
-                    );
-                  }
-
-                  // 只有意图卡片，没有其他内容
-                  return (
-                    <>
-                      <IntentCard data={intentData} />
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                    </>
-                  );
-                }
-
-                // ✨ V2: 操作菜单渲染（置信度 < 0.90 时显示选项列表）
-                if (actionMenuData) {
-                  // 提取清理后的文本（移除 json_action_menu 块）
-                  const cleanText = displayContent
-                    .replace(/```json_action_menu[\s\S]*?```/g, '')
-                    .trim();
-
-                  // 如果用户已选择技能且已获取参数，渲染 StrategyCard
-                  if (selectedSkillId && skillParamsData) {
-                    // 将参数转换为 StrategyCard 格式
-                    const strategyCardData = {
-                      tool_id: skillParamsData.tool_id,
-                      title: skillParamsData.title,
-                      description: skillParamsData.description,
-                      parameters: skillParamsData.parameters || {},
-                    };
-
-                    return (
-                      <>
-                        {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                        <StrategyCard
-                          data={strategyCardData}
-                          messageId={msg.id}
-                          messageContent={displayContent}
-                        />
-                      </>
-                    );
-                  }
-
-                  // 否则渲染推荐选择卡片
-                  // 将 ActionMenuOption[] 转换为 RecommendationOption[]
-                  const recommendationOptions = actionMenuData.options.map((opt) => ({
-                    type: "skill" as const,
-                    skill_id: opt.skill_id,
-                    name: opt.name,
-                    description: opt.match_reason || opt.name,
-                    match_score: opt.match_score,
-                  }));
-
-                  const recommendationData = {
-                    message_id: msg.id,
-                    title: actionMenuData.title,
-                    options: recommendationOptions,
-                  };
-
-                  return (
-                    <>
-                      {/* 先渲染 AI 的说明文本 */}
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      {/* ✨ V2: 使用 InlineActionMenu 替代 RecommendationCard */}
-                      <InlineActionMenu
-                        data={actionMenuData}
-                        onSelect={(skillId) => {
-                          console.log("[MemoizedMessageItem] 用户选择了技能:", skillId);
-                          setSelectedSkillId(skillId);
-                          fetchParams(skillId);
-                        }}
-                      />
-                    </>
-                  );
-                }
-
-                // ✨ V2: 参数更新渲染（静默更新策略卡片，不显示新消息）
-                if (paramUpdateData) {
-                  // 事件已在 useEffect 中触发，此处仅负责渲染清理后的文本
-
-                  // 清理 json_param_update 块后的文本
-                  const cleanText = displayContent
-                    .replace(/```json_param_update[\s\S]*?```/g, '')
-                    .trim();
-
-                  // 如果有清理后的文本，渲染它
-                  if (cleanText) {
-                    return (
-                      <MarkdownBlock content={cleanText} projectId={currentProjectId} />
-                    );
-                  }
-
-                  // 如果没有其他内容，返回 null（不渲染任何东西）
-                  return null;
-                }
-
-                // ✨ 修复：检测到策略卡片后，同时渲染清理后的文本和 StrategyCard 组件
-                if (strategyCard) {
-                  // 提取清理后的文本（移除 json_strategy 和代码块）
-                  const cleanText = displayContent
-                    .replace(/```json_strategy[\s\S]*?(```|$)/g, '')
-                    .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
-                    .trim();
-                  return (
-                    <>
-                      {/* 先渲染 AI 的说明文本 */}
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      {/* 然后渲染策略卡片 UI */}
-                      <StrategyCard data={strategyCard} messageId={msg.id} messageContent={displayContent} />
-                    </>
-                  );
-                }
-
-                // ✨ InteractivePlotCard 交互式图表卡片处理
-                if (interactivePlotData) {
-                  const cleanText = displayContent
-                    .replace(/```json_interactive_plot[\s\S]*?(```|$)/g, '')
-                    .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
-                    .trim();
-                  return (
-                    <>
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      <InteractivePlotCard
-                        data={interactivePlotData}
-                        messageId={msg.id}
-                        projectId={currentProjectId}
-                      />
-                    </>
-                  );
-                }
-
-                // ✨ Blueprint 卡片处理
-                if (blueprintData) {
-                  const cleanText = displayContent
-                    .replace(/```blueprint[\s\S]*?(```|$)/g, '')
-                    .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
-                    .trim();
-                  return (
-                    <>
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      <BlueprintCard data={blueprintData} />
-                    </>
-                  );
-                }
-
-                // ✨ BattleReport 战报卡片处理
-                if (battleReportData) {
-                  const cleanText = displayContent
-                    .replace(/```json_battle_report[\s\S]*?```/g, '')
-                    .replace(/```(?:python|r|Python|R)[\s\S]*?```/g, '')
-                    .trim();
-                  return (
-                    <>
-                      {cleanText && <MarkdownBlock content={cleanText} projectId={currentProjectId} />}
-                      <BattleReportCard data={battleReportData} messageId={msg.id} />
-                    </>
                   );
                 }
 

@@ -45,38 +45,4 @@ class SystemConfig(SQLModel, table=True):
     # 其他设置
     theme: str = Field(default="dark")
 
-    # ✨ 嵌入模型配置（用于技能向量检索）
-    # 支持本地 Ollama (bge-m3) 或云端嵌入模型
-    embedding_api_base: Optional[str] = Field(
-        default=None,
-        description="嵌入模型 API 端点，如 http://host.docker.internal:11434"
-    )
-    embedding_model: Optional[str] = Field(
-        default=None,
-        description="嵌入模型名称，如 bge-m3:latest, text-embedding-3-small"
-    )
-    embedding_api_key: Optional[str] = Field(
-        default=None,
-        description="嵌入模型 API Key，本地模型可留空或填 'EMPTY'"
-    )
-    embedding_dimension: int = Field(
-        default=1024,
-        description="嵌入向量维度：bge-m3=1024, OpenAI text-embedding-3-small=1536"
-    )
-
-    # ✨ 消息分类器配置（用于判断是否需要技能推荐）
-    # 为空时使用主模型配置，建议使用快速模型如 qwen2.5:7b 或 gpt-4o-mini
-    classifier_model: Optional[str] = Field(
-        default=None,
-        description="消息分类模型，如 qwen2.5:7b，为空则使用主模型配置"
-    )
-    classifier_base_url: Optional[str] = Field(
-        default=None,
-        description="消息分类器 API 端点，为空则使用主模型端点"
-    )
-    classifier_api_key: Optional[str] = Field(
-        default=None,
-        description="消息分类器 API Key，为空则使用主模型 API Key"
-    )
-
     updated_at: datetime = Field(default_factory=get_utc_now)

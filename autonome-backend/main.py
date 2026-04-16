@@ -14,10 +14,10 @@ from app.models.domain import SystemConfig
 # ✨ 导入计费模型确保表创建
 from app.models.billing import Wallet, ComputeRecord, TransactionLedger, ResourceFlavor  # noqa: F401
 
-# ✨ 导入所有路由模块
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, blueprint, templates, skills_forge, skills_market, skill_share, skill_version, ai_assistant, ai_interpret, skill_recommend, experiences, sample_sheets, packages, genomes, databases, super_executor, terminal, users, claude_executor, error_diagnostic, skill_monitor, preferences, knowledge, weights, learning, plot, dashboard, system_learning
+# ✨ 导入路由模块（已移除所有 AI/Agent 路由）
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard
 # ✨ 导入拆分后的 chat 子模块路由
-from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_summary, chat_search, chat_interpret, chat_experience
+from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_search
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 
@@ -115,6 +115,24 @@ def on_startup():
     # ✨ 使用 Loguru 记录启动日志
     log.info(f"🚀 正在启动 {settings.PROJECT_NAME} v{settings.VERSION}")
 
+    # ✨ 启动前清理上一次残留的所有沙箱容器（防止重启后容器堆积）
+    # 无论是池容器还是临时容器，都需清理，因为新实例会重新创建池
+    try:
+        import docker
+        client = docker.from_env()
+        zombie_count = 0
+        for container in client.containers.list(all=True, filters={"ancestor": "autonome-tool-env:latest"}):
+            try:
+                container.remove(force=True)
+                zombie_count += 1
+            except Exception:
+                pass
+        if zombie_count > 0:
+            log.info(f"✅ 已清理 {zombie_count} 个残留沙箱容器")
+        client.close()
+    except Exception as e:
+        log.warning(f"⚠️ 残留容器清理失败: {e}")
+
     # ✨ 首先创建所有数据库表
     create_db_and_tables()
     log.info("✅ 数据库表结构已创建")
@@ -151,6 +169,42 @@ def on_startup():
     except Exception as e:
         log.warning(f"⚠️ 容器预热池初始化失败: {e}")
 
+    # ✨ 启动终端会话自动回收线程（防止僵尸容器堆积）
+    try:
+        from app.services.terminal_manager import terminal_manager
+        terminal_manager.start_cleanup_thread()
+        log.info("✅ 终端会话自动回收已启动")
+    except Exception as e:
+        log.warning(f"⚠️ 终端会话自动回收启动失败: {e}")
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """✨ 应用关闭时清理所有 Docker 容器资源，防止僵尸容器堆积"""
+    log.info("🛑 正在关闭服务，清理容器资源...")
+
+    # 清理容器预热池
+    try:
+        from app.services.container_pool_service import get_container_pool
+        pool = get_container_pool()
+        if pool:
+            pool.clear_all()
+            log.info("✅ 容器预热池已清理")
+    except Exception as e:
+        log.warning(f"⚠️ 容器预热池清理失败: {e}")
+
+    # 清理所有终端会话容器
+    try:
+        from app.services.terminal_manager import terminal_manager
+        for session_id in list(terminal_manager.active_sessions.keys()):
+            try:
+                terminal_manager.destroy_session(session_id)
+            except Exception:
+                pass
+        log.info("✅ 终端会话已清理")
+    except Exception as e:
+        log.warning(f"⚠️ 终端会话清理失败: {e}")
+
 # ==========================================
 # ⚡️ 注册核心微服务路由 (代码极致解耦)
 # ==========================================
@@ -163,10 +217,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(chat_session.router, prefix="/api/chat", tags=["ChatSession"])
 app.include_router(chat_bookmark.router, prefix="/api/chat", tags=["ChatBookmark"])
 app.include_router(chat_tags.router, prefix="/api/chat", tags=["ChatTags"])
-app.include_router(chat_summary.router, prefix="/api/chat", tags=["ChatSummary"])
 app.include_router(chat_search.router, prefix="/api/chat", tags=["ChatSearch"])
-app.include_router(chat_interpret.router, prefix="/api/chat", tags=["ChatInterpret"])
-app.include_router(chat_experience.router, prefix="/api/chat", tags=["ChatExperience"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(public.router, prefix="/api/public", tags=["Public"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
@@ -176,30 +227,15 @@ app.include_router(skills_forge.router, prefix="/api/skills/forge", tags=["Skill
 app.include_router(skills_market.router, prefix="/api/skills/market", tags=["SkillMarket"])
 app.include_router(skill_share.router, prefix="/api/skills/share", tags=["SkillShare"])
 app.include_router(skill_version.router, tags=["SkillVersion"])
-app.include_router(ai_assistant.router, prefix="/api/ai", tags=["AIAssistant"])
-app.include_router(ai_interpret.router, prefix="/api/interpret", tags=["AIInterpret"])
 app.include_router(skill_recommend.router, prefix="/api/skills/recommend", tags=["SkillRecommend"])
 app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
-app.include_router(blueprint.router, prefix="/api/blueprint", tags=["Blueprint"])
 app.include_router(experiences.router, prefix="/api/experiences", tags=["Experiences"])
 app.include_router(sample_sheets.router, tags=["SampleSheets"])
 app.include_router(packages.router, prefix="/api/packages", tags=["Packages"])
 app.include_router(genomes.router, prefix="/api/genomes", tags=["Genomes"])
 app.include_router(databases.router, prefix="/api/databases", tags=["Databases"])
-app.include_router(super_executor.router, prefix="/api/super-executor", tags=["SuperExecutor"])
 app.include_router(terminal.router, prefix="/api/terminal", tags=["Terminal"])
-app.include_router(claude_executor.router, prefix="/api/claude-executor", tags=["ClaudeExecutor"])
-app.include_router(error_diagnostic.router, prefix="/api/error", tags=["ErrorDiagnostic"])
 app.include_router(skill_monitor.router, prefix="/api/monitor", tags=["SkillMonitor"])
-# ✨ 智能学习系统路由
-app.include_router(preferences.router, prefix="/api/preferences", tags=["Preferences"])
-app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
-app.include_router(weights.router, prefix="/api/weights", tags=["Weights"])
-app.include_router(learning.router, prefix="/api", tags=["Learning"])
-# ✨ 系统学习层路由（隐身学习系统）
-app.include_router(system_learning.router, prefix="/api", tags=["SystemLearning"])
-# ✨ NL2Vis 交互式图表路由
-app.include_router(plot.router, tags=["Plot"])
 # ✨ Dashboard 科研项目指挥中心
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 

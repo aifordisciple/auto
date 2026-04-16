@@ -18,13 +18,12 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useChatStore } from "@/store/useChatStore";
 import { useUIStore } from "@/store/useUIStore";
-import { Search, Play, Loader2, CheckCircle, XCircle, ChevronRight, ChevronDown, Terminal, Box, Info, ChevronUp, MessageSquarePlus, ChevronLeft, Filter, RefreshCw, Wrench, AlertTriangle, Pin } from "lucide-react";
+import { Search, Play, Loader2, ChevronRight, ChevronDown, Terminal, Box, Info, MessageSquarePlus, ChevronLeft, Filter, RefreshCw, Wrench, AlertTriangle, Pin } from "lucide-react";
 import { fetchAPI, BASE_URL, errorDiagnosticApi, executionStateApi, pinnedSkillsApi, type ErrorDiagnosis, type FixSuggestion } from "@/lib/api";
 import { toast } from 'sonner';
 import { FilePickerButton } from "@/components/FilePicker";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { SkillDetailDrawer } from './SkillDetailDrawer';
-import { SkillRecommendArea } from './SkillRecommendArea';
 import { SkillSheetInput } from './SampleSheetGenerator/SkillSheetInput';
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
@@ -82,9 +81,6 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
 
   // 技能详情抽屉状态
   const [detailSkillId, setDetailSkillId] = useState<string | null>(null);
-
-  // 推荐区域状态
-  const [showRecommendArea, setShowRecommendArea] = useState(false);
 
   // ==========================================
   // 移动端步骤向导状态
@@ -702,27 +698,6 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
             显示全部技能
           </button>
         </div>
-      )}
-
-      {/* 推荐区域切换按钮 */}
-      <button
-        onClick={() => setShowRecommendArea(!showRecommendArea)}
-        className="shrink-0 flex items-center justify-center gap-1 px-4 py-1.5 bg-neutral-900/50 border-b border-neutral-800 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-      >
-        <span>{showRecommendArea ? '隐藏推荐' : '显示推荐'}</span>
-        <ChevronUp size={12} className={`transition-transform ${showRecommendArea ? '' : 'rotate-180'}`} />
-      </button>
-
-      {/* 推荐区域 */}
-      {showRecommendArea && (
-        <SkillRecommendArea
-          onSkillSelect={(skillId) => {
-            const skill = skills.find(s => s.skill_id === skillId);
-            if (skill) {
-              setSelectedSkill(skill);
-            }
-          }}
-        />
       )}
 
       {/* 主内容区域 - 响应式布局 */}

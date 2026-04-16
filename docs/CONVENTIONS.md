@@ -1,7 +1,7 @@
 # AUTONOME STUDIO 开发规范与约定
 
-> **文档版本**: 1.0.0
-> **更新日期**: 2026-03-21
+> **文档版本**: 2.0.0
+> **更新日期**: 2026-04-12
 > **适用范围**: 所有代码提交必须遵循本规范
 
 ---
@@ -208,6 +208,14 @@ out_dir = 'results/'  # 禁止！
 | `TASK_OUT_DIR` | 输出目录 | `/workspace/project_42/results/task_abc123` |
 | `USER_ID` | 当前用户 ID | `user_001` |
 
+### 4.3 V2 功能门控变量
+
+| 变量名 | 描述 | 默认值 |
+|--------|------|--------|
+| `AUTONOME_USE_SANDBOX_PLANNER` | 启用 SandboxPlanner (PTY + Claude Code) | `false` |
+| `AUTONOME_USE_CONTAINER_POOL` | 启用容器暖池 | `false` |
+| `AUTONOME_ROUTER_CONFIDENCE_THRESHOLD` | 路由器置信度门控阈值 | `0.6` |
+
 ---
 
 ## 5. Probe Tools 使用模式
@@ -317,9 +325,22 @@ AI 助手在生成、重构或迭代代码时，绝不允许删除或精简原�
 | 硬编码中文到 matplotlib | 使用英文或变量 |
 | 删除原有注释 | 同步更新注释 |
 | 猜测列名/文件路径 | 先调用探针工具 |
+| React Context 全局状态 | 使用 Zustand |
+| 数字 `defaultSize` | 使用字符串 `"15%"` |
 </anti-pattern>
+
+### V2 Agent 规范
+
+<rule>
+- **禁止**使用 V1 `build_bio_agent` 系列函数，必须使用 `build_unified_agent()`
+- **禁止**使用 7 意图类型，必须使用 V2 的 5 意图类型
+- 意图类型合并: `PIPELINE_BUILD` → `VAGUE_ANALYSIS` + `sub_intent`, `UI_UPDATE` → `SYSTEM_ACTION` + `sub_intent`
+- 参数推断优先使用 4 级预填（零 LLM 成本），而非 LLM 推断
+- VAGUE_ANALYSIS 优先尝试 SandboxPlanner，失败回退 SuperExecutorV4
+</rule>
 
 ---
 
-*文档生成时间: 2026-03-21*
+*文档版本: 2.0.0*
+*更新时间: 2026-04-12*
 *维护者: Autonome Team*

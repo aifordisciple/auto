@@ -93,12 +93,3 @@ class DatabaseType(str, Enum):
     METABOLISM = "metabolism"     # 代谢：KEGG Compound、HMDB 等
     CUSTOM = "custom"             # 用户自定义数据库
 
-
-# ==========================================
-# Claude 执行器相关枚举
-# ==========================================
-class ClaudeCodeSessionStatus(str, Enum):
-    """Claude Code 会话状态"""
-    ACTIVE = "active"      # 活跃中，可以恢复
-    EXPIRED = "expired"    # 已过期，需要新建
-    CLOSED = "closed"      # 用户主动关闭

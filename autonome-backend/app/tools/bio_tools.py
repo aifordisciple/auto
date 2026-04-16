@@ -563,7 +563,8 @@ def run_container(
 def run_nextflow_in_sandbox(
     work_dir: str,
     params: dict,
-    log_callback: callable = None
+    log_callback: callable = None,
+    timeout_seconds: int = 3600
 ) -> tuple[str, int]:
     """
     在沙箱中执行 Nextflow 流程
@@ -575,6 +576,7 @@ def run_nextflow_in_sandbox(
 
     注意：nextflow, fastqc, multiqc 等工具需在 Docker 镜像中预装
     """
+    container_id = None
     try:
         host_upload_dir = os.environ.get("HOST_UPLOAD_DIR", "/workspace")
         params_json = json.dumps(params)
@@ -683,11 +685,20 @@ sys.exit(result.returncode)
         import re
         log_output = ""
         last_size = 0
+        start_time = time.time()
 
         # ANSI 转义码清理函数
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
         while True:
+            # ✨ 超时检查：防止容器挂起导致无限循环
+            elapsed = time.time() - start_time
+            if elapsed > timeout_seconds:
+                log.warning(f"[run_nextflow_in_sandbox] 容器执行超时 ({timeout_seconds}s)，强制终止")
+                if log_callback:
+                    log_callback(f"⚠️ 执行超时 ({timeout_seconds}s)，强制终止容器")
+                break
+
             info = docker_api_request("GET", f"/containers/{container_id}/json")
             status = info.get('State', {}).get('Status')
 
@@ -726,6 +737,17 @@ sys.exit(result.returncode)
 
     except Exception as e:
         error_msg = f"❌ Nextflow 执行错误: {str(e)}"
+        log.error(f"[run_nextflow_in_sandbox] {error_msg}")
+
+        # ✨ 清理容器（防止僵尸容器堆积）
+        if container_id:
+            try:
+                docker_api_request("POST", f"/containers/{container_id}/stop?t=5", timeout=10)
+                docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=10)
+                log.info(f"[run_nextflow_in_sandbox] 🧹 已清理异常容器: {container_id[:12]}")
+            except Exception as cleanup_err:
+                log.warning(f"[run_nextflow_in_sandbox] 容器清理失败: {cleanup_err}")
+
         if log_callback:
             log_callback(error_msg)
         return error_msg, 1

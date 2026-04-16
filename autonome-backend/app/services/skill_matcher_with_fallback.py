@@ -98,37 +98,29 @@ class SkillMatcherWithFallback:
 
     async def _get_local_embedding(self, text: str) -> Optional[List[float]]:
         """
-        获取本地嵌入
+        获取本地嵌入（已移除）
 
         Args:
             text: 输入文本
 
         Returns:
-            嵌入向量
+            None（本地嵌入服务已移除）
         """
-        if self._local_service is None:
-            from app.services.local_embedding_service import get_local_embedding_service
-            self._local_service = get_local_embedding_service()
-
-        embedding = await self._local_service.embed(text)
-        return embedding
+        log.warning("[SkillMatcher] 本地嵌入服务已移除")
+        return None
 
     async def _get_remote_embedding(self, text: str) -> Optional[List[float]]:
         """
-        获取远程嵌入（OpenAI API）
+        获取远程嵌入（已移除）
 
         Args:
             text: 输入文本
 
         Returns:
-            嵌入向量
+            None（远程嵌入服务已移除）
         """
-        if self._remote_service is None:
-            from app.services.skill_embedding_service import get_embedding_service
-            self._remote_service = get_embedding_service()
-
-        embedding = await self._remote_service.get_embedding(text)
-        return embedding
+        log.warning("[SkillMatcher] 远程嵌入服务已移除")
+        return None
 
     async def match_skills(
         self,
@@ -319,46 +311,18 @@ class SkillMatcherWithFallback:
         }
 
     async def _check_local_health(self) -> Dict[str, Any]:
-        """检查本地嵌入服务健康状态"""
-        try:
-            if self._local_service is None:
-                from app.services.local_embedding_service import get_local_embedding_service
-                self._local_service = get_local_embedding_service()
-
-            health = await self._local_service.check_health()
-            return {
-                'status': health.get('status', 'unknown'),
-                'model': health.get('model', 'unknown'),
-                'latency_ms': health.get('latency_ms', 0),
-            }
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e),
-            }
+        """检查本地嵌入服务健康状态（已移除）"""
+        return {
+            'status': 'not_configured',
+            'error': '本地嵌入服务已移除',
+        }
 
     async def _check_remote_health(self) -> Dict[str, Any]:
-        """检查远程嵌入服务健康状态"""
-        try:
-            if self._remote_service is None:
-                from app.services.skill_embedding_service import get_embedding_service
-                self._remote_service = get_embedding_service()
-
-            # 简单检查：是否能获取服务
-            if self._remote_service:
-                return {
-                    'status': 'healthy',
-                    'provider': 'openai',
-                }
-            else:
-                return {
-                    'status': 'unavailable',
-                }
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e),
-            }
+        """检查远程嵌入服务健康状态（已移除）"""
+        return {
+            'status': 'not_configured',
+            'error': '远程嵌入服务已移除',
+        }
 
 
 # ==========================================

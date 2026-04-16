@@ -894,34 +894,66 @@ interface LearningRecommendation {
 
 | Phase | 开始日期 | 完成日期 | 状态 |
 |-------|----------|----------|------|
-| P0 新手友好化 | 2026-03-31 | 2026-03-31 | ✅ 已完成 |
-| P1 效率提升 | 2026-03-31 | 2026-03-31 | ✅ 已完成 |
-| P2 专家增强 | 2026-03-31 | 2026-03-31 | ✅ 已完成 |
-| P3 团队协作 | 2026-03-31 | 2026-03-31 | ✅ 已完成 |
+| P0 新手友好化 | 2026-03-31 | 2026-04-02 | ✅ 已完成 |
+| P1 效率提升 | 2026-04-02 | 2026-04-05 | ✅ 已完成 |
+| P2 专家增强 | 2026-04-05 | 2026-04-08 | ✅ 已完成 |
+| P3 团队协作 | 2026-04-08 | 2026-04-09 | ✅ 已完成 |
 
 ### 已实现功能清单
 
 **P0 新手友好化**:
 - `OnboardingGuide.tsx` - 新手引导组件，首次访问显示功能卡片
 - `KeyboardShortcuts.ts` - 全局快捷键系统，支持自定义快捷键
+- `ShortcutManager.tsx` - 快捷键管理器组件
+- `mobile/MobileNav.tsx` - 移动端导航组件
+- `mobile/MobileSidebarSheet.tsx` - 移动端侧边栏
 
 **P1 效率提升**:
-- `ParameterTemplateService.ts` - 参数模板保存/应用/分享
-- `CommandPalette.tsx` - VS Code风格命令面板，快速访问所有功能
-- `DefaultValueInferencer.ts` - 智能默认值推断
-- `ErrorDiagnosticService.ts` - 增强错误诊断服务
+- `ParameterGroupPanel.tsx` - 参数智能分组面板
+- `parameterGrouper.ts` - 参数分组工具函数（含测试）
+- `CommandPalette/` - VS Code 风格命令面板（Cmd+K 唤起）
+- `SkillFormBuilder` - 4 级参数预填（显式提及 > 实体提取 > 工作区推断 > 默认值）
+- `ParamUpdate` - 自然语言参数修改（json_param_update）
+- `ErrorDiagnosticService` - 增强错误诊断服务 + 一键修复 API
+- `apiCache.ts` - API 缓存（TTL, stale-while-revalidate, 请求去重）
+- `contentFilter.ts` - LLM 输出过滤（thinking 标签、参数标签）
 
 **P2 专家增强**:
-- `BatchExecutionService.ts` - 批量执行服务，支持并行度控制和错误处理
-- `WorkflowOrchestrator.ts` - DAG工作流编排，支持条件分支和模板管理
+- `SuperExecutorV4` - 三阶段执行引擎（探查→安装→执行）
+- `SandboxPlanner` - PTY + Claude Code 沙箱规划器（门控）
+- `ContainerPoolService` - Docker 容器暖池（PYTHON/R/GENERAL 三池）
+- `BatchScheduler` - Celery Beat 定时任务（学习周期、索引重建、过期清理）
+- `WorkflowOrchestrator` - DAG 工作流编排
+- `ExecutionProgress.tsx` - 执行进度组件
 
 **P3 团队协作**:
-- `TeamSharingService.ts` - 团队分享服务，支持模板/工作流/技能分享
-- 公开/私有分享、分享链接生成
-- 团队库管理、权限检查、分享统计
+- `skill_share.py` - 技能分享路由（含权限管理）
+- `skill_version.py` - 技能版本管理和回滚
+- `SkillDetailDrawer.tsx` - 技能详情抽屉
+- `SkillRecommendArea.tsx` - 技能推荐区域
+- `RecommendationCard.tsx` - 技能推荐卡片（渲染 json_action_menu）
+- `InlineActionMenu/` - 4 阶段内联操作工作流
+- `parseActionMenu` - 支持 actions + options 双格式解析
+
+### V2 架构升级（2026-04-09 ~ 2026-04-12）
+
+在 PLAN8 基础上，进行了 V2 Agent 架构升级：
+
+| 里程碑 | 提交 | 内容 |
+|--------|------|------|
+| M1.1+M1.2+M2.1+M2.2 | `9fe7f8a` | V2 架构升级：单节点图 + 路由节点 + 意图精简 |
+| M2.3 | `eb637dc` | 沙箱规划器接入路由流 |
+| M2.4 | `0d6f132` | Warm Pool 容器管理集成 |
+| M3 | `fbeda52` | 内联交互 UI 重构 |
+| M4+M5 | `94b4e4a` | 智能参数系统 + 黑盒消除 |
+| V2 启用 | `92c5dac` | 启用 V2 全部新功能 |
+| V2 日志 | `722540e` | Router 节点增加 V2 日志输出 |
+| V2 测试 | `f65b9a2` | V2 测试套件 + 后端日志增强 |
+| V2 修复 | `2c37d26` | V2 功能自动化测试修复 20 个 bug |
 
 ---
 
-*文档版本: 1.0.0*
+*文档版本: 2.0.0*
 *创建时间: 2026-03-31*
+*更新时间: 2026-04-12*
 *维护者: Autonome Team*

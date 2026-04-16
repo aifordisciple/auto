@@ -17,7 +17,6 @@
 - package.py: 用户包管理模型
 - genome.py: 参考基因组模型
 - database.py: 分析数据库模型
-- claude_executor.py: Claude 执行器模型
 
 注意：此文件保持向后兼容，所有模型从子模块导入。
 新代码应直接从子模块导入以提高可读性。
@@ -36,7 +35,6 @@ from app.models.enums import (
     PackageLanguage,
     PackageStatus,
     DatabaseType,
-    ClaudeCodeSessionStatus,
 )
 
 # ==========================================
@@ -183,37 +181,10 @@ from app.models.database import (
 )
 
 # ==========================================
-# Claude 执行器模型
-# ==========================================
-from app.models.claude_executor import (
-    ClaudeExecutorPermission,
-    ClaudeExecutorPermissionCreate,
-    ClaudeExecutorPermissionUpdate,
-    ClaudeExecutorPermissionPublic,
-    ClaudeCodeSession,
-    ClaudeCodeSessionCreate,
-    ClaudeCodeSessionUpdate,
-    ClaudeCodeSessionPublic,
-)
-
-# ==========================================
 # 导入其他模型以确保数据库表被创建
 # ==========================================
 from app.models.skill_template import SkillTemplate  # noqa: F401
 from app.models.forge_session import ForgeSession, ForgeMessage  # noqa: F401
-
-# ==========================================
-# 系统级学习技能模型导入（确保数据库表被创建）
-# ==========================================
-from app.models.system_skill import (  # noqa: F401
-    SystemSkill,
-    SystemSkillStatus,
-    MethodType,
-    SystemSkillCreate,
-    SystemSkillUpdate,
-    SystemSkillPublic,
-    generate_system_skill_id,
-)
 
 # ==========================================
 # 计费模型导入（放在文件末尾避免循环导入）
@@ -235,7 +206,6 @@ __all__ = [
     "PackageLanguage",
     "PackageStatus",
     "DatabaseType",
-    "ClaudeCodeSessionStatus",
     # UUID 生成函数
     "generate_project_id",
     "generate_session_id",
@@ -313,21 +283,4 @@ __all__ = [
     "AnalysisDatabaseCreate",
     "AnalysisDatabaseUpdate",
     "AnalysisDatabasePublic",
-    # Claude 执行器
-    "ClaudeExecutorPermission",
-    "ClaudeExecutorPermissionCreate",
-    "ClaudeExecutorPermissionUpdate",
-    "ClaudeExecutorPermissionPublic",
-    "ClaudeCodeSession",
-    "ClaudeCodeSessionCreate",
-    "ClaudeCodeSessionUpdate",
-    "ClaudeCodeSessionPublic",
-    # 系统级学习技能
-    "SystemSkill",
-    "SystemSkillStatus",
-    "MethodType",
-    "SystemSkillCreate",
-    "SystemSkillUpdate",
-    "SystemSkillPublic",
-    "generate_system_skill_id",
 ]

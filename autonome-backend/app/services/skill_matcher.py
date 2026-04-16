@@ -1,28 +1,27 @@
 """
-技能统一匹配器 - 整合规则/向量/LLM三阶段匹配
+技能统一匹配器 - 基于关键词/规则的技能匹配
 
 架构:
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     技能推荐系统架构 (混合模式)                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│  用户查询 ──→ 规则引擎(快速筛选) ──→ 向量检索(语义匹配) ──→ LLM精排     │
-│     │              (<50ms)           (~100ms)          (~1-2s)          │
-│     │                │                    │                │            │
-│     │                ▼                    ▼                ▼            │
-│     │           候选技能集 ← ← ← ← ← ← ← ←┘                │            │
-│     │                │                                      │            │
-│     └───────────────→│← ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘            │
-│                      ▼                                                   │
-│              推荐结果 + 参数建议                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│          技能推荐系统架构 (关键词模式)              │
+├──────────────────────────────────────────────────┤
+│  用户查询 ──→ 规则引擎(关键词+同义词快速匹配)      │
+│     │              (<50ms)                        │
+│     │                │                            │
+│     │                ▼                            │
+│     │          候选技能集                          │
+│     │                │                            │
+│     └───────────────→│                            │
+│                      ▼                            │
+│              推荐结果 + 参数建议                    │
+└──────────────────────────────────────────────────┘
 
-流程决策逻辑:
-| 场景          | 规则置信度 | 向量相似度 | 是否触发LLM |
-|---------------|-----------|-----------|------------|
-| 高置信度      | ≥ 0.85    | -         | 否         |
-| 中置信度      | 0.5-0.85  | ≥ 0.75    | 否         |
-| 低置信度      | < 0.5     | < 0.6     | 是         |
-| 候选接近      | -         | 多个差距<0.1| 是        |
+匹配流程:
+| 场景          | 规则置信度 | 说明                       |
+|---------------|-----------|----------------------------|
+| 高置信度      | >= 0.85   | 直接返回规则匹配结果        |
+| 中置信度      | 0.3-0.85  | 返回规则结果+操作菜单       |
+| 低置信度      | < 0.3     | 返回 Live Coding 兜底       |
 
 缓存策略:
 - 推荐结果缓存: L1 TTL=5min, L2 TTL=10min
@@ -32,22 +31,19 @@
 import asyncio
 import hashlib
 from typing import Dict, List, Any, Optional
-from datetime import datetime
 from sqlmodel import Session
 
 from app.core.logger import log
 from app.core.database import engine
-from app.models.domain import SkillMatchingFeedback, SkillAsset, SkillStatus
+from app.models.domain import SkillMatchingFeedback
 from app.services.skill_keywords_indexer import SkillKeywordsIndexer, get_keywords_indexer
 from app.services.skill_matcher_config import (
-    expand_synonyms, get_keyword_weight, is_negation_context,
-    get_context_boost, get_domain_from_keyword, REVERSE_SYNONYM_MAP,
+    get_keyword_weight, is_negation_context,
+    get_domain_from_keyword,
     is_code_generation_request,  # 编程请求检测
     get_compatible_categories, FILE_TYPE_COMPATIBILITY  # 文件类型兼容性
 )
-from app.services.skill_embedding_service import SkillEmbeddingService
-from app.services.skill_vector_search import SkillVectorSearch
-from app.services.llm_skill_matcher import LLMSkillMatcher
+
 from app.core.skill_parser import get_combined_skills
 from app.services.cache_service import get_cache_service
 
@@ -64,43 +60,36 @@ class MatchMode:
     """
     匹配模式 - 支持分级响应
 
-    快速模式 (fast): 仅规则+向量匹配，响应时间 <200ms
-    精准模式 (precise): 完整三阶段匹配（含LLM精排），响应时间 ~1-2s
-    自动模式 (auto): 系统根据置信度自动决定是否需要 LLM（默认）
+    快速模式 (fast): 仅规则匹配，响应时间 <50ms
+    精准模式 (precise): 同快速模式（保留接口兼容性）
+    自动模式 (auto): 同快速模式（保留接口兼容性，默认）
     """
-    FAST = "fast"        # 快速模式：规则+向量
-    PRECISE = "precise"  # 精准模式：规则+向量+LLM
-    AUTO = "auto"        # 自动模式：根据置信度决定
+    FAST = "fast"        # 快速模式：规则匹配
+    PRECISE = "precise"  # 精准模式：规则匹配（接口兼容）
+    AUTO = "auto"        # 自动模式：规则匹配（接口兼容）
 
 
 class SkillMatcher:
     """
-    技能统一匹配器 - 整合规则/向量/LLM三阶段匹配
+    技能统一匹配器 - 基于关键词/规则的技能匹配
 
-    三阶段匹配流程:
-    1. 规则引擎: 快速筛选，基于关键词和同义词匹配
-    2. 向量检索: 语义匹配，基于技能向量相似度
-    3. LLM精排: 高精度匹配，理解复杂需求并推断参数
+    匹配流程:
+    1. 规则引擎: 基于关键词和同义词进行快速匹配
 
     决策逻辑:
-    - 高置信度 (≥0.85): 直接返回规则结果
-    - 中置信度 (0.5-0.85) + 高向量相似度 (≥0.75): 合并返回
-    - 低置信度 + 低向量相似度: 触发 LLM 精排
+    - 高置信度 (>=0.85): 直接返回规则结果
+    - 中置信度 (0.3-0.85): 返回规则结果+操作菜单
+    - 低置信度 (<0.3): 返回 Live Coding 兜底
     """
 
     # 置信度阈值
     HIGH_CONFIDENCE_THRESHOLD = 0.85
     MEDIUM_CONFIDENCE_THRESHOLD = 0.5
-    VECTOR_HIGH_THRESHOLD = 0.75
-    VECTOR_LOW_THRESHOLD = 0.6
 
-    # ✨ V2 架构阈值：数据感知路由
+    # V2 架构阈值：数据感知路由
     # 当置信度 >= V2_HIGH_CONFIDENCE 时，直接返回 json_strategy
     # 当置信度 < V2_HIGH_CONFIDENCE 时，返回 json_action_menu
     V2_HIGH_CONFIDENCE = 0.90
-
-    # 候选技能接近阈值（差距小于此值触发 LLM）
-    CLOSE_CANDIDATE_THRESHOLD = 0.1
 
     def __init__(self, user_id: int = 0, session: Session = None):
         """
@@ -115,8 +104,6 @@ class SkillMatcher:
 
         # 子组件
         self._keywords_indexer: Optional[SkillKeywordsIndexer] = None
-        self._vector_search: Optional[SkillVectorSearch] = None
-        self._llm_matcher: Optional[LLMSkillMatcher] = None
 
         # 可用技能缓存
         self._available_skills: Optional[List[Dict[str, Any]]] = None
@@ -133,18 +120,6 @@ class SkillMatcher:
             effective_user_id = max(1, self.user_id) if self.user_id <= 0 else self.user_id
             self._keywords_indexer = get_keywords_indexer(effective_user_id)
         return self._keywords_indexer
-
-    def _get_vector_search(self) -> SkillVectorSearch:
-        """获取向量检索服务"""
-        if not self._vector_search:
-            self._vector_search = SkillVectorSearch(self.session)
-        return self._vector_search
-
-    def _get_llm_matcher(self) -> LLMSkillMatcher:
-        """获取 LLM 匹配器"""
-        if not self._llm_matcher:
-            self._llm_matcher = LLMSkillMatcher(self.session)
-        return self._llm_matcher
 
     def _get_available_skills(self) -> List[Dict[str, Any]]:
         """
@@ -240,20 +215,21 @@ class SkillMatcher:
         self,
         user_query: str,
         context: Optional[Dict] = None,
-        mode: str = MatchMode.AUTO
+        mode: str = MatchMode.AUTO,
+        message_category: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         统一匹配接口
 
-        整合三阶段匹配，返回最优推荐结果。
+        基于关键词/规则进行技能匹配，返回最优推荐结果。
 
         Args:
             user_query: 用户查询
             context: 上下文信息（项目文件、历史会话等）
-            mode: 匹配模式
-                - "fast": 快速模式，仅规则+向量匹配，<200ms
-                - "precise": 精准模式，完整三阶段匹配（含LLM），~1-2s
-                - "auto": 自动模式，根据置信度决定是否使用LLM（默认）
+            mode: 匹配模式（保留接口兼容性，所有模式均使用关键词匹配）
+            message_category: V3 第一性原理消息类别
+                - "DETERMINED_ACTION": 使用更低阈值(0.3)，因为意图明确
+                - 其他: 使用默认阈值
 
         Returns:
             {
@@ -261,31 +237,40 @@ class SkillMatcher:
                 "matched_skills": [...],
                 "confidence": 0.0-1.0,
                 "parameters_suggestion": {...},
-                "match_source": "rule | vector | llm | hybrid",
-                "match_mode": "fast | precise | auto",
+                "match_source": "rule",
+                "match_mode": "fast | precise | auto | determined",
                 "reason": "..."
             }
         """
-        log.info(f"[SkillMatcher] 开始匹配: query='{user_query[:50]}...', user_id={self.user_id}, mode={mode}")
+        # V3: DETERMINED_ACTION 模式使用更低阈值
+        determined_mode = message_category == "DETERMINED_ACTION"
+        if determined_mode:
+            effective_high_threshold = 0.5   # 默认 0.85 -> 0.5
+            effective_medium_threshold = 0.3  # 默认 0.5 -> 0.3
+            log.info(f"[SkillMatcher] DETERMINED_ACTION 模式: 降低阈值 high={effective_high_threshold}, medium={effective_medium_threshold}")
+        else:
+            effective_high_threshold = self.HIGH_CONFIDENCE_THRESHOLD
+            effective_medium_threshold = self.MEDIUM_CONFIDENCE_THRESHOLD
 
-        # Phase 1: 规则匹配
+        log.info(f"[SkillMatcher] 开始匹配: query='{user_query[:50]}...', user_id={self.user_id}, mode={mode}, category={message_category}")
+
+        # 关键词/规则匹配
         rule_result = await self._rule_match(user_query, context)
 
         # 高置信度直接返回
-        if rule_result["confidence"] >= self.HIGH_CONFIDENCE_THRESHOLD:
+        if rule_result["confidence"] >= effective_high_threshold:
             log.info(f"[SkillMatcher] 规则高置信度匹配: {rule_result['confidence']:.2f}")
-            rule_result["match_mode"] = mode
+            rule_result["match_mode"] = "determined" if determined_mode else mode
             rule_result["routing_decision"] = "direct_strategy"
             rule_result["reason"] = rule_result.get("reason", "") + f" [高置信度 {rule_result['confidence']:.2f}]"
             await self._record_feedback(user_query, rule_result, "rule")
             return rule_result
 
-        # 中置信度（有匹配技能）直接返回规则结果，不需要向量匹配
-        # 这样可以在 embedding API 不可用时仍然提供有意义的推荐
-        if rule_result["confidence"] >= self.MEDIUM_CONFIDENCE_THRESHOLD and rule_result.get("matched_skills"):
-            log.info(f"[SkillMatcher] 规则中置信度匹配（跳过向量检索）: {rule_result['confidence']:.2f}")
-            rule_result["match_mode"] = mode
-            # ✨ V2 路由决策
+        # 中置信度（有匹配技能）直接返回规则结果
+        if rule_result["confidence"] >= effective_medium_threshold and rule_result.get("matched_skills"):
+            log.info(f"[SkillMatcher] 规则中置信度匹配: {rule_result['confidence']:.2f}")
+            rule_result["match_mode"] = "determined" if determined_mode else mode
+            # V2 路由决策
             if rule_result["confidence"] >= self.V2_HIGH_CONFIDENCE:
                 rule_result["routing_decision"] = "direct_strategy"
             else:
@@ -302,116 +287,40 @@ class SkillMatcher:
             await self._record_feedback(user_query, rule_result, "rule")
             return rule_result
 
-        # Phase 2: 向量检索（仅在规则匹配置信度较低时尝试）
-        vector_result = await self._vector_match(user_query, context)
+        # 低置信度或无匹配结果：应用个性化加成后返回
+        rule_result["match_mode"] = mode
 
-        # 检查向量检索是否成功
-        vector_available = vector_result.get("confidence", 0) > 0
+        # 应用个性化加成
+        rule_result = await self._apply_personalization_boost(rule_result)
 
-        if vector_available:
-            # 合并结果
-            combined = self._merge_results(rule_result, vector_result)
-
-            # 中置信度 + 高向量相似度
-            if combined["confidence"] >= self.VECTOR_HIGH_THRESHOLD:
-                log.info(f"[SkillMatcher] 合并匹配: confidence={combined['confidence']:.2f}")
-                combined["match_mode"] = mode
-                # ✨ V2 路由决策
-                if combined["confidence"] >= self.V2_HIGH_CONFIDENCE:
-                    combined["routing_decision"] = "direct_strategy"
-                else:
-                    combined["routing_decision"] = "action_menu"
-                    matched = combined.get("matched_skills", [])
-                    combined["action_menu_options"] = matched[:2] if len(matched) >= 2 else matched
-                    if not any(opt.get("skill_id") == "live_coding" for opt in combined.get("action_menu_options", [])):
-                        combined["action_menu_options"].append({
-                            "skill_id": "live_coding",
-                            "name": "⚡ 实时编写代码 (Live Coding)",
-                            "match_score": 0.5,
-                            "match_reason": "兜底选项"
-                        })
-                await self._record_feedback(user_query, combined, "hybrid")
-                return combined
-        else:
-            # 向量检索不可用，使用规则结果
-            combined = rule_result
-            log.info("[SkillMatcher] 向量检索不可用，使用规则匹配结果")
-
-        # ✨ 分级响应逻辑
-        # 快速模式：直接返回，跳过 LLM
-        if mode == MatchMode.FAST:
-            log.info("[SkillMatcher] 快速模式：跳过 LLM 精排")
-            combined["match_mode"] = mode
-            await self._record_feedback(user_query, combined, "hybrid" if vector_available else "rule")
-            return combined
-
-        # 精准模式：始终执行 LLM 精排
-        if mode == MatchMode.PRECISE:
-            log.info("[SkillMatcher] 精准模式：强制执行 LLM 精排")
-            llm_result = await self._llm_match(user_query, combined.get("matched_skills", []), context)
-            if llm_result.get("confidence", 0) > 0.3:
-                llm_result["match_mode"] = mode
-                await self._record_feedback(user_query, llm_result, "llm")
-                return llm_result
-            else:
-                # LLM 失败，返回合并结果
-                log.info("[SkillMatcher] LLM 匹配失败，返回合并结果")
-                combined["match_mode"] = mode
-                await self._record_feedback(user_query, combined, "hybrid" if vector_available else "rule")
-                return combined
-
-        # 自动模式：根据置信度决定是否使用 LLM
-        if self._should_use_llm(rule_result, vector_result, combined):
-            log.info("[SkillMatcher] 自动模式：触发 LLM 精排")
-            llm_result = await self._llm_match(user_query, combined.get("matched_skills", []), context)
-
-            # 检查 LLM 是否成功
-            if llm_result.get("confidence", 0) > 0.3:  # LLM 有有效结果
-                llm_result["match_mode"] = mode
-                await self._record_feedback(user_query, llm_result, "llm")
-                return llm_result
-            else:
-                # LLM 失败，返回规则结果
-                log.info("[SkillMatcher] LLM 匹配失败，返回规则结果")
-                combined["match_mode"] = mode
-                await self._record_feedback(user_query, combined, "hybrid" if vector_available else "rule")
-                return combined
-
-        # 返回合并结果
-        combined["match_mode"] = mode
-
-        # ✨ 应用个性化加成
-        combined = await self._apply_personalization_boost(combined)
-
-        # ✨ V2 架构：置信度路由决策
-        # 根据置信度决定返回格式
-        confidence = combined.get("confidence", 0)
+        # V2 架构：置信度路由决策
+        confidence = rule_result.get("confidence", 0)
         if confidence >= self.V2_HIGH_CONFIDENCE:
-            combined["routing_decision"] = "direct_strategy"  # 高置信度：直接下发 json_strategy
-            combined["reason"] = combined.get("reason", "") + f" [V2高置信度 {confidence:.2f} ≥ {self.V2_HIGH_CONFIDENCE}]"
+            rule_result["routing_decision"] = "direct_strategy"
+            rule_result["reason"] = rule_result.get("reason", "") + f" [V2高置信度 {confidence:.2f} >= {self.V2_HIGH_CONFIDENCE}]"
             log.info(f"[SkillMatcher] V2路由: 直接策略卡片 (confidence={confidence:.2f})")
         else:
-            combined["routing_decision"] = "action_menu"  # 中低置信度：下发 json_action_menu
-            combined["reason"] = combined.get("reason", "") + f" [V2中低置信度 {confidence:.2f} < {self.V2_HIGH_CONFIDENCE}]"
+            rule_result["routing_decision"] = "action_menu"
+            rule_result["reason"] = rule_result.get("reason", "") + f" [V2中低置信度 {confidence:.2f} < {self.V2_HIGH_CONFIDENCE}]"
             log.info(f"[SkillMatcher] V2路由: 操作菜单 (confidence={confidence:.2f})")
 
-            # ✨ 添加备选技能列表（Top 2 + Live Coding 兜底）
-            matched = combined.get("matched_skills", [])
+            # 添加备选技能列表（Top 2 + Live Coding 兜底）
+            matched = rule_result.get("matched_skills", [])
             if len(matched) >= 2:
-                combined["action_menu_options"] = matched[:2]
+                rule_result["action_menu_options"] = matched[:2]
             elif len(matched) == 1:
-                combined["action_menu_options"] = matched[:1]
+                rule_result["action_menu_options"] = matched[:1]
             else:
-                combined["action_menu_options"] = []
-            combined["action_menu_options"].append({
+                rule_result["action_menu_options"] = []
+            rule_result["action_menu_options"].append({
                 "skill_id": "live_coding",
                 "name": "⚡ 实时编写代码 (Live Coding)",
                 "match_score": 0.5,
                 "match_reason": "兜底选项：根据需求实时编写代码"
             })
 
-        await self._record_feedback(user_query, combined, "hybrid" if vector_available else "rule")
-        return combined
+        await self._record_feedback(user_query, rule_result, "rule")
+        return rule_result
 
     async def _rule_match(self, user_query: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
@@ -581,6 +490,17 @@ class SkillMatcher:
         for sid, kw in list(keywords_index.items())[:3]:  # 只显示前3个
             log.debug(f"[SkillMatcher] 技能 {sid}: primary={kw.primary_keywords[:5]}, secondary={kw.secondary_keywords[:5]}")
 
+        # ✨ 查看意图降权检测：当用户只是想"查看/浏览"文件而非"分析/处理"时，
+        # 降低技能匹配置信度，避免文件名中的领域词（deg、fpkm等）误触发分析技能
+        VIEW_INTENT_VERBS = ["查看", "看下", "看一下", "看看", "浏览", "打开", "显示", "列出", "瞅", "瞧"]
+        ANALYSIS_INTENT_VERBS = ["分析", "处理", "运行", "执行", "计算", "统计", "聚类", "差异分析", "画图", "可视化"]
+        has_view_intent = any(verb in query_lower for verb in VIEW_INTENT_VERBS)
+        has_analysis_intent = any(verb in query_lower for verb in ANALYSIS_INTENT_VERBS)
+        # 仅当有查看意图且无分析意图时，应用降权因子
+        view_intent_penalty = 0.3 if (has_view_intent and not has_analysis_intent) else 1.0
+        if view_intent_penalty < 1.0:
+            log.info(f"[SkillMatcher] 检测到查看意图（无分析意图），应用降权因子 {view_intent_penalty}")
+
         matched_domains = []
         matched_skills = {}
         total_weight = 0.0
@@ -626,6 +546,9 @@ class SkillMatcher:
             if skill_weight > 0:
                 # 添加上下文增强
                 skill_weight = min(1.0, skill_weight + context_boost)
+
+                # ✨ 应用查看意图降权
+                skill_weight *= view_intent_penalty
 
                 # 获取技能名称
                 skill_info = self._get_skill_by_id(skill_id)
@@ -731,227 +654,11 @@ class SkillMatcher:
 
         return reason
 
-    async def _vector_match(self, user_query: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Phase 2: 向量检索
-
-        基于语义相似度进行匹配。
-
-        Args:
-            user_query: 用户查询
-            context: 上下文信息
-
-        Returns:
-            匹配结果
-        """
-        try:
-            vector_search = self._get_vector_search()
-            results = await vector_search.search_by_text(
-                query_text=user_query,
-                limit=5,
-                threshold=self.VECTOR_LOW_THRESHOLD,
-                user_id=self.user_id
-            )
-
-            if not results:
-                return {
-                    "intent_type": IntentType.LIVE_CODING,
-                    "matched_skills": [],
-                    "confidence": 0.0,
-                    "parameters_suggestion": {},
-                    "match_source": "vector",
-                    "reason": "向量搜索未找到匹配"
-                }
-
-            # 计算整体置信度（基于最高相似度）
-            top_similarity = results[0].get("similarity", 0) if results else 0
-            confidence = top_similarity
-
-            return {
-                "intent_type": IntentType.IMPLICIT_SKILL,
-                "matched_skills": results,
-                "confidence": confidence,
-                "parameters_suggestion": {},
-                "match_source": "vector",
-                "reason": f"语义相似度匹配 (相似度: {top_similarity:.2f})"
-            }
-
-        except Exception as e:
-            log.error(f"[SkillMatcher] 向量匹配失败: {e}")
-            return {
-                "intent_type": IntentType.LIVE_CODING,
-                "matched_skills": [],
-                "confidence": 0.0,
-                "parameters_suggestion": {},
-                "match_source": "vector",
-                "reason": f"向量匹配失败: {e}"
-            }
-
-    def _merge_results(self, rule_result: Dict, vector_result: Dict) -> Dict[str, Any]:
-        """
-        合并规则和向量匹配结果
-
-        Args:
-            rule_result: 规则匹配结果
-            vector_result: 向量匹配结果
-
-        Returns:
-            合并后的结果
-        """
-        # 收集所有匹配的技能
-        skill_scores = {}
-
-        # 处理规则匹配
-        for skill in rule_result.get("matched_skills", []):
-            skill_id = skill.get("skill_id")
-            score = skill.get("match_score", 0)
-            skill_scores[skill_id] = {
-                "skill_id": skill_id,
-                "name": skill.get("name", ""),
-                "rule_score": score,
-                "vector_score": 0,
-                "match_reason": skill.get("match_reason", "")
-            }
-
-        # 处理向量匹配
-        for skill in vector_result.get("matched_skills", []):
-            skill_id = skill.get("skill_id")
-            score = skill.get("similarity", 0)
-            if skill_id in skill_scores:
-                skill_scores[skill_id]["vector_score"] = score
-            else:
-                skill_scores[skill_id] = {
-                    "skill_id": skill_id,
-                    "name": skill.get("name", ""),
-                    "rule_score": 0,
-                    "vector_score": score,
-                    "match_reason": skill.get("match_reason", "")
-                }
-
-        # 计算综合分数 (规则权重 0.6, 向量权重 0.4)
-        for skill_id, skill_data in skill_scores.items():
-            combined_score = skill_data["rule_score"] * 0.6 + skill_data["vector_score"] * 0.4
-            skill_data["match_score"] = combined_score
-
-        # 按综合分数排序
-        sorted_skills = sorted(
-            skill_scores.values(),
-            key=lambda x: x["match_score"],
-            reverse=True
-        )
-
-        # 计算整体置信度
-        rule_conf = rule_result.get("confidence", 0)
-        vector_conf = vector_result.get("confidence", 0)
-        combined_conf = rule_conf * 0.6 + vector_conf * 0.4
-
-        # 确定意图类型
-        intent_type = rule_result.get("intent_type", IntentType.LIVE_CODING)
-        if intent_type == IntentType.LIVE_CODING and vector_result.get("matched_skills"):
-            intent_type = IntentType.IMPLICIT_SKILL
-
-        return {
-            "intent_type": intent_type,
-            "matched_skills": sorted_skills[:5],
-            "confidence": combined_conf,
-            "parameters_suggestion": {},
-            "match_source": "hybrid",
-            "matched_domains": rule_result.get("matched_domains", []),
-            "reason": f"规则+向量混合匹配 (规则: {rule_conf:.2f}, 向量: {vector_conf:.2f})"
-        }
-
-    def _should_use_llm(self, rule_result: Dict, vector_result: Dict, combined: Dict) -> bool:
-        """
-        判断是否需要使用 LLM 精排
-
-        Args:
-            rule_result: 规则匹配结果
-            vector_result: 向量匹配结果
-            combined: 合并结果
-
-        Returns:
-            是否需要 LLM
-        """
-        # 低置信度触发 LLM
-        if combined["confidence"] < self.MEDIUM_CONFIDENCE_THRESHOLD:
-            return True
-
-        # 向量相似度过低触发 LLM
-        if vector_result.get("confidence", 0) < self.VECTOR_LOW_THRESHOLD:
-            return True
-
-        # 检查候选技能是否接近（难以区分）
-        skills = combined.get("matched_skills", [])
-        if len(skills) >= 2:
-            top_score = skills[0].get("match_score", 0)
-            second_score = skills[1].get("match_score", 0)
-            if top_score - second_score < self.CLOSE_CANDIDATE_THRESHOLD:
-                return True
-
-        return False
-
-    async def _llm_match(self, user_query: str, candidates: List[Dict], context: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Phase 3: LLM 精排
-
-        使用 LLM 进行高精度匹配。
-
-        Args:
-            user_query: 用户查询
-            candidates: 候选技能列表
-            context: 上下文信息
-
-        Returns:
-            匹配结果
-        """
-        try:
-            llm_matcher = self._get_llm_matcher()
-
-            # 获取候选技能详细信息
-            candidate_skills = []
-            for skill in candidates[:10]:  # 最多 10 个候选
-                skill_info = self._get_skill_by_id(skill.get("skill_id"))
-                if skill_info:
-                    candidate_skills.append(skill_info.get("metadata", {}))
-
-            # 如果没有候选技能，使用所有可用技能
-            if not candidate_skills:
-                all_skills = self._get_available_skills()
-                candidate_skills = [s.get("metadata", {}) for s in all_skills[:10]]
-
-            # 调用 LLM 匹配
-            result = await llm_matcher.match(user_query, candidate_skills, context)
-
-            # 确保结果格式正确
-            if "matched_skills" in result and result["matched_skills"]:
-                # 补充技能名称
-                for skill in result["matched_skills"]:
-                    if "name" not in skill:
-                        skill_info = self._get_skill_by_id(skill.get("skill_id"))
-                        if skill_info:
-                            skill["name"] = skill_info.get("metadata", {}).get("name", "")
-
-            return result
-
-        except Exception as e:
-            log.error(f"[SkillMatcher] LLM 匹配失败: {e}")
-            return {
-                "intent_type": IntentType.LIVE_CODING,
-                "matched_skills": [],
-                "confidence": 0.3,
-                "parameters_suggestion": {},
-                "match_source": "llm",
-                "reason": f"LLM 匹配失败: {e}"
-            }
-
     async def _apply_personalization_boost(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        应用个性化加成
+        应用个性化加成（已移除 PreferenceEngine）
 
-        根据用户偏好调整技能推荐得分：
-        1. 常用技能获得加成
-        2. 偏好分类获得加成
-        3. 高成功率技能获得加成
+        保留接口兼容性，直接返回原始结果
 
         Args:
             result: 匹配结果
@@ -959,61 +666,12 @@ class SkillMatcher:
         Returns:
             调整后的匹配结果
         """
-        # 跳过无效用户 ID
-        if not self.user_id or self.user_id <= 0:
-            return result
-
-        matched_skills = result.get("matched_skills", [])
-        if not matched_skills:
-            return result
-
-        try:
-            from app.services.preference_engine import PreferenceEngine
-            from sqlmodel import Session
-            from app.core.database import engine
-
-            with Session(engine) as session:
-                engine = PreferenceEngine(session)
-
-                for skill in matched_skills:
-                    skill_id = skill.get("skill_id")
-                    category = skill.get("category")
-
-                    # 获取个性化加成
-                    boost = engine.get_skill_recommendation_boost(
-                        user_id=self.user_id,
-                        skill_id=skill_id,
-                        skill_category=category,
-                    )
-
-                    # 应用加成到得分
-                    original_score = skill.get("score", 0.5)
-                    boosted_score = original_score * boost
-                    skill["score"] = min(1.0, boosted_score)  # 限制最大 1.0
-                    skill["personalization_boost"] = boost
-
-                    log.debug(
-                        f"[SkillMatcher] 个性化加成: skill_id={skill_id}, "
-                        f"original={original_score:.2f}, boost={boost:.2f}, final={skill['score']:.2f}"
-                    )
-
-                # 按调整后的得分重新排序
-                matched_skills.sort(key=lambda x: x.get("score", 0), reverse=True)
-                result["matched_skills"] = matched_skills
-                result["personalization_applied"] = True
-
-        except Exception as e:
-            log.warning(f"[SkillMatcher] 应用个性化加成失败: {e}")
-
+        # PreferenceEngine 已移除，跳过个性化加成
         return result
 
     async def _record_feedback(self, query: str, result: Dict, match_source: str) -> None:
         """
         记录匹配反馈
-
-        整合两种记录方式：
-        1. SkillMatchingFeedback - 原有反馈记录
-        2. BehaviorTracker - 新的行为埋点
 
         Args:
             query: 用户查询
@@ -1028,7 +686,7 @@ class SkillMatcher:
 
         try:
             with Session(engine) as session:
-                # 1. 原有反馈记录
+                # 反馈记录（behavior_tracker 已移除，仅保留 SkillMatchingFeedback）
                 feedback = SkillMatchingFeedback(
                     user_id=self.user_id,
                     session_id="unknown",  # 需要从上下文获取
@@ -1045,42 +703,6 @@ class SkillMatcher:
                 session.add(feedback)
                 session.commit()
                 log.debug(f"[SkillMatcher] 反馈记录成功: user_id={self.user_id}, query='{query[:30]}...'")
-
-                # 2. 新的行为埋点 - 记录 QUERY 和 RECOMMEND 事件
-                try:
-                    from app.services.behavior_tracker import (
-                        BehaviorTracker, BehaviorType, BehaviorEvent
-                    )
-
-                    tracker = BehaviorTracker(session)
-
-                    # 记录查询事件
-                    tracker.track(BehaviorEvent(
-                        user_id=self.user_id,
-                        session_id="unknown",
-                        event_type=BehaviorType.QUERY,
-                        query=query,
-                        metadata={"match_source": match_source, "confidence": result.get("confidence", 0)}
-                    ))
-
-                    # 为每个推荐技能记录 RECOMMEND 事件
-                    matched_skills = result.get("matched_skills", [])
-                    for skill in matched_skills[:3]:  # 只记录前3个
-                        tracker.track(BehaviorEvent(
-                            user_id=self.user_id,
-                            session_id="unknown",
-                            event_type=BehaviorType.RECOMMEND,
-                            skill_id=skill.get("skill_id"),
-                            skill_name=skill.get("name"),
-                            query=query,
-                            match_source=match_source,
-                            confidence=skill.get("score", result.get("confidence", 0))
-                        ))
-
-                    log.debug(f"[SkillMatcher] 行为埋点成功: query + {len(matched_skills[:3])} recommends")
-
-                except Exception as e:
-                    log.warning(f"[SkillMatcher] 行为埋点失败: {e}")
 
         except Exception as e:
             log.warning(f"[SkillMatcher] 记录反馈失败: {e}")
@@ -1117,16 +739,13 @@ async def match_skills(
     """
     技能匹配（便捷函数）
 
-    支持缓存，热门查询优先从缓存返回。
+    基于关键词/规则进行技能匹配，支持缓存。
 
     Args:
         user_query: 用户查询
         user_id: 用户 ID
         context: 上下文信息
-        mode: 匹配模式
-            - "fast": 快速模式，仅规则+向量匹配，<200ms
-            - "precise": 精准模式，完整三阶段匹配（含LLM），~1-2s
-            - "auto": 自动模式，根据置信度决定是否使用LLM（默认）
+        mode: 匹配模式（保留接口兼容性，所有模式均使用关键词匹配）
 
     Returns:
         匹配结果

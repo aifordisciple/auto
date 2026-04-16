@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Menu, ChevronRight, Share2, Zap, Download, ChevronDown, GitBranch, Sparkles, MessageSquare } from "lucide-react";
+import { Menu, ChevronRight, Zap, Download, ChevronDown, Share2, MessageSquare } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useUIStore } from "../../store/useUIStore";
 
@@ -19,13 +19,11 @@ export function TopHeader({
   onExportMarkdown
 }: TopHeaderProps) {
   const { user, fetchProfile } = useAuthStore();
-  const { toggleProjectCenter, globalTaskMode, setGlobalTaskMode, toggleMobileMenu } = useUIStore();
+  const { toggleProjectCenter, toggleMobileMenu } = useUIStore();
 
   // ✨ 下拉菜单状态管理
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
-  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
-  const modeMenuRef = useRef<HTMLDivElement>(null);
 
   // ✨ 定时轮询刷新用户信息（包括算力余额）
   useEffect(() => {
@@ -41,9 +39,6 @@ export function TopHeader({
     const handleClickOutside = (event: MouseEvent) => {
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
         setIsToolsMenuOpen(false);
-      }
-      if (modeMenuRef.current && !modeMenuRef.current.contains(event.target as Node)) {
-        setIsModeMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -98,65 +93,10 @@ export function TopHeader({
 
       {/* 右侧：状态展示 */}
       <div className="flex items-center gap-3">
-        {/* ✨ 模式选择下拉菜单 - 替换原来的 Auto/Manual */}
-        <div className="relative" ref={modeMenuRef}>
-          <button
-            onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all ${
-              globalTaskMode === 'normal'
-                ? 'bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400'
-                : globalTaskMode === 'complex'
-                  ? 'bg-orange-100 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-500/30 text-orange-700 dark:text-orange-400'
-                  : globalTaskMode === 'super_executor'
-                    ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400'
-                    : 'bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-400'
-            }`}
-            title="选择任务模式"
-          >
-            {globalTaskMode === 'normal' && <><MessageSquare size={14} /><span className="hidden sm:inline">常规模式</span></>}
-            {globalTaskMode === 'complex' && <><GitBranch size={14} /><span className="hidden sm:inline">复杂任务</span></>}
-            {globalTaskMode === 'super_executor' && <><Zap size={14} /><span className="hidden sm:inline">超级执行者</span></>}
-            {globalTaskMode === 'interactive' && <><Sparkles size={14} /><span className="hidden sm:inline">交互式</span></>}
-            <ChevronDown size={14} className={`transition-transform ${isModeMenuOpen ? 'rotate-180' : ''}`} />
-          </button>
-
-          {/* 下拉菜单 */}
-          {isModeMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/80 rounded-xl shadow-2xl overflow-hidden z-50 min-w-[180px]">
-              <button
-                onClick={() => { setGlobalTaskMode('normal'); setIsModeMenuOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60 transition-colors"
-              >
-                <MessageSquare size={16} className="text-gray-500" />
-                <span>常规模式</span>
-                {globalTaskMode === 'normal' && <span className="ml-auto text-xs text-green-500">✓</span>}
-              </button>
-              <button
-                onClick={() => { setGlobalTaskMode('complex'); setIsModeMenuOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60 transition-colors"
-              >
-                <GitBranch size={16} className="text-orange-400" />
-                <span>复杂任务</span>
-                {globalTaskMode === 'complex' && <span className="ml-auto text-xs text-green-500">✓</span>}
-              </button>
-              <button
-                onClick={() => { setGlobalTaskMode('super_executor'); setIsModeMenuOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60 transition-colors"
-              >
-                <Zap size={16} className="text-green-400" />
-                <span>超级执行者</span>
-                {globalTaskMode === 'super_executor' && <span className="ml-auto text-xs text-green-500">✓</span>}
-              </button>
-              <button
-                onClick={() => { setGlobalTaskMode('interactive'); setIsModeMenuOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60 transition-colors"
-              >
-                <Sparkles size={16} className="text-violet-400" />
-                <span>交互式</span>
-                {globalTaskMode === 'interactive' && <span className="ml-auto text-xs text-green-500">✓</span>}
-              </button>
-            </div>
-          )}
+        {/* ✨ 模式指示 */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400">
+          <MessageSquare size={14} />
+          <span className="hidden sm:inline">常规模式</span>
         </div>
 
         {/* ✨ 积分余额 - 响应式显示 */}

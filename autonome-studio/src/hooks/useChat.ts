@@ -17,13 +17,7 @@ export { useChatEventListeners, useGlobalEvent } from './useChatEventListeners';
 export type { ChatEventListenersConfig } from './useChatEventListeners';
 
 export { useChatStream } from './useChatStream';
-export type {
-  ExecutionPlanData,
-  ExecutionStepData,
-  ExecutionResultData,
-  BlueprintState,
-  ChatStreamConfig,
-} from './useChatStream';
+export type { ChatStreamConfig } from './useChatStream';
 
 // 已有的 hooks
 export { useSmartScroll } from './useSmartScroll';

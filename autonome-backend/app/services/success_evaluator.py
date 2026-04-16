@@ -15,9 +15,6 @@ from datetime import datetime, timedelta
 from app.models.domain import ChatSession, ChatMessage, RoleEnum, SkillExecutionHistory
 from app.core.logger import log
 
-# 系统学习层 - 会话池管理
-from app.services.system_learning.session_pool import get_session_pool
-
 
 class SuccessEvaluator:
     """
@@ -115,26 +112,9 @@ class SuccessEvaluator:
             )
 
             # ==========================================
-            # 系统学习：成功会话加入 SessionPool
+            # 系统学习：已移除 SessionPool
             # ==========================================
-            # 高置信度会话加入学习池，供后续方法提取
-            try:
-                if result.get("confidence", 0) > 0.8 and result.get("is_successful", False):
-                    pool = get_session_pool()
-                    # 获取会话信息
-                    chat_session = self.db.get(ChatSession, session_id)
-                    if chat_session:
-                        pool.add_session(
-                            session_id=session_id,
-                            confidence=result["confidence"],
-                            user_id=chat_session.user_id,
-                            project_id=chat_session.project_id,
-                            message_count=len(messages),
-                            has_code=skill_result.get("total", 0) > 0
-                        )
-                        log.info(f"🧠 [SystemLearning] 会话 {session_id} 已加入学习池")
-            except Exception as e:
-                log.warning(f"添加会话到学习池失败: {e}")
+            # 会话池功能已移除，跳过学习池添加
 
         except Exception as e:
             log.error(f"❌ [SuccessEvaluator] 评估会话失败: {e}")

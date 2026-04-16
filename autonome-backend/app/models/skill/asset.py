@@ -20,16 +20,6 @@ def get_utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ==========================================
-# pgvector Vector 类型导入
-# ==========================================
-try:
-    from pgvector.sqlalchemy import Vector
-except ImportError:
-    # 如果 pgvector 未安装，提供一个 dummy Vector 类型
-    class Vector:
-        def __init__(self, dimension=None):
-            self.dimension = dimension
 
 
 # ==========================================
@@ -102,20 +92,8 @@ class SkillAsset(SkillAssetBase, table=True):
     )
 
     # ==========================================
-    # 语义向量字段 (用于智能推荐)
+    # 语义向量字段已移除（pgvector 不再使用）
     # ==========================================
-    # 使用 pgvector 存储技能的语义向量嵌入
-    # 向量维度: 1536 (OpenAI text-embedding-3-small 维度)
-    # 用途: 基于语义相似度的技能推荐
-    combined_embedding: Optional[List[float]] = Field(
-        default=None,
-        sa_column=Column(Vector(1536)),
-        description="混合语义向量嵌入，结合技能名称、描述、意图、专家知识"
-    )
-    embedding_updated_at: Optional[datetime] = Field(
-        default=None,
-        description="向量嵌入最后更新时间"
-    )
 
     # ==========================================
     # 复合索引定义（性能优化）

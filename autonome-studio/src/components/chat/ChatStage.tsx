@@ -14,7 +14,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ArrowDown, Sparkles, X, Eye, Download, Loader2, Code } from "lucide-react";
+import { ArrowDown, X, Eye, Download, Loader2, Code } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -44,11 +44,9 @@ import { useChatStream } from "@/hooks/useChatStream";
 import { ChatInputBox } from "./ChatInputBox";
 import { MemoizedMessageItem } from "./MemoizedMessageItem";
 import { VirtualizedMessageList } from "./VirtualizedMessageList";
-import { QuickExecute } from "./QuickExecute";
 import {
   TablePreview,
   AttachmentPicker,
-  TransformToSkillPrompt,
 } from "./components";
 import { BASE_URL } from "@/lib/api";
 
@@ -97,8 +95,6 @@ export function ChatStage() {
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
   const [isCodeImportOpen, setIsCodeImportOpen] = useState(false);
   const [importedCode, setImportedCode] = useState("");
-  const [showTransformPrompt, setShowTransformPrompt] = useState(false);
-  const [transformSessionId, setTransformSessionId] = useState<string | null>(null);
 
   // ==========================================
   // 智能滚动 Hook
@@ -156,8 +152,8 @@ export function ChatStage() {
     abortControllerRef,
     isStreamingRef,
   } = useChatStream({
-    onContentUpdate: handleTypewriterUpdate,
     getCurrentContent,
+    appendStream,
     resetStream,
     clearStreamingContent,
     setStreamingMessageId,
@@ -248,59 +244,6 @@ export function ChatStage() {
   }, [setSkillFilterMode, openSkillCenter]);
 
   // ==========================================
-  // 快速执行处理函数
-  // ==========================================
-  const handleQuickExecuteSkill = useCallback((skillId: string, skillName: string) => {
-    handleSend(skillName);
-  }, [handleSend]);
-
-  // ==========================================
-  // 技能转化函数
-  // ==========================================
-  const handleTransformToSkill = useCallback(async (skillName: string) => {
-    if (!currentSessionId) return;
-
-    try {
-      const token = localStorage.getItem('autonome_access_token');
-      const res = await fetch(`${BASE_URL}/api/skills/transform_from_live`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          session_id: currentSessionId,
-          skill_name: skillName || undefined,
-          auto_save: true
-        })
-      });
-
-      const data = await res.json();
-
-      if (data.status === 'success') {
-        setShowTransformPrompt(false);
-
-        if (data.saved) {
-          addMessage('assistant', `✅ **技能已保存为草稿！**
-
-📝 **技能名称**: ${data.skill?.name || '未命名'}
-🆔 **技能 ID**: ${data.skill?.skill_id}
-
-您可以在 **技能工厂** 中继续编辑和完善，或直接在 **技能中心** 中使用它。`);
-        }
-
-        const skillForgeUrl = `/skill-forge?draft=${data.draft?.skill_id || data.skill?.skill_id}`;
-        window.open(skillForgeUrl, '_blank');
-      } else {
-        throw new Error(data.message || '转化失败');
-      }
-    } catch (error: any) {
-      console.error('[Transform] Error:', error);
-      addMessage('assistant', `❌ **技能转化失败**: ${error.message || '请稍后重试'}`);
-    }
-  }, [currentSessionId, addMessage]);
-
-  // ==========================================
   // 发送消息包装函数
   // ==========================================
   const handleSendWrapper = useCallback((messageText: string, contextFiles?: string[]) => {
@@ -336,10 +279,6 @@ export function ChatStage() {
               onOpenBasicAnalysis={handleOpenBasicAnalysis}
             />
 
-            <QuickExecute
-              onExecuteSkill={handleQuickExecuteSkill}
-              onSendMessage={handleSendWrapper}
-            />
           </div>
         </div>
       ) : (
@@ -404,18 +343,6 @@ export function ChatStage() {
               <span>滚动到底部</span>
             </button>
 
-            <AnimatePresence>
-              {showTransformPrompt && transformSessionId && (
-                <TransformToSkillPrompt
-                  sessionId={transformSessionId}
-                  onClose={() => {
-                    setShowTransformPrompt(false);
-                    setTransformSessionId(null);
-                  }}
-                  onTransform={handleTransformToSkill}
-                />
-              )}
-            </AnimatePresence>
           </div>
 
           <div className="shrink-0 px-2 md:px-4 pt-2 pb-3 md:pb-3 bg-white dark:bg-[#131314] pb-[calc(0.75rem+env(safe-area-inset-bottom))]">

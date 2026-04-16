@@ -19,6 +19,3 @@ export {
   AssetTreeCard,
   getFileIcon,
 } from './ExecutionResultCard';
-
-// 技能转化提示组件
-export { TransformToSkillPrompt } from './TransformToSkillPrompt';

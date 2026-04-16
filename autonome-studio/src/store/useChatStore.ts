@@ -27,14 +27,6 @@ export interface Message {
   timestamp: number;
   /** ✨ 消息附件信息 */
   attachments?: MessageAttachments;
-  /** V2: 内联操作数据（InlineActionMenu 4 阶段工作流） */
-  inlineAction?: {
-    stage: "select" | "params" | "execute" | "result";
-    skillId?: string;
-    skillName?: string;
-    params?: Record<string, unknown>;
-    result?: { success: boolean; output?: string; error?: string };
-  };
 }
 
 export interface Bookmark {
@@ -74,8 +66,6 @@ export interface ChatState {
   appendLastMessage: (contentChunk: string) => void;
   // 新增：更新指定消息的内容
   updateMessage: (messageId: string, content: string) => void;
-  // V2: 更新内联操作状态
-  updateInlineAction: (messageId: string, inlineAction: Message['inlineAction']) => void;
   // ✨ 新增：更新最后一条消息的 ID（用于流式结束后同步后端真实消息 ID）
   updateLastMessageId: (newId: string) => void;
   // 新增：删除指定消息及其之后的所有消息（用于重试和编辑）
@@ -122,6 +112,8 @@ export interface ChatState {
   clearStreamingContent: () => void;
   /** 获取当前流式内容（用于同步读取） */
   getCurrentStreamingContent: () => string;
+
+  // V3: 第一性原理消息类别
 
   // 搜索相关状态
   searchQuery: string;
@@ -187,13 +179,6 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
     set((state) => ({
       messages: state.messages.map(msg =>
         msg.id === messageId ? { ...msg, content } : msg
-      ),
-    })),
-  // V2: 更新内联操作状态
-  updateInlineAction: (messageId: string, inlineAction: Message['inlineAction']) =>
-    set((state) => ({
-      messages: state.messages.map(msg =>
-        msg.id === messageId ? { ...msg, inlineAction } : msg
       ),
     })),
   // ✨ 新增：更新最后一条消息的 ID（用于流式结束后同步后端真实消息 ID）

@@ -16,6 +16,8 @@ import json
 import socket
 import asyncio
 import uuid
+import time
+import threading
 from typing import Optional, Dict
 from pathlib import Path
 
@@ -52,7 +54,8 @@ class TerminalSession:
         self.container_id = container_id
         self.project_id = project_id
         self.user_id = user_id
-        self.created_at = asyncio.get_event_loop().time()
+        self.created_at = time.time()
+        self.last_activity = time.time()  # ✨ 最后活跃时间，用于自动回收
 
 
 class TerminalManager:
@@ -64,11 +67,21 @@ class TerminalManager:
     2. 双向字节流泵：WebSocket ↔ Docker attach socket
     3. 会话生命周期管理
     4. 资源限制和安全配置
+    5. ✨ 自动回收超时会话（防止僵尸容器堆积）
     """
+
+    # ✨ 终端会话最大存活时间（秒），默认 2 小时
+    SESSION_MAX_TTL = 7200
+    # ✨ 会话空闲超时时间（秒），默认 30 分钟无活动则回收
+    SESSION_IDLE_TIMEOUT = 1800
+    # ✨ 清理线程检查间隔（秒）
+    CLEANUP_INTERVAL = 60
 
     def __init__(self):
         # 活跃会话字典：session_id -> TerminalSession
         self.active_sessions: Dict[str, TerminalSession] = {}
+        # ✨ 清理线程
+        self._cleanup_thread: Optional[threading.Thread] = None
 
     def _docker_api_request(
         self,
@@ -374,8 +387,70 @@ class TerminalManager:
             return False
 
     def get_session(self, session_id: str) -> Optional[TerminalSession]:
-        """获取会话对象"""
-        return self.active_sessions.get(session_id)
+        """获取会话对象，并更新最后活跃时间"""
+        session = self.active_sessions.get(session_id)
+        if session:
+            session.last_activity = time.time()
+        return session
+
+    def touch_activity(self, session_id: str) -> None:
+        """✨ 更新会话活跃时间（WebSocket 收发数据时调用）"""
+        session = self.active_sessions.get(session_id)
+        if session:
+            session.last_activity = time.time()
+
+    def start_cleanup_thread(self) -> None:
+        """✨ 启动后台清理线程，自动回收超时的终端会话"""
+        if self._cleanup_thread and self._cleanup_thread.is_alive():
+            return
+
+        def _cleanup_loop():
+            while True:
+                try:
+                    self._cleanup_expired_sessions()
+                except Exception as e:
+                    log.error(f"[Terminal] 清理线程异常: {e}")
+                time.sleep(self.CLEANUP_INTERVAL)
+
+        self._cleanup_thread = threading.Thread(target=_cleanup_loop, daemon=True, name="terminal-cleanup")
+        self._cleanup_thread.start()
+        log.info(f"[Terminal] 🧹 清理线程已启动 (TTL={self.SESSION_MAX_TTL}s, idle={self.SESSION_IDLE_TIMEOUT}s)")
+
+    def _cleanup_expired_sessions(self) -> None:
+        """✨ 清理超时的终端会话，防止僵尸容器堆积"""
+        now = time.time()
+        expired_sessions = []
+
+        for session_id, session in list(self.active_sessions.items()):
+            age = now - session.created_at
+            idle = now - session.last_activity
+
+            # 超过最大存活时间 或 超过空闲超时时间
+            if age > self.SESSION_MAX_TTL or idle > self.SESSION_IDLE_TIMEOUT:
+                reason = "TTL过期" if age > self.SESSION_MAX_TTL else "空闲超时"
+                expired_sessions.append((session_id, reason))
+
+        for session_id, reason in expired_sessions:
+            session = self.active_sessions.get(session_id)
+            if session:
+                log.info(f"[Terminal] 🧹 自动回收会话 {session_id[:8]}... (原因: {reason})")
+                try:
+                    # 同步调用 destroy_session 的核心逻辑
+                    container_id = session.container_id
+                    try:
+                        self._docker_api_request("POST", f"/containers/{container_id}/stop?t=5", timeout=10)
+                    except Exception:
+                        pass
+                    self._docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=10)
+                    log.info(f"[Terminal] 🗑️ 僵尸容器已清理: {container_id[:12]}")
+                except Exception as e:
+                    log.warning(f"[Terminal] 清理容器失败: {e}")
+                finally:
+                    if session_id in self.active_sessions:
+                        del self.active_sessions[session_id]
+
+        if expired_sessions:
+            log.info(f"[Terminal] 🧹 本轮清理完成，回收 {len(expired_sessions)} 个会话")
 
 
 # 全局单例

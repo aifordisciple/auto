@@ -1,19 +1,21 @@
 """
-技能推荐系统 API - 根据用户需求智能推荐合适的技能
+技能推荐系统 API - 根据用户需求推荐合适的技能
 
-核心端点:
-- POST /recommend: 基于用户描述推荐技能
-- POST /recommend/data: 基于数据类型推荐技能
-- POST /intent: 意图识别 + 技能推荐（增强版）
-- POST /match: 统一匹配接口（新增，整合三阶段匹配）
-- POST /feedback: 提交匹配反馈（新增）
+核心端点（无 LLM 依赖）:
+- POST /recommend/data: 基于数据类型推荐技能（关键词匹配）
 - GET /trending: 获取热门技能
+- GET /recent: 获取最新上线技能
 - GET /personalized: 获取个性化推荐
+- GET /feedback/stats: 反馈统计
+- POST /feedback/record: 记录行为埋点
+- POST /feedback: 提交匹配反馈
+
+注意: /recommend（LLM）、/match（三阶段匹配）、/intent（意图识别）端点已移除 LLM 依赖
 """
 
 import re
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select, func, or_, and_
 
@@ -24,8 +26,6 @@ from app.models.domain import (
     User, SkillAsset, SkillStatus, SkillExecutionHistory, SkillReview, SkillFavorite,
     SkillMatchingFeedback
 )
-from app.services.intent_recognition import IntentRecognitionService, IntentType
-from app.services.skill_matcher import match_skills
 
 router = APIRouter()
 
@@ -149,7 +149,7 @@ def calculate_match_score(skill: SkillAsset, query: str, data_type: str = None) 
 
 
 # ==========================================
-# POST /recommend - 基于需求描述推荐
+# POST /recommend - 基于需求描述推荐（关键词匹配，无 LLM）
 # ==========================================
 @router.post("/recommend", response_model=RecommendResponse)
 async def recommend_skills(
@@ -158,14 +158,10 @@ async def recommend_skills(
     current_user: User = Depends(get_current_user)
 ):
     """
-    根据用户需求描述推荐技能
+    根据用户需求描述推荐技能（关键词匹配，无 LLM 依赖）
 
-    使用关键词匹配 + 语义相似度推荐最合适的技能
+    使用关键词匹配 + 数据类型匹配推荐最合适的技能
     """
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import HumanMessage, SystemMessage
-    import json
-
     # 获取所有已发布的技能
     skills = session.exec(
         select(SkillAsset).where(SkillAsset.status == SkillStatus.PUBLISHED)
@@ -231,7 +227,7 @@ async def recommend_skills(
             usage_count=item["usage_count"]
         ))
 
-    log.info(f"🎯 [SkillRecommend] 推荐技能: {len(recommendations)} 个, 用户: {current_user.id}")
+    log.info(f"[SkillRecommend] 推荐技能: {len(recommendations)} 个, 用户: {current_user.id}")
 
     return RecommendResponse(
         recommendations=recommendations,
@@ -695,166 +691,10 @@ async def record_behavior(
 
 
 # ==========================================
-# POST /match - 统一匹配接口（新增）
+# POST /match - 统一匹配接口已移除 LLM 依赖
+# 原端点依赖 match_skills（含向量检索+LLM精排），现已移除。
+# 如需恢复，请重新集成 app.services.skill_matcher。
 # ==========================================
-class MatchRequest(BaseModel):
-    """统一匹配请求"""
-    user_query: str = Field(description="用户查询/需求描述")
-    session_id: Optional[str] = Field(default=None, description="聊天会话ID")
-    context: Optional[Dict[str, Any]] = Field(default=None, description="上下文信息（项目文件、历史会话等）")
-    mode: str = Field(
-        default="auto",
-        description="匹配模式: fast(快速,<200ms) / precise(精准,~1-2s) / auto(自动,默认)"
-    )
-
-
-class MatchedSkillResult(BaseModel):
-    """匹配的技能结果"""
-    skill_id: str
-    name: str
-    description: Optional[str]
-    executor_type: str
-    match_score: float
-    match_reason: str
-    match_source: str  # rule | vector | llm | hybrid
-
-
-class MatchResponse(BaseModel):
-    """统一匹配响应"""
-    intent_type: str
-    confidence: float
-    matched_skills: List[MatchedSkillResult]
-    parameters_suggestion: Dict[str, Any]
-    matched_domains: List[str]
-    match_source: str
-    match_mode: str = Field(description="实际使用的匹配模式")
-    reason: str
-
-
-@router.post("/match", response_model=MatchResponse)
-async def unified_match(
-    request: MatchRequest,
-    background_tasks: BackgroundTasks,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    统一匹配接口 - 整合规则/向量/LLM三阶段匹配
-
-    这是技能推荐的主要入口，支持三种匹配模式：
-
-    ## 匹配模式
-    - **fast（快速模式）**: 仅规则+向量匹配，响应时间 <200ms
-      - 适用场景：实时搜索、即时推荐
-      - 牺牲精度换取速度
-
-    - **precise（精准模式）**: 完整三阶段匹配（含LLM精排），响应时间 ~1-2s
-      - 适用场景：用户明确要求精准推荐
-      - 包含参数推断和复杂意图理解
-
-    - **auto（自动模式，默认）**: 根据置信度自动决定是否使用LLM
-      - 高置信度直接返回，低置信度触发LLM
-      - 平衡速度和精度
-
-    返回最优推荐结果和参数建议。
-    """
-    import asyncio
-
-    log.info(f"🎯 [Match] 统一匹配请求: query='{request.user_query[:50]}...', user={current_user.id}, mode={request.mode}")
-
-    try:
-        # 调用统一匹配器，传入匹配模式
-        result = await match_skills(
-            user_query=request.user_query,
-            user_id=current_user.id,
-            context=request.context,
-            mode=request.mode
-        )
-
-        # 获取技能详细信息
-        matched_skills = []
-        for skill_match in result.get("matched_skills", []):
-            skill_id = skill_match.get("skill_id")
-            skill = session.exec(
-                select(SkillAsset).where(SkillAsset.skill_id == skill_id)
-            ).first()
-
-            if skill:
-                matched_skills.append(MatchedSkillResult(
-                    skill_id=skill.skill_id,
-                    name=skill.name,
-                    description=skill.description,
-                    executor_type=skill.executor_type,
-                    match_score=skill_match.get("match_score", 0),
-                    match_reason=skill_match.get("match_reason", "相关技能"),
-                    match_source=result.get("match_source", "hybrid")
-                ))
-
-        # 异步记录反馈
-        if matched_skills:
-            background_tasks.add_task(
-                _record_match_feedback,
-                user_id=current_user.id,
-                session_id=request.session_id or "unknown",
-                query=request.user_query,
-                match_source=result.get("match_source", "hybrid"),
-                recommended_skill_ids=[s.skill_id for s in matched_skills],
-                confidence=result.get("confidence", 0)
-            )
-
-        return MatchResponse(
-            intent_type=result.get("intent_type", "live_coding"),
-            confidence=result.get("confidence", 0),
-            matched_skills=matched_skills,
-            parameters_suggestion=result.get("parameters_suggestion", {}),
-            matched_domains=result.get("matched_domains", []),
-            match_source=result.get("match_source", "hybrid"),
-            match_mode=result.get("match_mode", request.mode),
-            reason=result.get("reason", "")
-        )
-
-    except Exception as e:
-        log.error(f"❌ [Match] 匹配失败: {e}")
-        return MatchResponse(
-            intent_type="live_coding",
-            confidence=0.3,
-            matched_skills=[],
-            parameters_suggestion={},
-            matched_domains=[],
-            match_source="error",
-            match_mode=request.mode,
-            reason=f"匹配失败: {e}"
-        )
-
-
-def _record_match_feedback(
-    user_id: int,
-    session_id: str,
-    query: str,
-    match_source: str,
-    recommended_skill_ids: List[str],
-    confidence: float
-):
-    """后台任务：记录匹配反馈"""
-    try:
-        from app.core.database import engine
-        from sqlmodel import Session as SQLModelSession
-
-        with SQLModelSession(engine) as db_session:
-            feedback = SkillMatchingFeedback(
-                user_id=user_id,
-                session_id=session_id,
-                query=query,
-                match_source=match_source,
-                recommended_skill_ids=recommended_skill_ids,
-                confidence=confidence,
-                accepted=False
-            )
-            db_session.add(feedback)
-            db_session.commit()
-            log.info(f"📝 [Match] 记录反馈: user={user_id}, skills={len(recommended_skill_ids)}")
-    except Exception as e:
-        log.warning(f"记录反馈失败: {e}")
 
 
 # ==========================================
@@ -943,120 +783,7 @@ async def submit_match_feedback(
 
 
 # ==========================================
-# POST /intent - 意图识别 + 技能推荐（增强版）
+# POST /intent - 意图识别已移除 LLM 依赖
+# 原端点依赖 IntentRecognitionService（含 LLM 调用），现已移除。
+# 如需恢复，请重新集成 app.services.intent_recognition。
 # ==========================================
-class IntentDetectRequest(BaseModel):
-    """意图检测请求"""
-    user_query: str = Field(description="用户输入/查询")
-    session_id: Optional[str] = Field(default=None, description="聊天会话ID")
-
-
-class IntentSkillMatch(BaseModel):
-    """意图匹配的技能"""
-    skill_id: str
-    name: str
-    description: Optional[str]
-    executor_type: str
-    match_score: float
-    match_reason: str
-
-
-class IntentDetectResponse(BaseModel):
-    """意图检测响应"""
-    intent_type: str  # explicit_skill, implicit_skill, live_coding, general_question
-    confidence: float
-    matched_skills: List[IntentSkillMatch]
-    matched_domains: List[str]
-    reason: str
-    should_inject: bool  # 是否应该在聊天上下文中注入推荐
-
-
-@router.post("/intent", response_model=IntentDetectResponse)
-async def detect_user_intent(
-    request: IntentDetectRequest,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    意图识别 + 技能推荐
-
-    分析用户输入，判断是否有技能调用意图，并返回匹配的技能推荐
-    """
-    # 获取可用技能
-    skills = session.exec(
-        select(SkillAsset).where(
-            or_(
-                SkillAsset.status == SkillStatus.PUBLISHED,
-                SkillAsset.owner_id == current_user.id
-            )
-        )
-    ).all()
-
-    # 转换为意图识别服务需要的格式
-    skills_data = [
-        {
-            "skill_id": s.skill_id,
-            "name": s.name,
-            "description": s.description,
-            "executor_type": s.executor_type
-        }
-        for s in skills
-    ]
-
-    # 初始化意图识别服务
-    intent_service = IntentRecognitionService(session)
-
-    # 检测意图
-    intent_result = intent_service.detect_intent(request.user_query, skills_data)
-
-    # 记录推荐日志
-    if intent_result["matched_skills"]:
-        intent_service.log_recommendation(
-            user_id=current_user.id,
-            session_id=request.session_id or "unknown",
-            query=request.user_query,
-            intent_result=intent_result
-        )
-
-    # 构建匹配技能列表
-    matched_skills = []
-    for match in intent_result.get("matched_skills", []):
-        skill = next((s for s in skills if s.skill_id == match["skill_id"]), None)
-        if skill:
-            # 获取评分
-            rating_result = session.exec(
-                select(func.avg(SkillReview.rating)).where(
-                    SkillReview.skill_id == skill.skill_id
-                )
-            ).first()
-            avg_rating = float(rating_result[0] or 0) if rating_result else 0
-
-            matched_skills.append(IntentSkillMatch(
-                skill_id=skill.skill_id,
-                name=skill.name,
-                description=skill.description,
-                executor_type=skill.executor_type,
-                match_score=match["match_score"],
-                match_reason=match["match_reason"]
-            ))
-
-    # 判断是否应该注入推荐到聊天上下文
-    should_inject = (
-        intent_result["intent_type"] in [IntentType.EXPLICIT_SKILL, IntentType.IMPLICIT_SKILL]
-        and intent_result["confidence"] > 0.5
-        and len(matched_skills) > 0
-    )
-
-    log.info(f"🎯 [IntentDetect] 意图: {intent_result['intent_type']}, "
-             f"置信度: {intent_result['confidence']:.2f}, "
-             f"匹配技能: {len(matched_skills)}, "
-             f"注入推荐: {should_inject}")
-
-    return IntentDetectResponse(
-        intent_type=intent_result["intent_type"],
-        confidence=intent_result["confidence"],
-        matched_skills=matched_skills,
-        matched_domains=intent_result.get("matched_domains", []),
-        reason=intent_result.get("reason", ""),
-        should_inject=should_inject
-    )

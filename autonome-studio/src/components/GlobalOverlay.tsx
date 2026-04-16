@@ -22,30 +22,6 @@ const DataCenter = dynamic(() => import("./overlays/DataCenter").then(m => m.Dat
   ),
 });
 
-const SuperExecutorPanel = dynamic(() => import("./overlays/SuperExecutorPanel").then(m => m.SuperExecutorPanel), {
-  ssr: false,
-  loading: () => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-neutral-900 rounded-xl p-8 flex flex-col items-center gap-4">
-        <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
-        <span className="text-neutral-400">加载超级执行器...</span>
-      </div>
-    </div>
-  ),
-});
-
-const ClaudeTerminal = dynamic(() => import("./overlays/ClaudeTerminal").then(m => m.ClaudeTerminal), {
-  ssr: false,
-  loading: () => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-neutral-900 rounded-xl p-8 flex flex-col items-center gap-4">
-        <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full" />
-        <span className="text-neutral-400">加载 Claude 终端...</span>
-      </div>
-    </div>
-  ),
-});
-
 // ✨ 中型面板 - 简单 loading
 const ControlPanel = dynamic(() => import("./overlays/ControlPanel").then(m => m.ControlPanel), { ssr: false });
 const ProjectCenter = dynamic(() => import("./overlays/ProjectCenter").then(m => m.ProjectCenter), { ssr: false });
@@ -112,9 +88,7 @@ export function GlobalOverlay() {
       <ForgeOverlay />
       <TopUpModal />
       <PackageManager />
-      <SuperExecutorPanel />
       <WebTerminal />
-      <ClaudeTerminal />
       <UserCenter />
       
       <AnimatePresence>

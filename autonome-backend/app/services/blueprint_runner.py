@@ -24,9 +24,6 @@ from app.core.database import engine
 from app.core.logger import log
 from app.models.domain import User
 
-# 语义化目录命名
-from app.utils.semantic_naming import generate_blueprint_root_name
-
 
 # ==========================================
 # Redis 键前缀常量
@@ -297,56 +294,10 @@ async def _run_blueprint_async(
     Returns:
         执行统计信息
     """
-    from app.services.orchestrator import BlueprintOrchestrator
+    # BlueprintOrchestrator 已移除，不再导入
 
-    # ==========================================
-    # 创建语义化蓝图根目录 (Semantic Blueprint Root Directory)
-    # ==========================================
-    # 格式: YYYYMMDD_HHMMSS_BLUEPRINT_ALIAS_SHORTID
-
-    # ✨ 优先使用 AI 生成的语义名
-    ai_semantic_name = blueprint_data.get("semantic_folder_name")
-    blueprint_alias = blueprint_data.get("project_goal", "Analysis_Pipeline")
-
-    if ai_semantic_name:
-        # 清理语义名（确保只包含合法字符）
-        import re
-        ai_semantic_name = re.sub(r"[^a-z0-9_]", "", ai_semantic_name.lower())[:30]
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        short_id = str(task_id)[:6]
-        blueprint_root_name = f"{timestamp}_{ai_semantic_name}_{short_id}"
-        log.info(f"🎯 [BlueprintRunner] 使用 AI 生成的语义名: {ai_semantic_name}")
-    else:
-        # Fallback: 使用原有的 project_goal 生成
-        blueprint_root_name = generate_blueprint_root_name(
-            blueprint_alias=blueprint_alias,
-            blueprint_id=task_id,
-            timestamp=datetime.now(),
-        )
-
-    blueprint_root_dir = f"/workspace/project_{project_id}/results/{blueprint_root_name}"
-    os.makedirs(blueprint_root_dir, exist_ok=True)
-
-    log.info(f"📁 [BlueprintRunner] 创建蓝图根目录: {blueprint_root_name}")
-
-    # 创建调度器
-    orchestrator = BlueprintOrchestrator(
-        blueprint_data=blueprint_data,
-        blueprint_root_dir=blueprint_root_dir,  # 传递蓝图根目录
-        blueprint_id=task_id,  # 传递蓝图 ID 用于步骤命名
-    )
-
-    # 费用累计
-    cost_credits = 0.0
-
-    # 统计信息
-    stats = {
-        "success_count": 0,
-        "failed_count": 0,
-        "review_failed_count": 0
-    }
-
-    log.info(f"🚀 [BlueprintRunner] 开始执行蓝图 - task_id={task_id}")
+    # BlueprintOrchestrator 已移除，蓝图 DAG 执行不再可用
+    log.warning(f"[BlueprintRunner] BlueprintOrchestrator 已移除，蓝图执行不可用 - task_id={task_id}")
 
     # 推送开始事件
     push_event_to_redis(
@@ -359,73 +310,21 @@ async def _run_blueprint_async(
         }
     )
 
-    # 流式执行 DAG
-    async for event in orchestrator.run_dag_stream(
-        api_key=api_key,
-        base_url=base_url,
-        model_name=model_name,
-        project_id=project_id,
-        session_id=f"blueprint_{task_id}",
-        enable_visual_review=enable_visual_review,
-        max_review_attempts=max_review_attempts
-    ):
-        event_type = event.get("event", "unknown")
-        event_data_raw = event.get("data", "{}")
-
-        # 解析 data（可能是字符串或 dict）
-        if isinstance(event_data_raw, str):
-            try:
-                event_data = json.loads(event_data_raw)
-            except json.JSONDecodeError:
-                event_data = {"raw": event_data_raw}
-        else:
-            event_data = event_data_raw
-
-        # 推送事件到 Redis
-        push_event_to_redis(
-            redis_client=redis_client,
-            task_id=task_id,
-            event_type=event_type,
-            data=event_data
-        )
-
-        # 更新节点状态
-        node_id = event_data.get("task_id")
-        if node_id and event_type in ["task_start", "task_complete", "task_failed"]:
-            status_map = {
-                "task_start": "running",
-                "task_complete": event_data.get("status", "success"),
-                "task_failed": "failed"
-            }
-            update_task_state(
-                redis_client=redis_client,
-                task_id=task_id,
-                node_id=node_id,
-                status=status_map.get(event_type, "pending"),
-                result=event_data.get("result"),
-                error=event_data.get("error")
-            )
-
-        # 累计费用
-        if event_type == "task_complete":
-            cost_credits += 1.0
-            stats["success_count"] += 1
-        elif event_type == "task_failed":
-            stats["failed_count"] += 1
-        elif event_type == "visual_review_pass":
-            cost_credits += 0.5
-        elif event_type == "visual_review_reject":
-            pass  # 审稿打回不额外收费
-        elif event_type == "blueprint_complete":
-            stats["success_count"] = event_data.get("success_count", 0)
-            stats["failed_count"] = event_data.get("failed_count", 0)
-            stats["review_failed_count"] = event_data.get("review_failed_count", 0)
-
-    log.info(f"✅ [BlueprintRunner] 蓝图执行完成 - task_id={task_id}")
+    # 推送错误事件
+    push_event_to_redis(
+        redis_client=redis_client,
+        task_id=task_id,
+        event_type="blueprint_error",
+        data={"error": "BlueprintOrchestrator 已移除，蓝图执行不可用"}
+    )
 
     return {
-        "cost_credits": cost_credits,
-        "stats": stats
+        "cost_credits": 0,
+        "stats": {
+            "success_count": 0,
+            "failed_count": len(blueprint_data.get("tasks", [])),
+            "review_failed_count": 0
+        }
     }
 
 

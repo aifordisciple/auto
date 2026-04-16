@@ -300,48 +300,12 @@ async def check_embedding_health() -> Dict[str, Any]:
             "error": 错误信息（如果有）
         }
     """
-    start_time = time.time()
-
-    try:
-        from app.services.local_embedding_service import get_local_embedding_service
-
-        service = get_local_embedding_service()
-        model_name = os.getenv("OLLAMA_EMBED_MODEL", "bge-m3:latest")
-
-        if service is None:
-            return {
-                "status": "not_configured",
-                "model": model_name,
-                "latency_ms": 0,
-            }
-
-        # 检查服务健康状态
-        health = await service.check_health()
-
-        latency_ms = round((time.time() - start_time) * 1000, 2)
-
-        return {
-            "status": health.get("status", "unknown"),
-            "model": health.get("model", model_name),
-            "latency_ms": health.get("latency_ms", latency_ms),
-            "type": "ollama",
-        }
-
-    except ImportError:
-        return {
-            "status": "not_configured",
-            "model": os.getenv("OLLAMA_EMBED_MODEL", "unknown"),
-            "latency_ms": 0,
-        }
-
-    except Exception as e:
-        log.error(f"[HealthCheck] Embedding service check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "model": os.getenv("OLLAMA_EMBED_MODEL", "unknown"),
-            "latency_ms": round((time.time() - start_time) * 1000, 2),
-            "error": str(e),
-        }
+    # 本地嵌入服务已移除，返回 not_configured
+    return {
+        "status": "not_configured",
+        "model": os.getenv("OLLAMA_EMBED_MODEL", "unknown"),
+        "latency_ms": 0,
+    }
 
 
 async def check_docker_health() -> Dict[str, Any]:

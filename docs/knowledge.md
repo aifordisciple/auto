@@ -677,4 +677,46 @@ await fetchEventSource(`${BASE_URL}/api/chat/stream`, {
 
 ---
 
-*Last Updated: 2026-03-05*
+## 10. V2 Agent 架构升级 (2026-04-09 ~ 2026-04-12)
+
+### 10.1 V2 核心变更
+
+| 维度 | V1 | V2 |
+|------|----|----|
+| Agent 构建器 | `build_bio_agent` 系列 | `build_unified_agent()` (唯一) |
+| 图结构 | 多节点 StateGraph | 单节点 StateGraph |
+| 意图类型 | 7 种 | 5 种 (PIPELINE_BUILD→VAGUE_ANALYSIS, UI_UPDATE→SYSTEM_ACTION) |
+| 参数推断 | LLM 推断 | 4 级确定性预填 (零 LLM 成本) |
+| 模糊分析 | 仅 SuperExecutorV4 | SandboxPlanner → 回退 SuperExecutorV4 |
+| 参数修改 | 重新执行 | 自然语言 ParamUpdate |
+| 路由 | 条件边 | `unified_agent_node` 内部分发 |
+
+### 10.2 V2 新增组件
+
+| 组件 | 文件 | 功能 |
+|------|------|------|
+| SandboxPlanner | `nodes/sandbox_planner.py` | PTY + Claude Code 沙箱规划 |
+| SkillFormBuilder | `nodes/skill_form_builder.py` | 4 级参数预填 |
+| ParamUpdate | `nodes/param_update.py` | 自然语言参数修改 |
+| ContainerPoolService | `services/container_pool_service.py` | Docker 容器暖池 |
+| PtyManager | `services/pty_manager.py` | Claude Code PTY 会话管理 |
+| TerminalManager | `services/terminal_manager.py` | Web 终端 Docker PTY |
+| CacheService | `services/cache_service.py` | 三级缓存 (L1/L2/L3) |
+| AgentCache | `services/agent_cache.py` | Agent LRU 缓存 |
+| IntentClassifier | `services/intent_classifier.py` | 轻量级意图分类 |
+
+### 10.3 V2 前端新增
+
+| 组件 | 功能 |
+|------|------|
+| RecommendationCard | 技能推荐卡片 (渲染 json_action_menu) |
+| InlineActionMenu | 4 阶段内联操作工作流 |
+| ParameterGroupPanel | 参数智能分组 |
+| CommandPalette | VS Code 风格命令面板 |
+| OnboardingGuide | 新手引导 |
+| Adapter 层 | Web + Tauri 双平台适配 |
+| Custom Hooks | 12 个 hooks (useChatStream, useSmartScroll 等) |
+
+---
+
+*Last Updated: 2026-04-12*

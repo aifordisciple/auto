@@ -5,7 +5,6 @@
  * 1. 管理聊天消息的发送和流式接收
  * 2. 处理 SSE (Server-Sent Events) 流式输出
  * 3. 支持中断流式输出
- * 4. 处理超级执行者 V2 事件
  *
  * 从 ChatStage.tsx 提取，减少主组件复杂度
  */
@@ -14,50 +13,17 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useChatStore, ChatState } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { useUIStore } from '@/store/useUIStore';
 import { BASE_URL } from '@/lib/api';
 
 // ==========================================
 // 类型定义
 // ==========================================
 
-export interface ExecutionPlanData {
-  plan_id: string;
-  goal: string;
-  steps: ExecutionStepData[];
-  estimated_time?: number;
-}
-
-export interface ExecutionStepData {
-  step_id: string;
-  name: string;
-  description?: string;
-  status: 'pending' | 'running' | 'success' | 'failed';
-  execution_time?: number;
-  output?: string;
-  error?: string;
-  retry_count?: number;
-}
-
-export interface ExecutionResultData {
-  success: boolean;
-  total_time: number;
-  steps_completed: number;
-  steps_failed: number;
-  summary?: string;
-}
-
-export interface BlueprintState {
-  blueprint_id: string;
-  project_goal: string;
-  total_tasks: number;
-}
-
 export interface ChatStreamConfig {
-  /** 流式内容更新回调 */
-  onContentUpdate: (content: string) => void;
   /** 获取当前流式内容 */
   getCurrentContent: () => string;
+  /** 追加流式内容到即时渲染 hook（保持 useImmediateStream refs 同步） */
+  appendStream: (chunk: string) => void;
   /** 重置流式状态 */
   resetStream: () => void;
   /** 清除流式内容 */
@@ -80,8 +46,8 @@ export interface ChatStreamConfig {
 
 export function useChatStream(config: ChatStreamConfig) {
   const {
-    onContentUpdate,
     getCurrentContent,
+    appendStream,
     resetStream,
     clearStreamingContent,
     setStreamingMessageId,
@@ -104,12 +70,8 @@ export function useChatStream(config: ChatStreamConfig) {
   const clearPendingChatAttachments = useWorkspaceStore(state => state.clearPendingChatAttachments);
   const pendingChatSkill = useWorkspaceStore(state => state.pendingChatSkill);
   const clearPendingChatSkill = useWorkspaceStore(state => state.clearPendingChatSkill);
-  const setActiveTool = useWorkspaceStore(state => state.setActiveTool);
-  const updateToolParam = useWorkspaceStore(state => state.updateToolParam);
-  const setClaudeCodeSessionId = useWorkspaceStore(state => state.setClaudeCodeSessionId);
 
   const { updateCredits } = useAuthStore();
-  const globalTaskMode = useUIStore(state => state.globalTaskMode);
 
   // Refs
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -210,8 +172,8 @@ export function useChatStream(config: ChatStreamConfig) {
       clearPendingChatSkill();
     }
 
-    // 使用全局任务模式
-    const taskModeToSend = globalTaskMode === 'normal' ? null : globalTaskMode;
+    // 任务模式已简化为 normal，不再发送 task_mode
+    const taskModeToSend = null;
 
     // 重置余额不足标志
     isInsufficientCreditsRef.current = false;
@@ -279,38 +241,14 @@ export function useChatStream(config: ChatStreamConfig) {
                 headers: { 'Authorization': `Bearer ${token}` }
               }).catch(e => console.error("自动命名失败", e));
             }
-          } else if (event.event === 'intent_detected') {
-            // ✨ 意图检测结果事件
-            const data = JSON.parse(event.data);
-            console.log('[Chat] 意图检测:', data.intent_type, data.reason);
-            // 发送自定义事件供其他组件监听
-            window.dispatchEvent(new CustomEvent('intent-detected', { detail: data }));
-          } else if (event.event === 'recommendation_card') {
-            // ✨ 推荐选择卡片事件
-            const data = JSON.parse(event.data);
-            console.log('[Chat] 推荐卡片:', data.options?.length, '个选项');
-            // 发送自定义事件供其他组件监听
-            window.dispatchEvent(new CustomEvent('recommendation-card', { detail: data }));
-          } else if (event.event === 'strategy_card_update') {
-            // V2: 策略卡片原地更新事件（不闪烁）
-            const data = JSON.parse(event.data);
-            window.dispatchEvent(new CustomEvent('strategy-card-update', { detail: data }));
-          } else if (event.event === 'planner_status' || event.event === 'planner_log' || event.event === 'planner_result') {
-            // V2: 沙箱规划器 SSE 事件
-            const data = JSON.parse(event.data);
-            window.dispatchEvent(new CustomEvent(event.event, { detail: data }));
           } else if (event.event === 'message') {
             const data = JSON.parse(event.data);
-            onContentUpdate(data.content);
+            // 通过 appendStream 写入 useImmediateStream，由其 flushRender 机制
+            // 自动将完整累积内容传递给 Zustand store
+            appendStream(data.content);
             // 只有在底部附近且用户没有暂停时才自动滚动
             if (isAtBottom && !isPaused) {
               requestAnimationFrame(() => scrollToBottom());
-            }
-          } else if (event.event === 'tool') {
-            const data = JSON.parse(event.data);
-            setActiveTool(data.tool);
-            if (data.tool.id === 'rnaseq-qc') {
-              setTimeout(() => updateToolParam('qual_threshold', 30), 300);
             }
           } else if (event.event === 'billing') {
             const data = JSON.parse(event.data);
@@ -331,7 +269,7 @@ export function useChatStream(config: ChatStreamConfig) {
             isStreamingRef.current = false;
             setIsTyping(false);
           } else if (event.event === 'done') {
-            // ✨ 使用 ref 防止重复提交
+            // 使用 ref 防止重复提交
             if (!hasCommittedRef.current) {
               const finalContent = getCurrentContent();
               if (finalContent) {
@@ -342,16 +280,6 @@ export function useChatStream(config: ChatStreamConfig) {
             clearStreamingContent();
             isStreamingRef.current = false;
             setIsTyping(false);
-            // 保存 Claude Code 会话 ID
-            try {
-              const data = JSON.parse(event.data);
-              if (data.session_id) {
-                console.log('[Chat] Claude Code session ID:', data.session_id);
-                setClaudeCodeSessionId(data.session_id);
-              }
-            } catch (e) {
-              // 忽略解析错误
-            }
           }
         },
         onclose() {
@@ -393,7 +321,6 @@ export function useChatStream(config: ChatStreamConfig) {
     currentSessionId,
     pendingChatAttachments,
     pendingChatSkill,
-    globalTaskMode,
     addMessage,
     appendLastMessage,
     setIsTyping,
@@ -401,11 +328,8 @@ export function useChatStream(config: ChatStreamConfig) {
     setCurrentSessionId,
     clearPendingChatAttachments,
     clearPendingChatSkill,
-    setActiveTool,
-    updateToolParam,
-    setClaudeCodeSessionId,
     updateCredits,
-    onContentUpdate,
+    appendStream,
     getCurrentContent,
     resetStream,
     clearStreamingContent,

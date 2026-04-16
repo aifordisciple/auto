@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Hammer } from 'lucide-react';
 import { useUIStore } from '@/store/useUIStore';
 import { useForgeStore } from '@/store/useForgeStore';
-import { ForgeChatStage } from '@/app/skill-forge/components/ForgeChatStage';
 import { SkillDraftEditor } from '@/app/skill-forge/components/SkillDraftEditor';
 
 export function ForgeOverlay() {
@@ -53,7 +52,6 @@ export function ForgeOverlay() {
               <div className="flex items-center gap-3">
                 <Hammer className="text-blue-500" size={20} />
                 <h2 className="font-semibold text-gray-900 dark:text-white">技能锻造工厂</h2>
-                <span className="text-xs text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">AI 驱动</span>
               </div>
               <button
                 onClick={handleClose}
@@ -63,15 +61,9 @@ export function ForgeOverlay() {
               </button>
             </div>
 
-            {/* 主内容区 - 双栏布局 */}
+            {/* 主内容区 - 单栏布局（AI对话已移除） */}
             <div className="flex-1 flex overflow-hidden">
-              {/* 左栏：AI对话区 */}
-              <div className="w-1/2 flex flex-col border-r border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-[#1e1e1f]/50">
-                <ForgeChatStage />
-              </div>
-
-              {/* 右栏：技能编辑/预览区 */}
-              <div className="w-1/2 flex flex-col bg-white dark:bg-[#1e1e1f] relative">
+              <div className="flex-1 flex flex-col bg-white dark:bg-[#1e1e1f] relative">
                 <SkillDraftEditor />
               </div>
             </div>

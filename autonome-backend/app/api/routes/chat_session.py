@@ -18,7 +18,7 @@ from app.core.database import get_session
 from app.models.domain import (
     ChatSession, ChatMessage, Project, User, RoleEnum,
     MessageBookmark, SkillRecommendationLog, SessionSummaryCache,
-    SessionTagRelation, SkillExecutionHistory, ExperienceAsset, SystemConfig
+    SessionTagRelation, SkillExecutionHistory, ExperienceAsset
 )
 from app.api.deps import get_current_user
 from app.core.logger import log
@@ -221,7 +221,11 @@ def auto_name_session(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    """AI 自动根据第一条消息提炼标题"""
+    """
+    根据第一条消息自动生成标题（基于截断，无 LLM 依赖）
+
+    取第一条消息的前 30 个字符作为标题，省略部分用 ... 补充
+    """
     chat_session = session.get(ChatSession, session_id)
     if not chat_session:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -239,29 +243,17 @@ def auto_name_session(
     if not first_msg:
         return {"title": chat_session.title}
 
-    config = session.get(SystemConfig, 1)
+    # 基于截断生成标题，无需 LLM
+    content = (first_msg.content or "").strip()
+    # 移除换行，取前 30 个字符
+    content_oneline = content.replace("\n", " ").replace("\r", " ")
+    max_len = 30
+    if len(content_oneline) > max_len:
+        new_title = content_oneline[:max_len] + "..."
+    else:
+        new_title = content_oneline or "新对话"
 
-    try:
-        from openai import OpenAI
-        client = OpenAI(
-            api_key=config.openai_api_key or "ollama",
-            base_url=config.openai_base_url or "http://localhost:11434/v1"
-        )
-
-        response = client.chat.completions.create(
-            model=config.default_model or "gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "你是一个标题生成器。请根据用户的提问，生成一个4到8个字的极简对话标题。不要加引号或任何标点符号。"},
-                {"role": "user", "content": first_msg.content}
-            ],
-            max_tokens=15,
-            temperature=0.3
-        )
-        new_title = response.choices[0].message.content.strip().replace('"', '').replace("'", '')
-        chat_session.title = new_title
-        session.add(chat_session)
-        session.commit()
-        return {"status": "success", "title": new_title}
-    except Exception as e:
-        log.error(f"AI 命名失败: {str(e)}")
-        return {"status": "error", "title": chat_session.title}
+    chat_session.title = new_title
+    session.add(chat_session)
+    session.commit()
+    return {"status": "success", "title": new_title}

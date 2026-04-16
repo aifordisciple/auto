@@ -121,7 +121,6 @@ run_custom_python_task = _registered_tasks.get("run_custom_python_task")
 run_custom_r_task = _registered_tasks.get("run_custom_r_task")
 execute_bundle_task = _registered_tasks.get("execute_bundle_task")
 execute_blueprint_task = _registered_tasks.get("execute_blueprint_task")
-execute_super_executor_task = _registered_tasks.get("execute_super_executor_task")
 
 
 # ==========================================
@@ -133,5 +132,4 @@ TASK_REGISTRY = {
     "sc-rna-analysis": run_scrna_analysis_pipeline,
     "execute-python": run_custom_python_task,
     "execute-r": run_custom_r_task,
-    "super-executor": execute_super_executor_task,
 }

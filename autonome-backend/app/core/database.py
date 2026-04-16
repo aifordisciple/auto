@@ -24,15 +24,8 @@ engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
 
 def create_db_and_tables():
     """建表函数，稍后在 main.py 启动时调用"""
-    # ✨ 如果是 PostgreSQL，先创建 pgvector 扩展
     if "postgresql" in settings.DATABASE_URL:
         with engine.connect() as conn:
-            try:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                conn.commit()
-            except Exception as e:
-                print(f"Warning: Could not create pgvector extension: {e}")
-
             # ✨ 确保 skillstatus 枚举包含所有必需的值
             # 这是为了处理已有数据库中枚举值不完整的情况
             try:

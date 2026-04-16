@@ -24,10 +24,8 @@ type OverlayType =
   | 'skillCenter'
   | 'skillForge'
   | 'packageManager'
-  | 'superExecutor'
   | 'terminal'
   | 'userCenter'
-  | 'claudeTerminal'
   | 'chatSearch'
   | null;
 
@@ -46,17 +44,14 @@ interface UIState {
   isSkillCenterOpen: boolean;
   isSkillForgeOpen: boolean;
   isPackageManagerOpen: boolean;
-  isSuperExecutorOpen: boolean;
   isTerminalOpen: boolean;
   isUserCenterOpen: boolean;
-  isClaudeTerminalOpen: boolean;
   isChatSearchOpen: boolean;
 
   // ==========================================
   // 终端特殊状态
   // ==========================================
   isTerminalFullscreen: boolean;
-  claudeSessionId: string | null;
 
   // ==========================================
   // 移动端菜单状态
@@ -81,7 +76,7 @@ interface UIState {
   // ==========================================
   // 全局任务模式
   // ==========================================
-  globalTaskMode: 'normal' | 'complex' | 'super_executor' | 'interactive';
+  globalTaskMode: 'normal';
 
   // ==========================================
   // V2: 内联展开状态（替代全局弹窗）
@@ -106,9 +101,6 @@ interface UIState {
   // 技能过滤
   setSkillFilterMode: (mode: 'all' | 'basic') => void;
 
-  // 任务模式
-  setGlobalTaskMode: (mode: 'normal' | 'complex' | 'super_executor' | 'interactive') => void;
-
   // 面板切换（统一处理）
   toggleOverlay: (type: OverlayType) => void;
   openOverlay: (type: OverlayType) => void;
@@ -123,7 +115,6 @@ interface UIState {
   toggleSkillCenter: () => void;
   toggleSkillForge: () => void;
   togglePackageManager: () => void;
-  toggleSuperExecutor: () => void;
   toggleTerminal: () => void;
   toggleTerminalFullscreen: () => void;
   toggleUserCenter: () => void;
@@ -132,13 +123,9 @@ interface UIState {
   openDataCenter: () => void;
   openSkillForge: () => void;
   openPackageManager: () => void;
-  openSuperExecutor: () => void;
-  closeSuperExecutor: () => void;
   openTerminal: () => void;
   closeTerminal: () => void;
   openUserCenter: () => void;
-  openClaudeTerminal: (sessionId: string) => void;
-  closeClaudeTerminal: () => void;
   openChatSearch: () => void;
   closeChatSearch: () => void;
   closeAllOverlays: () => void;
@@ -161,10 +148,8 @@ const getOverlayFlags = (activeOverlay: OverlayType) => ({
   isSkillCenterOpen: activeOverlay === 'skillCenter',
   isSkillForgeOpen: activeOverlay === 'skillForge',
   isPackageManagerOpen: activeOverlay === 'packageManager',
-  isSuperExecutorOpen: activeOverlay === 'superExecutor',
   isTerminalOpen: activeOverlay === 'terminal',
   isUserCenterOpen: activeOverlay === 'userCenter',
-  isClaudeTerminalOpen: activeOverlay === 'claudeTerminal',
   isChatSearchOpen: activeOverlay === 'chatSearch',
 });
 
@@ -179,7 +164,6 @@ export const useUIStore = create<UIState>()(
       ...getOverlayFlags(null),
 
       isTerminalFullscreen: false,
-      claudeSessionId: null,
       isMobileMenuOpen: false,
       autoExecuteStrategy: false,
       theme: 'dark',
@@ -215,11 +199,6 @@ export const useUIStore = create<UIState>()(
       // 技能过滤
       // ==========================================
       setSkillFilterMode: (mode) => set({ skillFilterMode: mode }),
-
-      // ==========================================
-      // 任务模式
-      // ==========================================
-      setGlobalTaskMode: (mode) => set({ globalTaskMode: mode }),
 
       // ==========================================
       // 统一面板操作（核心优化）
@@ -260,7 +239,6 @@ export const useUIStore = create<UIState>()(
       toggleSkillCenter: () => get().toggleOverlay('skillCenter'),
       toggleSkillForge: () => get().toggleOverlay('skillForge'),
       togglePackageManager: () => get().toggleOverlay('packageManager'),
-      toggleSuperExecutor: () => get().toggleOverlay('superExecutor'),
       toggleTerminal: () => get().toggleOverlay('terminal'),
       toggleTerminalFullscreen: () => set(produce((state) => {
         state.isTerminalFullscreen = !state.isTerminalFullscreen;
@@ -272,22 +250,9 @@ export const useUIStore = create<UIState>()(
       openDataCenter: () => get().openOverlay('dataCenter'),
       openSkillForge: () => get().openOverlay('skillForge'),
       openPackageManager: () => get().openOverlay('packageManager'),
-      openSuperExecutor: () => get().openOverlay('superExecutor'),
-      closeSuperExecutor: () => get().closeOverlay(),
       openTerminal: () => get().openOverlay('terminal'),
       closeTerminal: () => set({ activeOverlay: null, isTerminalFullscreen: false, ...getOverlayFlags(null) }),
       openUserCenter: () => get().openOverlay('userCenter'),
-
-      openClaudeTerminal: (sessionId) => set(produce((state) => {
-        state.activeOverlay = 'claudeTerminal';
-        state.claudeSessionId = sessionId;
-        Object.assign(state, getOverlayFlags('claudeTerminal'));
-      })),
-      closeClaudeTerminal: () => set(produce((state) => {
-        state.activeOverlay = null;
-        state.claudeSessionId = null;
-        Object.assign(state, getOverlayFlags(null));
-      })),
 
       openChatSearch: () => get().openOverlay('chatSearch'),
       closeChatSearch: () => get().closeOverlay(),
@@ -295,7 +260,6 @@ export const useUIStore = create<UIState>()(
       closeAllOverlays: () => set(produce((state) => {
         state.activeOverlay = null;
         state.isTerminalFullscreen = false;
-        state.claudeSessionId = null;
         Object.assign(state, getOverlayFlags(null));
       })),
 
@@ -349,5 +313,4 @@ export const useTheme = () => useUIStore((state) => ({
  */
 export const useGlobalTaskMode = () => useUIStore((state) => ({
   globalTaskMode: state.globalTaskMode,
-  setGlobalTaskMode: state.setGlobalTaskMode,
 }));

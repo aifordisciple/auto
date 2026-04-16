@@ -17,7 +17,6 @@ from app.core.database import engine
 from app.core.logger import log
 from app.models.domain import SystemConfig
 from app.services.task_logger import create_task_logger, safe_add_chat_message, redis_client
-from app.services.code_fixer import fix_code_with_llm
 from app.utils.argparse_injector import inject_python_argparse_params, inject_r_argparse_params
 from app.tools.bio_tools import run_container
 
@@ -312,76 +311,11 @@ def register_sandbox_tasks(celery_app: Celery):
                         for line in result_output.split('\n')[-50:]:
                             log_msg(f"   {line}", level="ERROR")
 
-                    # 启动 AI 自动修复重试逻辑
-                    log_msg(f"🔧 启动 AI 自动修复引擎...", level="WARNING")
-                    max_retries = 3
-                    current_code = code
-                    last_error = result_output
-
-                    for retry_attempt in range(1, max_retries + 1):
-                        log_msg(f"🔄 第 {retry_attempt}/{max_retries} 次尝试修复...")
-
-                        # 更新任务状态为 RETRY
-                        self.update_state(state='PROGRESS', meta={
-                            'progress': 0,
-                            'status': 'RETRY',
-                            'attempt': retry_attempt,
-                            'max_retries': max_retries
-                        })
-
-                        # 获取 LLM 配置
-                        api_key, base_url, model_name = _get_llm_config()
-
-                        # 调用 AI 修复代码
-                        log_msg(f"📡 正在调用修复 API: {base_url}, model: {model_name}")
-                        log_msg(f"📝 代码长度: {len(current_code)} 字符, 错误信息长度: {len(last_error)} 字符")
-                        fix_start_time = time.time()
-                        fixed_code = fix_code_with_llm(current_code, last_error, api_key, base_url, model_name)
-                        fix_elapsed = time.time() - fix_start_time
-                        log_msg(f"⏱️ API 调用耗时: {fix_elapsed:.1f} 秒")
-
-                        if not fixed_code:
-                            log_msg(f"❌ AI 修复失败，无法生成新代码", level="ERROR")
-                            break
-
-                        log_msg(f"✅ AI 已生成修复代码，正在重新执行...")
-
-                        # 发送代码更新事件到前端
-                        send_code_update(fixed_code, language="python", attempt=retry_attempt)
-
-                        log_msg(f"📝 修复后的代码预览:")
-                        for line in fixed_code.split('\n')[:10]:
-                            log_msg(f"   {line}")
-                        if len(fixed_code.split('\n')) > 10:
-                            log_msg(f"   ... (共 {len(fixed_code.split(chr(10)))} 行)")
-
-                        # 重新执行修复后的代码
-                        start_time = time.time()
-                        result_output, exit_code, _ = run_container("autonome-tool-env", fixed_code, language="python", environment=env)
-                        elapsed_time = time.time() - start_time
-
-                        log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
-                        log_msg(f"🔢 退出码: {exit_code}")
-
-                        if exit_code == 0:
-                            log_msg(f"🎉 AI 修复成功！代码已正确执行")
-                            code = fixed_code
-                            break
-                        else:
-                            log_msg(f"❌ 修复后代码仍然失败", level="ERROR")
-                            current_code = fixed_code
-                            last_error = result_output
-
-                            log_msg(f"🔴 新的错误:", level="ERROR")
-                            for line in result_output.split('\n')[-30:]:
-                                log_msg(f"   {line}", level="ERROR")
-
-                    # 检查是否修复成功
-                    if exit_code != 0:
-                        log_msg(f"💥 AI 修复 {max_retries} 次后仍失败，返回错误报告", level="ERROR")
-                        final_content = _build_error_message(task_id, task_dir_name, max_retries, last_error, "python")
-                        safe_add_chat_message(session_id, "assistant", final_content)
-                        raise Exception(f"代码执行失败: AI 修复 {max_retries} 次后仍失败")
+                    # AI 自动修复已移除，直接报错
+                    log_msg(f"💥 代码执行失败，无自动修复", level="ERROR")
+                    final_content = _build_error_message(task_id, task_dir_name, 0, result_output, "python")
+                    safe_add_chat_message(session_id, "assistant", final_content)
+                    raise Exception(f"代码执行失败: {result_output[:500]}")
 
             log_msg("🎉 代码执行成功！准备生成专家解读...")
 
@@ -527,76 +461,11 @@ def register_sandbox_tasks(celery_app: Celery):
                         for line in result_output.split('\n')[-50:]:
                             log_msg(f"   {line}", level="ERROR")
 
-                    # 启动 AI 自动修复重试逻辑
-                    log_msg(f"🔧 启动 AI 自动修复引擎...", level="WARNING")
-                    max_retries = 3
-                    current_code = code
-                    last_error = result_output
-
-                    for retry_attempt in range(1, max_retries + 1):
-                        log_msg(f"🔄 第 {retry_attempt}/{max_retries} 次尝试修复...")
-
-                        # 更新任务状态为 RETRY
-                        self.update_state(state='PROGRESS', meta={
-                            'progress': 0,
-                            'status': 'RETRY',
-                            'attempt': retry_attempt,
-                            'max_retries': max_retries
-                        })
-
-                        # 获取 LLM 配置
-                        api_key, base_url, model_name = _get_llm_config()
-
-                        # 调用 AI 修复代码（指定 R 语言）
-                        log_msg(f"📡 正在调用修复 API: {base_url}, model: {model_name}")
-                        log_msg(f"📝 代码长度: {len(current_code)} 字符, 错误信息长度: {len(last_error)} 字符")
-                        fix_start_time = time.time()
-                        fixed_code = fix_code_with_llm(current_code, last_error, api_key, base_url, model_name, language="r")
-                        fix_elapsed = time.time() - fix_start_time
-                        log_msg(f"⏱️ API 调用耗时: {fix_elapsed:.1f} 秒")
-
-                        if not fixed_code:
-                            log_msg(f"❌ AI 修复失败，无法生成新代码", level="ERROR")
-                            break
-
-                        log_msg(f"✅ AI 已生成修复代码，正在重新执行...")
-
-                        # 发送代码更新事件到前端
-                        send_code_update(fixed_code, language="r", attempt=retry_attempt)
-
-                        log_msg(f"📝 修复后的 R 代码预览:")
-                        for line in fixed_code.split('\n')[:10]:
-                            log_msg(f"   {line}")
-                        if len(fixed_code.split('\n')) > 10:
-                            log_msg(f"   ... (共 {len(fixed_code.split(chr(10)))} 行)")
-
-                        # 重新执行修复后的代码
-                        start_time = time.time()
-                        result_output, exit_code, _ = run_container("autonome-tool-env", fixed_code, language="r", environment=env)
-                        elapsed_time = time.time() - start_time
-
-                        log_msg(f"⏱️ 执行耗时: {elapsed_time:.1f} 秒")
-                        log_msg(f"🔢 退出码: {exit_code}")
-
-                        if exit_code == 0:
-                            log_msg(f"🎉 AI 修复成功！R 代码已正确执行")
-                            code = fixed_code
-                            break
-                        else:
-                            log_msg(f"❌ 修复后代码仍然失败", level="ERROR")
-                            current_code = fixed_code
-                            last_error = result_output
-
-                            log_msg(f"🔴 新的错误:", level="ERROR")
-                            for line in result_output.split('\n')[-20:]:
-                                log_msg(f"   {line}", level="ERROR")
-
-                    # 检查是否修复成功
-                    if exit_code != 0:
-                        log_msg(f"💥 AI 修复 {max_retries} 次后仍失败，返回错误报告", level="ERROR")
-                        final_content = _build_error_message(task_id, task_dir_name, max_retries, last_error, "r")
-                        safe_add_chat_message(session_id, "assistant", final_content)
-                        raise Exception(f"R 代码执行失败: AI 修复 {max_retries} 次后仍失败")
+                    # AI 自动修复已移除，直接报错
+                    log_msg(f"💥 R 代码执行失败，无自动修复", level="ERROR")
+                    final_content = _build_error_message(task_id, task_dir_name, 0, result_output, "r")
+                    safe_add_chat_message(session_id, "assistant", final_content)
+                    raise Exception(f"R 代码执行失败: {result_output[:500]}")
 
             log_msg("🎉 R 代码执行成功！准备生成专家解读...")
 

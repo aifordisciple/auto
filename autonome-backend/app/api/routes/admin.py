@@ -9,7 +9,7 @@ from app.core.database import get_session
 from app.core.logger import log
 from app.models.domain import (
     User, Project, BillingAccount, ChatSession,
-    SkillAsset, SkillAssetPublic, SkillStatus, ClaudeExecutorPermission
+    SkillAsset, SkillAssetPublic, SkillStatus
 )
 from app.api.deps import get_current_superuser
 
@@ -113,11 +113,6 @@ async def get_all_users(
 
     user_list = []
     for u in users:
-        # 查询用户的 Claude 权限
-        claude_permission = session.exec(
-            select(ClaudeExecutorPermission).where(ClaudeExecutorPermission.user_id == u.id)
-        ).first()
-
         user_data = {
             "id": u.id,
             "email": u.email,
@@ -127,18 +122,6 @@ async def get_all_users(
             "created_at": u.created_at.isoformat() if u.created_at else None,
             "credits_balance": u.billing.credits_balance if u.billing else 0.0
         }
-
-        # 添加 Claude 权限信息
-        if claude_permission:
-            user_data["claude_permission"] = {
-                "id": claude_permission.id,
-                "user_id": claude_permission.user_id,
-                "allowed_modes": claude_permission.allowed_modes,
-                "granted_by": claude_permission.granted_by,
-                "granted_at": claude_permission.granted_at.isoformat() if claude_permission.granted_at else None,
-                "expires_at": claude_permission.expires_at.isoformat() if claude_permission.expires_at else None,
-                "notes": claude_permission.notes
-            }
 
         user_list.append(user_data)
 

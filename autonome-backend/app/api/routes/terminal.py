@@ -240,6 +240,9 @@ async def websocket_terminal(
                     # 接收 WebSocket 消息
                     data = await websocket.receive_bytes()
 
+                    # ✨ 更新会话活跃时间（防止被自动回收）
+                    terminal_manager.touch_activity(session_id)
+
                     # 直接转发到 Docker
                     try:
                         docker_sock.sendall(data)

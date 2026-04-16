@@ -15,8 +15,6 @@ from app.models.domain import (
     ExperienceAssetUpdate, ExperienceAssetPublic, ExperienceType
 )
 from app.services.success_evaluator import SuccessEvaluator
-from app.services.knowledge_extractor import KnowledgeExtractor
-from app.services.experience_recommender import ExperienceRecommender, FeedbackProcessor
 
 
 router = APIRouter()
@@ -147,82 +145,6 @@ async def get_experience(
     return experience
 
 
-@router.post("/search")
-async def search_experiences(
-    request: SearchRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_session)
-):
-    """
-    语义搜索经验资产
-
-    使用向量相似度搜索相关的经验资产
-    """
-    try:
-        recommender = ExperienceRecommender(db)
-        results = await recommender.recommend(
-            user_query=request.query,
-            user_id=current_user.id,
-            top_k=request.top_k
-        )
-
-        return {
-            "success": True,
-            "results": results,
-            "total": len(results)
-        }
-
-    except Exception as e:
-        log.error(f"搜索经验失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/extract")
-async def extract_experience(
-    request: ExtractRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_session)
-):
-    """
-    从会话提取经验资产
-
-    评估会话成功度，如果成功则提取知识资产
-    """
-    try:
-        # 1. 评估会话成功度
-        evaluator = SuccessEvaluator(db)
-        evaluation = evaluator.evaluate_session(request.session_id)
-
-        result = {
-            "session_id": request.session_id,
-            "evaluation": evaluation,
-            "experience": None
-        }
-
-        # 2. 如果成功且置信度足够高，提取经验
-        if evaluation["is_successful"] and evaluation["confidence"] >= 0.7:
-            extractor = KnowledgeExtractor(db)
-            experience = await extractor.extract_from_session(
-                session_id=request.session_id,
-                user_id=current_user.id,
-                project_id=request.project_id
-            )
-
-            if experience:
-                result["experience"] = {
-                    "experience_id": experience.experience_id,
-                    "title": experience.title,
-                    "summary": experience.summary,
-                    "category": experience.category
-                }
-
-        return result
-
-    except Exception as e:
-        log.error(f"提取经验失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/evaluate/{session_id}")
 async def evaluate_session(
     session_id: str,
@@ -245,38 +167,6 @@ async def evaluate_session(
 
     except Exception as e:
         log.error(f"评估会话失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/feedback")
-async def submit_feedback(
-    request: FeedbackRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_session)
-):
-    """
-    提交经验资产反馈
-
-    用户反馈是否有帮助，用于调整有用性评分
-    """
-    try:
-        processor = FeedbackProcessor(db)
-        result = processor.process_feedback(
-            experience_id=request.experience_id,
-            was_helpful=request.was_helpful,
-            user_id=current_user.id,
-            comment=request.comment
-        )
-
-        if not result["success"]:
-            raise HTTPException(status_code=400, detail=result["message"])
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"提交反馈失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
