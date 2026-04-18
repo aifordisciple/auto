@@ -33,6 +33,9 @@ class Settings(BaseSettings):
 
     # OpenAI 默认 Base URL（作为数据库中未配置时的回退值）
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+
+    # Ollama MLX 加速配置（Apple Silicon Mac 上启用 MLX 后端提升推理速度）
+    OLLAMA_MLX: int = 0  # 设置为 1 启用 MLX 加速
     
     # Stripe 支付配置
     STRIPE_SECRET_KEY: str = ""
@@ -57,3 +60,8 @@ if not settings.SECRET_KEY:
 
 # 确保上传目录存在
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+
+# ✨ 设置 OLLAMA_MLX 环境变量（供 Ollama 进程读取）
+# 当 .env 中 OLLAMA_MLX=1 时，将环境变量传递给子进程（如 Ollama）
+if settings.OLLAMA_MLX:
+    os.environ["OLLAMA_MLX"] = "1"

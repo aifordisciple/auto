@@ -17,6 +17,7 @@ import { chatQueueApi } from '@/lib/api';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
 export function QueueIndicator() {
+  // ✨ 所有 Hooks 必须在任何条件返回之前调用（React Rules of Hooks）
   const queueItems = useChatStore((state: ChatState) => state.queueItems);
   const isQueueActive = useChatStore((state: ChatState) => state.isQueueActive);
   const removeQueueItem = useChatStore((state: ChatState) => state.removeQueueItem);
@@ -28,12 +29,6 @@ export function QueueIndicator() {
   const [editText, setEditText] = useState('');
 
   const currentSessionId = useWorkspaceStore(state => state.currentSessionId);
-
-  // 不显示条件：队列为空且不活跃
-  if (queueItems.length === 0 && !isQueueActive) return null;
-
-  const pendingCount = queueItems.filter(item => item.status === 'pending').length;
-  const processingCount = queueItems.filter(item => item.status === 'processing').length;
 
   // 删除队列项
   const handleDelete = useCallback(async (itemId: string) => {
@@ -76,6 +71,12 @@ export function QueueIndicator() {
     setEditingId(item.id);
     setEditText(item.message);
   }, []);
+
+  // ✨ early return 必须在所有 Hooks 之后
+  if (queueItems.length === 0 && !isQueueActive) return null;
+
+  const pendingCount = queueItems.filter(item => item.status === 'pending').length;
+  const processingCount = queueItems.filter(item => item.status === 'processing').length;
 
   return (
     <div className="w-full md:max-w-4xl md:mx-auto px-2 md:px-4">
