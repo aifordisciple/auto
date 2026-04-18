@@ -37,7 +37,7 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
     onContentUpdate,
     minUpdateInterval = 16,
     baseCharsPerFrame = 2,
-    catchUpFactor = 30,
+    catchUpFactor = 80,  // ✨ 从 30 提高到 80，降低追赶速度，让流式效果更明显
   } = config;
 
   // ==========================================

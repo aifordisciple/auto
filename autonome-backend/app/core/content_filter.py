@@ -335,9 +335,9 @@ def is_thinking_only_response(content: str, model_name: str = None) -> bool:
 
 class StreamContentFilter:
     """
-    流式内容过滤器（有状态）
+    流式内容过滤器（有状态，支持思考内容透传）
 
-    解决问题：流式传输时，思考标签（如 <think>、<thinking>）可能被分割到
+    解决问题：流式传输时，思考标签（如<think>、<thinking>）可能被分割到
     多个 SSE chunk 中，导致逐块过滤遗漏或内容泄漏。
 
     核心设计：有状态的思考标签检测
@@ -355,27 +355,51 @@ class StreamContentFilter:
         self.model_name = model_name
         self._in_thinking = False
         self._buffer = ""
+        # ✨ 思考内容缓冲：思考期间的内容不再丢弃，而是透传给前端
+        self._thinking_buffer = ""
 
-    def filter_chunk(self, chunk: str) -> str:
+    def filter_chunk(self, chunk: str) -> tuple:
+        """
+        过滤一个 SSE chunk，返回 (content, content_type) 元组
+
+        content_type:
+          - "text": 正常回复内容
+          - "thinking": 思考过程内容
+          - "": 无内容（应跳过）
+
+        ✨ 思考内容不再被丢弃，而是以 "thinking" 类型透传给前端，
+        前端可以在可折叠的思考框中展示。
+        """
         if not chunk:
-            return chunk
+            return ("", "")
 
         self._buffer += chunk
         output = ""
+        thinking_output = ""
 
         while self._buffer:
             if self._in_thinking:
                 end_pos = self._find_end_marker()
                 if end_pos is not None:
+                    # ✨ 思考标签结束：将缓冲的思考内容输出
+                    thinking_output += self._thinking_buffer
+                    self._thinking_buffer = ""
                     self._buffer = self._buffer[end_pos:]
                     self._in_thinking = False
                 else:
+                    # ✨ 思考标签未结束：将新内容加入思考缓冲
+                    thinking_output += self._thinking_buffer
+                    self._thinking_buffer = ""
+                    # 当前 buffer 全部是思考内容
+                    self._thinking_buffer = self._buffer
+                    self._buffer = ""
                     break
             else:
                 start_pos, marker_len = self._find_start_marker()
                 if start_pos is not None:
                     if start_pos > 0:
                         output += self._buffer[:start_pos]
+                    # ✨ 进入思考模式：跳过开始标记，后续内容进入思考缓冲
                     self._buffer = self._buffer[start_pos + marker_len:]
                     self._in_thinking = True
                 else:
@@ -394,7 +418,11 @@ class StreamContentFilter:
         if output:
             output = fix_code_block_format(output, model_name=self.model_name)
 
-        return output
+        # ✨ 优先返回思考内容（如果有），否则返回正常内容
+        # 这样前端可以区分思考过程和正式回复
+        if thinking_output:
+            return (thinking_output, "thinking")
+        return (output, "text")
 
     def _find_start_marker(self) -> tuple:
         earliest_pos = None
@@ -417,11 +445,15 @@ class StreamContentFilter:
                     earliest_end = end
         return earliest_end
 
-    def flush(self) -> str:
+    def flush(self) -> tuple:
+        """刷新缓冲区，返回剩余内容"""
         if self._in_thinking:
+            # ✨ 返回剩余的思考内容
+            thinking = self._thinking_buffer
+            self._thinking_buffer = ""
             self._buffer = ""
             self._in_thinking = False
-            return ""
+            return (thinking, "thinking") if thinking else ("", "")
 
         output = self._buffer
         self._buffer = ""
@@ -429,10 +461,11 @@ class StreamContentFilter:
         if output:
             output = fix_code_block_format(output, model_name=self.model_name)
 
-        return output
+        return (output, "text") if output else ("", "")
 
     def reset(self) -> None:
         self._buffer = ""
+        self._thinking_buffer = ""
         self._in_thinking = False
 
 

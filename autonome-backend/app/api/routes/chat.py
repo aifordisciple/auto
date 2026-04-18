@@ -223,14 +223,22 @@ async def chat_stream(
             async for chunk in direct_llm.astream(lc_messages):
                 content = chunk.content
                 if content:
-                    # 过滤思考标签等内容
-                    filtered_content = content_filter.filter_chunk(content)
+                    # ✨ 过滤思考标签等内容，返回 (content, type) 元组
+                    # type: "text" = 正常回复, "thinking" = 思考过程
+                    filtered_content, content_type = content_filter.filter_chunk(content)
                     if filtered_content:
-                        ai_full_response += filtered_content
-                        yield {
-                            "event": "message",
-                            "data": json.dumps({"type": "text", "content": filtered_content})
-                        }
+                        if content_type == "thinking":
+                            # ✨ 思考过程通过 thinking 事件类型推送给前端
+                            yield {
+                                "event": "thinking",
+                                "data": json.dumps({"type": "thinking", "content": filtered_content})
+                            }
+                        else:
+                            ai_full_response += filtered_content
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({"type": "text", "content": filtered_content})
+                            }
 
         except StopAsyncIteration:
             raise

@@ -142,6 +142,10 @@ CodeBlock.displayName = 'CodeBlock';
 interface StreamingMarkdownProps {
   content: string;
   isStreaming?: boolean;
+  /** ✨ 思考过程内容（从 thinking SSE 事件累积） */
+  thinkingContent?: string;
+  /** ✨ 是否正在思考 */
+  isThinking?: boolean;
 }
 
 /**
@@ -155,9 +159,30 @@ interface StreamingMarkdownProps {
  * - React 本身有虚拟 DOM Diff 机制
  * - 我们只需要确保每次传递的内容是完整的、处理过的 Markdown
  */
-export const StreamingMarkdown = memo(({ content, isStreaming = false }: StreamingMarkdownProps) => {
+export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingContent = '', isThinking: isThinkingProp = false }: StreamingMarkdownProps) => {
   const theme = useUIStore((state) => state.theme);
   const isDark = theme !== 'light';
+
+  // ✨ 思考框折叠状态
+  const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
+
+  // ✨ 当思考开始时自动展开，思考结束后延迟折叠
+  useEffect(() => {
+    if (isThinkingProp) {
+      setIsThinkingExpanded(true);
+    } else if (thinkingContent && !isThinkingProp) {
+      const timer = setTimeout(() => setIsThinkingExpanded(false), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isThinkingProp, thinkingContent]);
+
+  // ✨ 截断思考内容预览（折叠时显示前100字符）
+  const thinkingPreview = useMemo(() => {
+    if (!thinkingContent) return '';
+    return thinkingContent.length > 100
+      ? thinkingContent.slice(0, 100) + '...'
+      : thinkingContent;
+  }, [thinkingContent]);
 
   // 预处理内容
   const { processedContent, isCurrentlyThinking } = useMemo(() => {
@@ -313,11 +338,30 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false }: Streami
 
   return (
     <div className={containerClass}>
-      {/* ✨ 优雅的深度思考状态展示 (仅在正在 thinking 时出现) */}
-      {isCurrentlyThinking && (
-        <div className="flex items-center gap-2 text-violet-500 dark:text-violet-400 text-sm mb-4 bg-violet-50 dark:bg-violet-500/10 px-3 py-2 rounded-lg border border-violet-100 dark:border-violet-500/20 w-fit">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="font-medium tracking-wide">深度思考中...</span>
+      {/* ✨ 可折叠的思考过程展示 */}
+      {(thinkingContent || isCurrentlyThinking) && (
+        <div className="mb-4">
+          <button
+            onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+            className="flex items-center gap-2 text-violet-500 dark:text-violet-400 text-sm bg-violet-50 dark:bg-violet-500/10 px-3 py-2 rounded-lg border border-violet-100 dark:border-violet-500/20 w-full hover:bg-violet-100 dark:hover:bg-violet-500/15 transition-colors"
+          >
+            {isThinkingProp || isCurrentlyThinking ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <span className="text-violet-500 shrink-0">✦</span>
+            )}
+            <span className="font-medium tracking-wide">
+              {isThinkingProp || isCurrentlyThinking ? '深度思考中...' : `思考过程 (${thinkingContent.length}字)`}
+            </span>
+            <span className="ml-auto text-violet-400/60 text-xs">
+              {isThinkingExpanded ? '收起' : '展开'}
+            </span>
+          </button>
+          {isThinkingExpanded && thinkingContent && (
+            <div className="mt-2 p-3 bg-violet-50/50 dark:bg-violet-500/5 border border-violet-100/50 dark:border-violet-500/10 rounded-lg text-xs text-violet-700 dark:text-violet-300 max-h-60 overflow-y-auto custom-scrollbar whitespace-pre-wrap break-words leading-relaxed">
+              {thinkingContent}
+            </div>
+          )}
         </div>
       )}
 

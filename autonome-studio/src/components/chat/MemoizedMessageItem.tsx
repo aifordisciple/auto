@@ -5,6 +5,7 @@ import { User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Do
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { Message, MessageAttachments } from "@/store/useChatStore";
+import { useChatStore } from "@/store/useChatStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
@@ -186,6 +187,10 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   // ✨ 编辑状态
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
+
+  // ✨ 思考过程状态：从 store 读取，传递给 StreamingMarkdown
+  const thinkingContent = useChatStore((state) => state.thinkingContent);
+  const isThinking = useChatStore((state) => state.isThinking);
 
   // ✨ 流式消息优化：对于最后一条 assistant 消息，使用 streamingContent
   const displayContent = isLast && msg.role === 'assistant' && isTyping ? streamingContent : msg.content;
@@ -426,6 +431,8 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     <StreamingMarkdown
                       content={cleanedContent}
                       isStreaming={true}
+                      thinkingContent={thinkingContent}
+                      isThinking={isThinking}
                     />
                   );
                 }

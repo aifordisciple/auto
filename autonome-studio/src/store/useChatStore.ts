@@ -139,6 +139,18 @@ export interface ChatState {
   getCurrentStreamingContent: () => string;
 
   // ==========================================
+  // ✨ 思考过程状态
+  // ==========================================
+  /** AI 思考过程的累积内容 */
+  thinkingContent: string;
+  /** AI 是否正在思考 */
+  isThinking: boolean;
+  /** 设置思考内容 */
+  setThinkingContent: (content: string) => void;
+  /** 设置是否正在思考 */
+  setIsThinking: (thinking: boolean) => void;
+
+  // ==========================================
   // ✨ 消息队列状态
   // ==========================================
   /** 当前会话的队列项 */
@@ -348,6 +360,14 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
     const state = useChatStore.getState();
     return state.streamingContent;
   },
+
+  // ==========================================
+  // ✨ 思考过程状态实现
+  // ==========================================
+  thinkingContent: '',
+  isThinking: false,
+  setThinkingContent: (content: string) => set({ thinkingContent: content }),
+  setIsThinking: (thinking: boolean) => set({ isThinking: thinking }),
 
   // ==========================================
   // ✨ 消息队列状态实现

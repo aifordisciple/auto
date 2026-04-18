@@ -58,6 +58,12 @@ export function useChatStream(config: ChatStreamConfig) {
     isPausedRef,
   } = config;
 
+  // ✨ 思考内容状态
+  const thinkingContent = useChatStore((state: ChatState) => state.thinkingContent);
+  const setThinkingContent = useChatStore((state: ChatState) => state.setThinkingContent);
+  const isThinking = useChatStore((state: ChatState) => state.isThinking);
+  const setIsThinking = useChatStore((state: ChatState) => state.setIsThinking);
+
   // Store 状态 - 使用精确订阅避免不必要的重渲染
   const addMessage = useChatStore((state: ChatState) => state.addMessage);
   const appendLastMessage = useChatStore((state: ChatState) => state.appendLastMessage);
@@ -274,6 +280,14 @@ export function useChatStream(config: ChatStreamConfig) {
                 headers: { 'Authorization': `Bearer ${token}` }
               }).catch(e => console.error("自动命名失败", e));
             }
+          } else if (event.event === 'thinking') {
+            // ✨ 思考过程事件：累积到 thinkingContent，前端在可折叠思考框中展示
+            const data = JSON.parse(event.data);
+            setThinkingContent(thinkingContent + data.content);
+            if (!isThinking) setIsThinking(true);
+            if (isAtBottomRef.current && !isPausedRef.current) {
+              requestAnimationFrame(() => scrollToBottom());
+            }
           } else if (event.event === 'message') {
             const data = JSON.parse(event.data);
             // 通过 appendStream 写入 useImmediateStream，由其 flushRender 机制
@@ -299,6 +313,9 @@ export function useChatStream(config: ChatStreamConfig) {
             clearStreamingContent();
             isStreamingRef.current = false;
             setIsTyping(false);
+            // ✨ 思考结束，清除思考状态
+            setIsThinking(false);
+            setThinkingContent('');
           } else if (event.event === 'done') {
             // 使用 ref 防止重复提交
             if (!hasCommittedRef.current) {
@@ -445,6 +462,14 @@ export function useChatStream(config: ChatStreamConfig) {
           } else if (event.event === 'queue_progress') {
             // 队列进度通知（可用于 UI 显示）
             const data = JSON.parse(event.data);
+          } else if (event.event === 'thinking') {
+            // ✨ 思考过程事件：累积到 thinkingContent，前端在可折叠思考框中展示
+            const data = JSON.parse(event.data);
+            setThinkingContent(thinkingContent + data.content);
+            if (!isThinking) setIsThinking(true);
+            if (isAtBottomRef.current && !isPausedRef.current) {
+              requestAnimationFrame(() => scrollToBottom());
+            }
           } else if (event.event === 'message') {
             // 流式内容
             const data = JSON.parse(event.data);
@@ -464,6 +489,9 @@ export function useChatStream(config: ChatStreamConfig) {
               commitStreamingContent(data.content);
               hasCommittedRef.current = true;
             }
+            // ✨ 思考结束，清除思考状态
+            setIsThinking(false);
+            setThinkingContent('');
           } else if (event.event === 'queue_complete') {
             // 队列项处理完成
             const data = JSON.parse(event.data);
@@ -544,6 +572,11 @@ export function useChatStream(config: ChatStreamConfig) {
     updateCredits,
     updateLastMessageId,
     updateQueueItemStatus,
+    // ✨ 思考过程状态
+    thinkingContent,
+    setThinkingContent,
+    isThinking,
+    setIsThinking,
   ]);
 
   return {

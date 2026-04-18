@@ -228,14 +228,23 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
         for chunk in direct_llm.stream(lc_messages):
             content = chunk.content
             if content:
-                filtered_content = content_filter.filter_chunk(content)
+                # ✨ 过滤思考标签等内容，返回 (content, type) 元组
+                # type: "text" = 正常回复, "thinking" = 思考过程
+                filtered_content, content_type = content_filter.filter_chunk(content)
                 if filtered_content:
-                    ai_full_response += filtered_content
-                    # 通过 Redis pub/sub 推送 SSE 事件
-                    chat_queue_service.publish_sse_event(session_id, "message", {
-                        "type": "text",
-                        "content": filtered_content,
-                    })
+                    if content_type == "thinking":
+                        # ✨ 思考过程通过 thinking 事件类型推送给前端
+                        chat_queue_service.publish_sse_event(session_id, "thinking", {
+                            "type": "thinking",
+                            "content": filtered_content,
+                        })
+                    else:
+                        ai_full_response += filtered_content
+                        # 通过 Redis pub/sub 推送 SSE 事件
+                        chat_queue_service.publish_sse_event(session_id, "message", {
+                            "type": "text",
+                            "content": filtered_content,
+                        })
 
     except Exception as e:
         import traceback
