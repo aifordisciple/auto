@@ -328,18 +328,21 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
     },
   }), [isDark]);
 
-  // ✨ 关键修复：允许空内容渲染，只要是流式状态或者被判定为正在思考
-  if (!content && !isStreaming && !isCurrentlyThinking) return null;
+  // ✨ 关键修复：允许空内容渲染，只要是流式状态或者正在思考
+  if (!content && !isStreaming && !isCurrentlyThinking && !isThinkingProp) return null;
 
   // 流式消息使用淡入效果类
   const containerClass = isStreaming
     ? "chat-message-content streaming-message-content"
     : "chat-message-content";
 
+  // ✨ 思考框显示条件：isThinkingProp（store 状态）或 isCurrentlyThinking（内容检测）或有 thinkingContent
+  const showThinkingBox = isThinkingProp || isCurrentlyThinking || !!thinkingContent;
+
   return (
     <div className={containerClass}>
       {/* ✨ 可折叠的思考过程展示 */}
-      {(thinkingContent || isCurrentlyThinking) && (
+      {showThinkingBox && (
         <div className="mb-4">
           <button
             onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
@@ -376,7 +379,7 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
       )}
 
       {/* ✨ 流式时显示光标，且正在思考时不显示 */}
-      {isStreaming && !isCurrentlyThinking && (
+      {isStreaming && !isCurrentlyThinking && !isThinkingProp && (
         <span className="streaming-cursor">
           <span className="cursor-block" />
         </span>

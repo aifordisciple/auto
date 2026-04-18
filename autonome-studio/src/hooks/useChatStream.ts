@@ -209,6 +209,8 @@ export function useChatStream(config: ChatStreamConfig) {
 
     addMessage('assistant', '');
     setIsTyping(true);
+    // ✨ 发送后立即标记为"思考中"状态，直到收到首个 message token
+    setIsThinking(true);
     isStreamingRef.current = true;
     hasCommittedRef.current = false;
 
@@ -290,6 +292,8 @@ export function useChatStream(config: ChatStreamConfig) {
             }
           } else if (event.event === 'message') {
             const data = JSON.parse(event.data);
+            // ✨ 收到首个 message token，思考结束
+            if (isThinking) setIsThinking(false);
             // 通过 appendStream 写入 useImmediateStream，由其 flushRender 机制
             // 自动将完整累积内容传递给 Zustand store
             appendStream(data.content);
@@ -430,6 +434,8 @@ export function useChatStream(config: ChatStreamConfig) {
     resetStream();
     addMessage('assistant', '');
     setIsTyping(true);
+    // ✨ 队列流也标记为"思考中"状态
+    setIsThinking(true);
     isStreamingRef.current = true;
     hasCommittedRef.current = false;
 
@@ -473,6 +479,8 @@ export function useChatStream(config: ChatStreamConfig) {
           } else if (event.event === 'message') {
             // 流式内容
             const data = JSON.parse(event.data);
+            // ✨ 收到首个 message token，思考结束
+            if (isThinking) setIsThinking(false);
             appendStream(data.content);
             if (isAtBottomRef.current && !isPausedRef.current) {
               requestAnimationFrame(() => scrollToBottom());
