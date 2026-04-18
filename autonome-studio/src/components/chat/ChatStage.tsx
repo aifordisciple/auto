@@ -42,6 +42,7 @@ import { useChatStream } from "@/hooks/useChatStream";
 // 子组件导入
 // ==========================================
 import { ChatInputBox } from "./ChatInputBox";
+import { QueueIndicator } from "./QueueIndicator";
 import { MemoizedMessageItem } from "./MemoizedMessageItem";
 import { VirtualizedMessageList } from "./VirtualizedMessageList";
 import {
@@ -352,6 +353,8 @@ export function ChatStage() {
           </div>
 
           <div className="shrink-0 px-2 md:px-4 pt-2 pb-3 md:pb-3 bg-white dark:bg-[#131314] pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+            {/* ✨ 消息队列指示器（输入框上方） */}
+            <QueueIndicator />
             <div className="w-full md:max-w-4xl md:mx-auto">
               <ChatInputBox
                 onSend={handleSendWrapper}

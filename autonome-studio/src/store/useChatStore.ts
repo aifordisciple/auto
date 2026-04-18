@@ -27,6 +27,10 @@ export interface Message {
   timestamp: number;
   /** ✨ 消息附件信息 */
   attachments?: MessageAttachments;
+  /** ✨ 队列状态标签（排队中的用户消息显示状态） */
+  queueStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  /** ✨ 关联的队列项 ID */
+  queueItemId?: string;
 }
 
 export interface Bookmark {
@@ -58,10 +62,31 @@ export interface SearchResult {
   }[];
 }
 
+// ==========================================
+// ✨ 消息队列类型定义
+// ==========================================
+
+export type QueueItemStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface ChatQueueItem {
+  id: string;
+  session_id: string;
+  project_id: string;
+  status: QueueItemStatus;
+  message: string;
+  attachments?: Record<string, unknown>;
+  position: number;
+  result_message_id?: string;
+  error?: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
 export interface ChatState {
   messages: Message[];
   setMessages: (messages: Message[]) => void;
-  addMessage: (role: Role, content: string, attachments?: MessageAttachments) => void;
+  addMessage: (role: Role, content: string, attachments?: MessageAttachments, queueItemId?: string) => void;
   // 新增：用于流式拼接最后一个气泡的内容
   appendLastMessage: (contentChunk: string) => void;
   // 新增：更新指定消息的内容
@@ -113,6 +138,28 @@ export interface ChatState {
   /** 获取当前流式内容（用于同步读取） */
   getCurrentStreamingContent: () => string;
 
+  // ==========================================
+  // ✨ 消息队列状态
+  // ==========================================
+  /** 当前会话的队列项 */
+  queueItems: ChatQueueItem[];
+  /** 队列是否正在处理 */
+  isQueueActive: boolean;
+  /** 设置队列项 */
+  setQueueItems: (items: ChatQueueItem[]) => void;
+  /** 添加队列项 */
+  addQueueItem: (item: ChatQueueItem) => void;
+  /** 更新队列项状态 */
+  updateQueueItemStatus: (itemId: string, status: QueueItemStatus, error?: string) => void;
+  /** 移除队列项 */
+  removeQueueItem: (itemId: string) => void;
+  /** 清空队列 */
+  clearQueueItems: () => void;
+  /** 设置队列活跃状态 */
+  setIsQueueActive: (active: boolean) => void;
+  /** 更新消息的队列状态标签 */
+  updateMessageQueueStatus: (messageId: string, status: 'pending' | 'processing' | 'completed' | 'failed') => void;
+
   // V3: 第一性原理消息类别
 
   // 搜索相关状态
@@ -147,8 +194,8 @@ const initialMessage: Message = {
 export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState>((set) => ({
   messages: [initialMessage],
   setMessages: (messages: Message[]) => set({ messages }),
-  // ✨ 扩展 addMessage 支持附件参数
-  addMessage: (role, content, attachments) =>
+  // ✨ 扩展 addMessage 支持附件和队列项 ID
+  addMessage: (role, content, attachments, queueItemId) =>
     set((state) => ({
       messages: [
         ...state.messages,
@@ -158,6 +205,8 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
           content,
           timestamp: Date.now(),
           attachments,  // ✨ 保存附件信息
+          queueItemId,  // ✨ 关联队列项 ID
+          queueStatus: queueItemId ? 'pending' : undefined,  // ✨ 有队列项 ID 时默认 pending
         },
       ],
     })),
@@ -299,6 +348,37 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
     const state = useChatStore.getState();
     return state.streamingContent;
   },
+
+  // ==========================================
+  // ✨ 消息队列状态实现
+  // ==========================================
+  queueItems: [],
+  isQueueActive: false,
+  setQueueItems: (items: ChatQueueItem[]) => set({ queueItems: items }),
+  addQueueItem: (item: ChatQueueItem) =>
+    set((state) => ({
+      queueItems: [...state.queueItems, item],
+      isQueueActive: true,
+    })),
+  updateQueueItemStatus: (itemId: string, status: QueueItemStatus, error?: string) =>
+    set((state) => ({
+      queueItems: state.queueItems.map(item =>
+        item.id === itemId ? { ...item, status, error: error ?? item.error } : item
+      ),
+    })),
+  removeQueueItem: (itemId: string) =>
+    set((state) => ({
+      queueItems: state.queueItems.filter(item => item.id !== itemId),
+      isQueueActive: state.queueItems.filter(item => item.id !== itemId).length > 0,
+    })),
+  clearQueueItems: () => set({ queueItems: [], isQueueActive: false }),
+  setIsQueueActive: (active: boolean) => set({ isQueueActive: active }),
+  updateMessageQueueStatus: (messageId: string, status: 'pending' | 'processing' | 'completed' | 'failed') =>
+    set((state) => ({
+      messages: state.messages.map(msg =>
+        msg.id === messageId ? { ...msg, queueStatus: status } : msg
+      ),
+    })),
 
   // 搜索相关
   searchQuery: '',

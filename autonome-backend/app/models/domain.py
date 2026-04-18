@@ -92,6 +92,14 @@ from app.models.chat import (
 )
 
 # ==========================================
+# 消息队列模型
+# ==========================================
+from app.models.chat_queue import (
+    ChatQueueItem,
+    QueueItemStatus,
+)
+
+# ==========================================
 # 任务模型
 # ==========================================
 from app.models.task import TaskRecord
@@ -265,6 +273,9 @@ __all__ = [
     "SessionSummaryCache",
     "ChatSessionTag",
     "SessionTagRelation",
+    # 消息队列模型
+    "ChatQueueItem",
+    "QueueItemStatus",
     # 任务模型
     "TaskRecord",
     # 系统配置

@@ -5,15 +5,16 @@
  * 1. 管理聊天消息的发送和流式接收
  * 2. 处理 SSE (Server-Sent Events) 流式输出
  * 3. 支持中断流式输出
+ * 4. ✨ 支持消息队列：AI 忙碌时消息入队，通过队列 SSE 接收回复
  *
  * 从 ChatStage.tsx 提取，减少主组件复杂度
  */
 import React, { useCallback, useRef } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { useChatStore, ChatState } from '@/store/useChatStore';
+import { useChatStore, ChatState, ChatQueueItem, QueueItemStatus } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { BASE_URL } from '@/lib/api';
+import { BASE_URL, chatQueueApi } from '@/lib/api';
 
 // ==========================================
 // 类型定义
@@ -62,6 +63,13 @@ export function useChatStream(config: ChatStreamConfig) {
   const appendLastMessage = useChatStore((state: ChatState) => state.appendLastMessage);
   const setIsTyping = useChatStore((state: ChatState) => state.setIsTyping);
   const updateLastMessageId = useChatStore((state: ChatState) => state.updateLastMessageId);
+  // ✨ 队列状态
+  const addQueueItem = useChatStore((state: ChatState) => state.addQueueItem);
+  const updateQueueItemStatus = useChatStore((state: ChatState) => state.updateQueueItemStatus);
+  const removeQueueItem = useChatStore((state: ChatState) => state.removeQueueItem);
+  const isQueueActive = useChatStore((state: ChatState) => state.isQueueActive);
+  const setIsQueueActive = useChatStore((state: ChatState) => state.setIsQueueActive);
+  const updateMessageQueueStatus = useChatStore((state: ChatState) => state.updateMessageQueueStatus);
 
   const currentProjectId = useWorkspaceStore(state => state.currentProjectId);
   const currentSessionId = useWorkspaceStore(state => state.currentSessionId);
@@ -98,6 +106,9 @@ export function useChatStream(config: ChatStreamConfig) {
 
   /**
    * 发送聊天消息
+   *
+   * ✨ 队列模式：如果 AI 正在回复（isStreamingRef.current === true），
+   * 消息进入后端队列，通过队列 SSE 接收回复。
    */
   const handleSend = useCallback(async (
     messageText: string,
@@ -142,20 +153,6 @@ export function useChatStream(config: ChatStreamConfig) {
       skill: pendingChatSkill ? { skill_id: pendingChatSkill.skill_id, name: pendingChatSkill.name } : undefined,
     };
 
-    // 添加用户消息
-    addMessage('user', currentInput, messageAttachments);
-
-    // 初始化流式状态
-    const newMessageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setStreamingMessageId(newMessageId);
-    clearStreamingContent();
-    resetStream();
-
-    addMessage('assistant', '');
-    setIsTyping(true);
-    isStreamingRef.current = true;
-    hasCommittedRef.current = false;
-
     // 发送后清除附件
     if (pendingChatAttachments.length > 0) {
       clearPendingChatAttachments();
@@ -171,6 +168,43 @@ export function useChatStream(config: ChatStreamConfig) {
     if (pendingChatSkill) {
       clearPendingChatSkill();
     }
+
+    // ✨ 队列模式：AI 正在回复时，消息入队
+    if (isStreamingRef.current && currentSessionId) {
+      try {
+        const queueItem = await chatQueueApi.add({
+          session_id: currentSessionId,
+          project_id: currentProjectId,
+          message: currentInput,
+          attachments: messageAttachments,
+        });
+        // 前端立即显示用户消息 + "排队中" 标签
+        addMessage('user', currentInput, messageAttachments, queueItem.id);
+        addQueueItem(queueItem as ChatQueueItem);
+        return;
+      } catch (error: any) {
+        console.error('[Chat] Queue add failed:', error);
+        // 队列添加失败，回退到直接发送（中断当前流）
+        // 不做任何事，让用户重试
+        appendLastMessage(`\n\n**[队列错误]** ${error.message || '消息入队失败'}`);
+        return;
+      }
+    }
+
+    // ✨ 直接发送模式：AI 空闲时走现有逻辑
+    // 添加用户消息
+    addMessage('user', currentInput, messageAttachments);
+
+    // 初始化流式状态
+    const newMessageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setStreamingMessageId(newMessageId);
+    clearStreamingContent();
+    resetStream();
+
+    addMessage('assistant', '');
+    setIsTyping(true);
+    isStreamingRef.current = true;
+    hasCommittedRef.current = false;
 
     // 任务模式已简化为 normal，不再发送 task_mode
     const taskModeToSend = null;
@@ -277,6 +311,9 @@ export function useChatStream(config: ChatStreamConfig) {
             clearStreamingContent();
             isStreamingRef.current = false;
             setIsTyping(false);
+            // ✨ 队列模式：done 后检查是否还有队列项需要处理
+            // 如果有，启动队列 SSE 连接
+            _checkAndStartQueueStream();
           }
         },
         onclose() {
@@ -335,6 +372,178 @@ export function useChatStream(config: ChatStreamConfig) {
     scrollToBottom,
     isAtBottomRef,
     isPausedRef,
+    addQueueItem,
+    updateQueueItemStatus,
+    removeQueueItem,
+    isQueueActive,
+    setIsQueueActive,
+    updateMessageQueueStatus,
+  ]);
+
+  // ==========================================
+  // ✨ 队列 SSE 流处理
+  // ==========================================
+
+  /**
+   * 检查是否有队列项需要处理，如果有则启动队列 SSE 连接
+   */
+  const _checkAndStartQueueStream = useCallback(() => {
+    const { queueItems, isQueueActive } = useChatStore.getState();
+    if (!isQueueActive || queueItems.length === 0) return;
+
+    // 启动队列 SSE 连接
+    _startQueueStream();
+  }, []);
+
+  /**
+   * 启动队列 SSE 连接，接收 Celery worker 处理队列项时的流式回复
+   */
+  const _startQueueStream = useCallback(async () => {
+    const { queueItems } = useChatStore.getState();
+    if (queueItems.length === 0) return;
+
+    const sessionId = queueItems[0].session_id;
+    const projectId = queueItems[0].project_id;
+    const token = localStorage.getItem('autonome_access_token');
+
+    // 初始化流式状态
+    const newMessageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setStreamingMessageId(newMessageId);
+    clearStreamingContent();
+    resetStream();
+    addMessage('assistant', '');
+    setIsTyping(true);
+    isStreamingRef.current = true;
+    hasCommittedRef.current = false;
+
+    const queueAbortController = new AbortController();
+
+    try {
+      await fetchEventSource(`${BASE_URL}/api/chat/stream/queue`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          project_id: projectId,
+        }),
+        signal: queueAbortController.signal,
+        openWhenHidden: true,
+        onopen: async (res) => {
+          if (!res.ok) {
+            throw new Error(`Queue stream error: ${res.status}`);
+          }
+        },
+        onmessage(event) {
+          if (event.event === 'queue_start') {
+            // 标识开始处理哪个队列项
+            const data = JSON.parse(event.data);
+            updateQueueItemStatus(data.queue_item_id, 'processing' as QueueItemStatus);
+          } else if (event.event === 'queue_progress') {
+            // 队列进度通知（可用于 UI 显示）
+            const data = JSON.parse(event.data);
+          } else if (event.event === 'message') {
+            // 流式内容
+            const data = JSON.parse(event.data);
+            appendStream(data.content);
+            if (isAtBottomRef.current && !isPausedRef.current) {
+              requestAnimationFrame(() => scrollToBottom());
+            }
+          } else if (event.event === 'billing') {
+            const data = JSON.parse(event.data);
+            updateCredits(data.balance);
+          } else if (event.event === 'ai_message_id') {
+            const data = JSON.parse(event.data);
+            updateLastMessageId(data.message_id);
+          } else if (event.event === 'ai_message_content') {
+            const data = JSON.parse(event.data);
+            if (!hasCommittedRef.current && data.content) {
+              commitStreamingContent(data.content);
+              hasCommittedRef.current = true;
+            }
+          } else if (event.event === 'queue_complete') {
+            // 队列项处理完成
+            const data = JSON.parse(event.data);
+            removeQueueItem(data.queue_item_id);
+            // 重置流式状态，准备下一个队列项
+            hasCommittedRef.current = false;
+          } else if (event.event === 'queue_error') {
+            // 队列项处理失败
+            const data = JSON.parse(event.data);
+            updateQueueItemStatus(data.queue_item_id, 'failed' as QueueItemStatus, data.error);
+            removeQueueItem(data.queue_item_id);
+          } else if (event.event === 'queue_done') {
+            // 全部队列项处理完毕
+            if (!hasCommittedRef.current) {
+              const finalContent = getCurrentContent();
+              if (finalContent) {
+                commitStreamingContent(finalContent);
+                hasCommittedRef.current = true;
+              }
+            }
+            clearStreamingContent();
+            isStreamingRef.current = false;
+            setIsTyping(false);
+            setIsQueueActive(false);
+          } else if (event.event === 'done') {
+            // SSE 连接关闭
+            if (!hasCommittedRef.current) {
+              const finalContent = getCurrentContent();
+              if (finalContent) {
+                commitStreamingContent(finalContent);
+                hasCommittedRef.current = true;
+              }
+            }
+            clearStreamingContent();
+            isStreamingRef.current = false;
+            setIsTyping(false);
+          }
+        },
+        onclose() {
+          if (!hasCommittedRef.current && isStreamingRef.current) {
+            const finalContent = getCurrentContent();
+            if (finalContent) {
+              commitStreamingContent(finalContent);
+              hasCommittedRef.current = true;
+            }
+          }
+          clearStreamingContent();
+          isStreamingRef.current = false;
+          setIsTyping(false);
+        },
+        onerror(err) {
+          hasCommittedRef.current = false;
+          isStreamingRef.current = false;
+          setIsTyping(false);
+          console.error('[Queue Stream] Error:', err);
+          throw err;
+        },
+      });
+    } catch (error) {
+      isStreamingRef.current = false;
+      setIsTyping(false);
+      console.error('[Queue Stream] Failed:', error);
+    }
+  }, [
+    addMessage,
+    appendStream,
+    clearStreamingContent,
+    commitStreamingContent,
+    getCurrentContent,
+    isAtBottomRef,
+    isPausedRef,
+    removeQueueItem,
+    resetStream,
+    scrollToBottom,
+    setIsQueueActive,
+    setIsTyping,
+    setStreamingMessageId,
+    updateCredits,
+    updateLastMessageId,
+    updateQueueItemStatus,
   ]);
 
   return {

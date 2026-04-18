@@ -188,3 +188,10 @@ export {
   type FeedbackEventType,
   type RecordBehaviorRequest,
 } from './api/feedback';
+
+// 消息队列 API
+export {
+  chatQueueApi,
+  type ChatQueueItem,
+  type QueueItemStatus,
+} from './api/chatQueue';

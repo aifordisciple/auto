@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # Redis 配置
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
+
+    @property
+    def REDIS_URL(self) -> str:
+        """Redis 连接 URL（从 REDIS_HOST 和 REDIS_PORT 派生）"""
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/2"
     
     # 文件存储配置
     UPLOAD_DIR: str = "uploads"

@@ -17,7 +17,7 @@ from app.models.billing import Wallet, ComputeRecord, TransactionLedger, Resourc
 # ✨ 导入路由模块（已移除所有 AI/Agent 路由）
 from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard, learning
 # ✨ 导入拆分后的 chat 子模块路由
-from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_search
+from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_search, chat_queue
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 
@@ -218,6 +218,7 @@ app.include_router(chat_session.router, prefix="/api/chat", tags=["ChatSession"]
 app.include_router(chat_bookmark.router, prefix="/api/chat", tags=["ChatBookmark"])
 app.include_router(chat_tags.router, prefix="/api/chat", tags=["ChatTags"])
 app.include_router(chat_search.router, prefix="/api/chat", tags=["ChatSearch"])
+app.include_router(chat_queue.router, prefix="/api/chat", tags=["ChatQueue"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(public.router, prefix="/api/public", tags=["Public"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])

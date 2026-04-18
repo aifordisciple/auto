@@ -121,6 +121,13 @@ try:
 except Exception as e:
     log.warning(f"学习中心任务注册失败: {e}")
 
+# 📚 注册消息队列 Celery 任务（队列消息顺序处理）
+try:
+    from app.tasks import chat_queue_task as _chat_queue_task  # noqa: F401
+    log.info("✅ 消息队列 Celery 任务已注册到 Worker")
+except Exception as e:
+    log.warning(f"消息队列任务注册失败: {e}")
+
 # 导出任务函数（保持向后兼容）
 run_rnaseq_qc_pipeline = _registered_tasks.get("run_rnaseq_qc_pipeline")
 run_variant_calling_pipeline = _registered_tasks.get("run_variant_calling_pipeline")

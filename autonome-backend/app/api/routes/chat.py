@@ -18,9 +18,11 @@
 """
 
 import json
+import asyncio
 from http import HTTPStatus
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session, select
 from sse_starlette.sse import EventSourceResponse
 
@@ -281,4 +283,122 @@ async def chat_stream(
 
             yield {"event": "done", "data": "[DONE]"}
 
-    return EventSourceResponse(event_generator(), ping=15)
+    # 防缓冲头：确保 SSE 流不被 nginx/CDN 等中间代理缓冲
+    # X-Accel-Buffering: no 是 nginx 专用头，告诉 nginx 禁用此响应的代理缓冲
+    return EventSourceResponse(
+        event_generator(),
+        ping=15,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ==========================================
+# 队列驱动的 SSE 流式响应
+# ==========================================
+
+class QueueStreamRequest(BaseModel):
+    """队列流请求"""
+    session_id: str
+    project_id: str
+
+
+@router.post("/stream/queue")
+async def chat_stream_queue(
+    request: QueueStreamRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    队列驱动的 SSE 流式响应
+
+    订阅 Redis pub/sub channel，转发 Celery worker 处理队列项时推送的 SSE 事件。
+    前端在消息入队后调用此端点，接收所有队列项的流式回复。
+    """
+    # 安全校验
+    project = session.get(Project, request.project_id)
+    if not project or project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该项目")
+
+    chat_session = session.get(ChatSession, request.session_id)
+    if not chat_session or chat_session.project_id != request.project_id:
+        raise HTTPException(status_code=404, detail="会话不存在或已删除")
+
+    session_id = request.session_id
+
+    async def queue_event_generator():
+        """
+        订阅 Redis pub/sub channel，转发 Celery worker 的 SSE 事件给前端
+
+        流程：
+        1. 推送 session_info 确认连接
+        2. 订阅 chat_stream:{session_id} channel
+        3. 转发所有事件直到收到 queue_done
+        """
+        # 确认连接
+        yield {
+            "event": "session_info",
+            "data": json.dumps({"session_id": session_id, "is_new": False})
+        }
+
+        # 订阅 Redis pub/sub
+        import redis.asyncio as aioredis
+        from app.core.config import settings
+
+        r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        pubsub = r.pubsub()
+        channel = f"chat_stream:{session_id}"
+
+        try:
+            await pubsub.subscribe(channel)
+            log.info(f"队列 SSE 订阅已建立: session_id={session_id}")
+
+            # 监听事件
+            while True:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=300,  # 5分钟超时
+                )
+                if message and message["type"] == "message":
+                    try:
+                        event_data = json.loads(message["data"])
+                        event_type = event_data.get("event", "message")
+                        event_payload = event_data.get("data", {})
+
+                        # 转发 SSE 事件
+                        yield {
+                            "event": event_type,
+                            "data": json.dumps(event_payload, ensure_ascii=False),
+                        }
+
+                        # queue_done 表示所有队列项处理完毕，关闭连接
+                        if event_type == "queue_done":
+                            yield {"event": "done", "data": "[DONE]"}
+                            break
+
+                    except json.JSONDecodeError as e:
+                        log.warning(f"Redis 消息解析失败: {e}")
+                        continue
+
+        except asyncio.CancelledError:
+            log.info(f"队列 SSE 连接被取消: session_id={session_id}")
+        except Exception as e:
+            log.error(f"队列 SSE 异常: session_id={session_id}, error={e}")
+        finally:
+            await pubsub.unsubscribe(channel)
+            await r.close()
+            log.info(f"队列 SSE 订阅已关闭: session_id={session_id}")
+
+    # 防缓冲头
+    return EventSourceResponse(
+        queue_event_generator(),
+        ping=15,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

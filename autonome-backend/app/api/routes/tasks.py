@@ -281,7 +281,16 @@ async def stream_task_logs(task_id: str):
                 break
             await asyncio.sleep(0.5)
             
-    return EventSourceResponse(log_generator(), ping=15)
+    # 防缓冲头：确保 SSE 流不被 nginx/CDN 等中间代理缓冲
+    return EventSourceResponse(
+        log_generator(),
+        ping=15,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("")
