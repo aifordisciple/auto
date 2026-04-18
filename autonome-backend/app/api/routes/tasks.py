@@ -281,7 +281,7 @@ async def stream_task_logs(task_id: str):
                 break
             await asyncio.sleep(0.5)
             
-    return EventSourceResponse(log_generator())
+    return EventSourceResponse(log_generator(), ping=15)
 
 
 @router.get("")

@@ -230,4 +230,4 @@ async def chat_stream(
 
             yield {"event": "done", "data": "[DONE]"}
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), ping=15)
