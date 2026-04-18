@@ -330,114 +330,110 @@ def is_thinking_only_response(content: str, model_name: str = None) -> bool:
 # ==========================================
 # V2: 流式感知过滤 — 跨 chunk 有状态过滤
 # ==========================================
+# V2: 流式感知过滤 — 跨 chunk 有状态过滤
+# ==========================================
 
 class StreamContentFilter:
     """
     流式内容过滤器（有状态）
 
-    解决问题：流式传输时，系统标签（如 [AUTONOME_RESULT_START]）可能被分割到
-    两个 SSE chunk 中，导致逐块过滤遗漏。
+    解决问题：流式传输时，思考标签（如 <think>、<thinking>）可能被分割到
+    多个 SSE chunk 中，导致逐块过滤遗漏或内容泄漏。
 
-    工作原理：
-    1. 维护一个滑动窗口缓冲区，保留最近 N 个字符
-    2. 每个 chunk 先追加到缓冲区
-    3. 在缓冲区上执行所有过滤模式
-    4. 返回过滤后的新增内容
-    5. 缓冲区只保留最后 N 个字符（防止内存增长）
+    核心设计：有状态的思考标签检测
+    - 一旦检测到思考标签开始，进入“思考模式”
+    - 思考模式下，所有内容被缓冲不输出
+    - 检测到思考标签结束，退出思考模式
+    - 思考模式外的内容正常输出
     """
 
-    # 滑动窗口大小（足够覆盖最长的系统标签模式）
-    WINDOW_SIZE = 200
+    # 思考标签的开始和结束标记
+    THINKING_START_MARKERS = ["<think>", "<think ", "<thinking>", "<thinking "]
+    THINKING_END_MARKERS = ["</think>", "</thinking>"]
 
     def __init__(self, model_name: str = None):
         self.model_name = model_name
+        self._in_thinking = False
         self._buffer = ""
-        self._filtered_offset = 0  # 已过滤内容的偏移量
 
     def filter_chunk(self, chunk: str) -> str:
-        """
-        过滤一个流式 chunk
-
-        Args:
-            chunk: 新的流式内容块
-
-        Returns:
-            过滤后的内容（可能为空字符串）
-        """
         if not chunk:
             return chunk
 
-        # 追加到缓冲区
         self._buffer += chunk
-        original_len = len(chunk)
+        output = ""
 
-        # 在缓冲区上执行所有过滤
-        filtered = self._buffer
+        while self._buffer:
+            if self._in_thinking:
+                end_pos = self._find_end_marker()
+                if end_pos is not None:
+                    self._buffer = self._buffer[end_pos:]
+                    self._in_thinking = False
+                else:
+                    break
+            else:
+                start_pos, marker_len = self._find_start_marker()
+                if start_pos is not None:
+                    if start_pos > 0:
+                        output += self._buffer[:start_pos]
+                    self._buffer = self._buffer[start_pos + marker_len:]
+                    self._in_thinking = True
+                else:
+                    safe_end = len(self._buffer)
+                    for marker in self.THINKING_START_MARKERS:
+                        for i in range(1, len(marker)):
+                            if self._buffer.endswith(marker[:i]):
+                                safe_end = min(safe_end, len(self._buffer) - i)
 
-        # 过滤 thinking 标签
-        for pattern in THINKING_TAG_PATTERNS:
-            filtered = pattern.sub("", filtered)
+                    if safe_end > 0:
+                        output += self._buffer[:safe_end]
+                        self._buffer = self._buffer[safe_end:]
+                    else:
+                        break
 
-        # 过滤 parameter 标签
-        for pattern in PARAMETER_TAG_PATTERNS:
-            filtered = pattern.sub("", filtered)
+        if output:
+            output = fix_code_block_format(output, model_name=self.model_name)
 
-        # 过滤所有系统标签
-        for pattern in ALL_SYSTEM_TAG_PATTERNS:
-            before_len = len(filtered)
-            filtered = pattern.sub("", filtered)
-            if len(filtered) < before_len:
-                log.info(f"[StreamFilter] 拦截系统标签泄漏: 模式={pattern.pattern[:50]}, 移除 {before_len - len(filtered)} 字符")
+        return output
 
-        # 修复代码块格式
-        filtered = fix_code_block_format(filtered, model_name=self.model_name)
+    def _find_start_marker(self) -> tuple:
+        earliest_pos = None
+        earliest_len = None
+        for marker in self.THINKING_START_MARKERS:
+            pos = self._buffer.find(marker)
+            if pos != -1:
+                if earliest_pos is None or pos < earliest_pos:
+                    earliest_pos = pos
+                    earliest_len = len(marker)
+        return (earliest_pos, earliest_len)
 
-        # 计算新增的过滤后内容
-        new_filtered = filtered[self._filtered_offset:]
-        self._filtered_offset = len(filtered)
-
-        # 维护滑动窗口：只保留最后 WINDOW_SIZE 个字符
-        if len(self._buffer) > self.WINDOW_SIZE * 2:
-            excess = len(self._buffer) - self.WINDOW_SIZE
-            self._buffer = self._buffer[excess:]
-            self._filtered_offset = max(0, self._filtered_offset - excess)
-
-        if original_len != len(new_filtered):
-            log.debug(f"[StreamFilter] chunk 过滤: 输入 {original_len} 字符 → 输出 {len(new_filtered)} 字符, 缓冲区 {len(self._buffer)} 字符")
-
-        return new_filtered
+    def _find_end_marker(self):
+        earliest_end = None
+        for marker in self.THINKING_END_MARKERS:
+            pos = self._buffer.find(marker)
+            if pos != -1:
+                end = pos + len(marker)
+                if earliest_end is None or end < earliest_end:
+                    earliest_end = end
+        return earliest_end
 
     def flush(self) -> str:
-        """
-        刷新缓冲区，返回剩余内容
-
-        在流式传输结束时调用，确保所有内容都被处理。
-
-        Returns:
-            缓冲区中剩余的过滤后内容
-        """
-        if not self._buffer:
+        if self._in_thinking:
+            self._buffer = ""
+            self._in_thinking = False
             return ""
 
-        # 最终过滤
-        filtered = filter_thinking_content(
-            self._buffer,
-            model_name=self.model_name,
-            is_streaming=True
-        )
-
-        new_filtered = filtered[self._filtered_offset:]
-
-        # 重置状态
+        output = self._buffer
         self._buffer = ""
-        self._filtered_offset = 0
 
-        return new_filtered
+        if output:
+            output = fix_code_block_format(output, model_name=self.model_name)
+
+        return output
 
     def reset(self) -> None:
-        """重置过滤器状态"""
         self._buffer = ""
-        self._filtered_offset = 0
+        self._in_thinking = False
 
 
 def filter_stream_chunk(
@@ -445,33 +441,17 @@ def filter_stream_chunk(
     model_name: str = None,
     _filter_state: dict = None
 ) -> str:
-    """
-    便捷函数：过滤流式 chunk（无状态版本，适用于简单场景）
-
-    对于跨 chunk 边界的标签，此函数可能遗漏。
-    如需完整的有状态过滤，请使用 StreamContentFilter 类。
-
-    Args:
-        chunk: 流式内容块
-        model_name: 模型名称
-        _filter_state: 可选的状态字典（用于跨调用保持状态）
-
-    Returns:
-        过滤后的内容
-    """
     if not chunk:
         return chunk
 
     result = chunk
 
-    # 快速检查：如果 chunk 中不包含任何特殊标签，直接返回
     if not any(marker in result for marker in [
         "json_intent", "[AUTONOME_RESULT_START]", "[AUTONOME_RESULT_END]",
-        "<think", "<thinking>", "<parameter", "심풀", "|begin_thought|"
+        "<think", "<thinking>", "<parameter", "|begin_thought|"
     ]):
         return result
 
-    # 执行过滤
     for pattern in ALL_SYSTEM_TAG_PATTERNS:
         result = pattern.sub("", result)
 

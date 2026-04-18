@@ -15,8 +15,9 @@
  * 4. 速率自适应：队列越长每帧输出越多字符（加速追赶）
  * 5. 队列短时每帧只输出 1-2 个字符（打字机效果）
  *
- * 这样无论 LLM 返回粗粒度还是细粒度 chunk，
- * 用户都能看到流畅的逐字输出。
+ * 关键设计：
+ * - consumeFrame 使用 ref 存储，避免闭包过期和 rAF 循环断裂
+ * - onContentUpdate 使用 ref 存储，避免 useCallback 重建导致整条链断裂
  */
 import { useRef, useCallback, useEffect } from 'react';
 
@@ -58,8 +59,16 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
   /** 上次渲染时间戳（用于节流） */
   const lastRenderTimeRef = useRef<number>(0);
 
+  /**
+   * 用 ref 存储 onContentUpdate，避免 useCallback 重建导致
+   * consumeFrame 闭包过期、rAF 循环断裂
+   */
+  const onContentUpdateRef = useRef(onContentUpdate);
+  onContentUpdateRef.current = onContentUpdate;
+
   // ==========================================
   // 逐字消费动画 - 每帧从队列中取出若干字符显示
+  // 使用 ref 稳定引用，rAF 循环不会因重渲染而断裂
   // ==========================================
   const consumeFrame = useCallback(() => {
     const now = performance.now();
@@ -77,7 +86,6 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
       // 自适应速率：
       // - 队列短（<10字符）：每帧输出 baseCharsPerFrame 个字符（打字机效果）
       // - 队列长（>=10字符）：每帧额外输出 queueLen/catchUpFactor 个字符（加速追赶）
-      // 这样既保证打字机效果，又不会让队列无限积压
       let charsToConsume = baseCharsPerFrame;
       if (queueLen > 10) {
         charsToConsume = baseCharsPerFrame + Math.ceil(queueLen / catchUpFactor);
@@ -92,8 +100,8 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
       confirmedContentRef.current += charsToRender;
       lastRenderTimeRef.current = now;
 
-      // 通知外部更新
-      onContentUpdate(confirmedContentRef.current);
+      // 通过 ref 调用最新的 onContentUpdate，避免闭包过期
+      onContentUpdateRef.current(confirmedContentRef.current);
     }
 
     // 如果队列还有字符，继续动画；否则停止
@@ -102,7 +110,8 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
     } else {
       isAnimatingRef.current = false;
     }
-  }, [onContentUpdate, minUpdateInterval, baseCharsPerFrame, catchUpFactor]);
+  }, [minUpdateInterval, baseCharsPerFrame, catchUpFactor]);
+  // 注意：consumeFrame 不依赖 onContentUpdate，通过 ref 间接访问
 
   // ==========================================
   // 追加内容 - 数据立即累积到队列，rAF 逐字消费
