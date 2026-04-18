@@ -367,6 +367,27 @@ class SkillMatcher:
         keyword_matches = self._keyword_match(query_lower, keywords_indexer)
 
         if not keyword_matches["skills"]:
+            # 没有匹配到技能时，需要区分"闲聊/问候"和"需要代码实现的需求"
+            # 问候、闲聊等对话性输入应走 GENERAL_QUESTION，而非 LIVE_CODING
+            if self._is_conversational_input(query_lower):
+                return {
+                    "intent_type": IntentType.GENERAL_QUESTION,
+                    "matched_skills": [],
+                    "confidence": 0.9,
+                    "parameters_suggestion": {},
+                    "match_source": "rule",
+                    "reason": "检测到对话性输入（问候/闲聊），无需代码生成"
+                }
+            # 一般性问题（知识问答）也应走 GENERAL_QUESTION
+            if self._is_general_question(query_lower):
+                return {
+                    "intent_type": IntentType.GENERAL_QUESTION,
+                    "matched_skills": [],
+                    "confidence": 0.7,
+                    "parameters_suggestion": {},
+                    "match_source": "rule",
+                    "reason": "检测到知识问答型需求"
+                }
             return {
                 "intent_type": IntentType.LIVE_CODING,
                 "matched_skills": [],
@@ -619,6 +640,65 @@ class SkillMatcher:
                 analysis_patterns = ["分析", "处理", "运行", "执行"]
                 if not any(ap in query_lower for ap in analysis_patterns):
                     return True
+
+        return False
+
+    def _is_conversational_input(self, query_lower: str) -> bool:
+        """
+        判断是否为对话性输入（问候、闲聊、感谢等）
+
+        这类输入不需要代码生成或技能执行，应走 GENERAL_QUESTION 路径，
+        由 LLM 以对话方式自然回复。
+
+        Args:
+            query_lower: 小写的用户查询
+
+        Returns:
+            如果是对话性输入返回 True
+        """
+        # 去除首尾空白和标点，获取核心内容
+        stripped = query_lower.strip()
+        # 去除常见末尾标点（中英文感叹号、问号、句号、波浪号）
+        import re
+        stripped = re.sub(r'[!！?？。~～]+$', '', stripped).strip()
+
+        # 1. 精确匹配：常见问候语（中英文）
+        exact_greetings = {
+            # 中文问候
+            "你好", "您好", "嗨", "哈喽", "hello", "hi", "hey",
+            "早上好", "下午好", "晚上好", "早安", "晚安",
+            "good morning", "good afternoon", "good evening",
+            # 感谢
+            "谢谢", "感谢", "thanks", "thank you", "thx", "ty",
+            "多谢", "辛苦了",
+            # 确认/回应
+            "好的", "好", "ok", "okay", "嗯", "嗯嗯", "行", "可以",
+            "明白", "了解", "收到", "知道了",
+            # 告别
+            "再见", "拜拜", "bye", "bye bye", "goodbye",
+        }
+        if stripped in exact_greetings:
+            return True
+
+        # 2. 模式匹配：问候语变体（如"你好呀"、"hello!"等）
+        greeting_patterns = [
+            r'^你好[啊呀吧嘛]?$',
+            r'^hello\s*[!！]?$',
+            r'^hi\s*[!！]?$',
+            r'^hey\s*[!！]?$',
+            r'^您好[啊呀吧嘛]?$',
+            r'^嗨[啊呀吧嘛]?$',
+        ]
+        for pattern in greeting_patterns:
+            if re.match(pattern, stripped):
+                return True
+
+        # 3. 短文本启发式：非常短的输入（≤4字符）且不含技术关键词
+        # 闲聊通常很短，技术需求通常包含更多描述
+        if len(stripped) <= 4 and not any(
+            kw in stripped for kw in ["分析", "处理", "运行", "代码", "数据", "画图", "plot", "code", "data"]
+        ):
+            return True
 
         return False
 
