@@ -36,8 +36,8 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
   const {
     onContentUpdate,
     minUpdateInterval = 16,
-    baseCharsPerFrame = 1,
-    catchUpFactor = 150,  // ✨ 从 80 提高到 150，进一步降低追赶速度，让流式效果更明显
+    baseCharsPerFrame = 3,
+    catchUpFactor = 100,  // ✨ 平衡打字机效果和追赶速度
   } = config;
 
   // ==========================================
@@ -63,7 +63,7 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
   const lastStoreUpdateTimeRef = useRef<number>(0);
 
   /** ✨ store 更新最小间隔（毫秒），减少 React 重渲染频率 */
-  const storeUpdateInterval = 50;
+  const storeUpdateInterval = 100;
 
   /**
    * 用 ref 存储 onContentUpdate，避免 useCallback 重建导致

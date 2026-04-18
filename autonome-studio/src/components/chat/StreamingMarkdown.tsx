@@ -370,12 +370,31 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
 
       {/* 渲染正常的 Markdown 内容 */}
       {processedContent && (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkBreaks]}
-          components={components}
-        >
-          {processedContent}
-        </ReactMarkdown>
+        isStreaming ? (
+          // ✨ 流式时使用轻量级渲染，避免 ReactMarkdown 每次重解析导致卡顿
+          // 检测是否包含代码块，如果有则使用 ReactMarkdown（代码块需要语法高亮）
+          // 否则直接渲染纯文本（快得多）
+          processedContent.includes('```') ? (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkBreaks]}
+              components={components}
+            >
+              {processedContent}
+            </ReactMarkdown>
+          ) : (
+            <div className="whitespace-pre-wrap break-words text-[0.9375rem] leading-relaxed">
+              {processedContent}
+            </div>
+          )
+        ) : (
+          // 非流式时使用完整 Markdown 渲染
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkBreaks]}
+            components={components}
+          >
+            {processedContent}
+          </ReactMarkdown>
+        )
       )}
 
       {/* ✨ 流式时显示光标，且正在思考时不显示 */}

@@ -223,8 +223,6 @@ async def chat_stream(
             async for chunk in direct_llm.astream(lc_messages):
                 content = chunk.content
                 if content:
-                    # 🔍 调试日志：记录每个 chunk 的大小
-                    log.info(f"[Chat] SSE chunk: len={len(content)}, preview={content[:50]!r}")
                     # ✨ 过滤思考标签等内容，返回 (content, type) 元组
                     # type: "text" = 正常回复, "thinking" = 思考过程
                     filtered_content, content_type = content_filter.filter_chunk(content)
