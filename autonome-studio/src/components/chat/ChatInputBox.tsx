@@ -86,16 +86,17 @@ const ChatInputBox = memo(function ChatInputBox({
   const clearClaudeCodeSession = useWorkspaceStore(state => state.clearClaudeCodeSession);
 
   // ✨ 内部发送处理：获取当前输入值并清空
+  // ✨ 队列模式：isTyping 时仍可发送，消息自动入队
   const handleInternalSend = useCallback(() => {
     const hasUploading = pastedAttachments.some(att => att.isUploading);
     const canSend = (inputValue.trim() || pendingChatAttachments.length > 0 || pastedAttachments.length > 0);
-    if (isTyping || hasUploading || !canSend) return;
+    if (hasUploading || !canSend) return;
 
     onSend(inputValue);
     setInputValue(""); // 发送后清空
     // 发送后保持焦点，让用户可以继续输入
     document.getElementById("chat-input-box")?.focus();
-  }, [inputValue, onSend, isTyping, pendingChatAttachments.length, pastedAttachments]);
+  }, [inputValue, onSend, pendingChatAttachments.length, pastedAttachments]);
 
   // ✨ 处理 Enter 键发送
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -106,8 +107,9 @@ const ChatInputBox = memo(function ChatInputBox({
   }, [handleInternalSend]);
 
   // ✨ 检查是否有上传中的附件
+  // ✨ 队列模式：isTyping 时不阻止发送（消息入队），只阻止上传中的附件
   const hasUploading = pastedAttachments.some(att => att.isUploading);
-  const canSend = !isTyping && !hasUploading && (inputValue.trim() || pendingChatAttachments.length > 0 || pastedAttachments.length > 0);
+  const canSend = !hasUploading && (inputValue.trim() || pendingChatAttachments.length > 0 || pastedAttachments.length > 0);
 
   return (
     <div className="w-full bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/60 rounded-2xl p-2 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-sm dark:shadow-xl flex flex-col">
@@ -355,26 +357,28 @@ const ChatInputBox = memo(function ChatInputBox({
         {/* 弹性空间，让 Tools 按钮和发送按钮分开 */}
         <div className="flex-1" />
 
-        {/* 右侧: 发送/停止按钮 */}
-        {isTyping ? (
-          // ✨ 停止按钮 - 流式输出时显示
-          <button
-            onClick={onStop}
-            className="p-2 md:p-2 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center animate-pulse"
-            title="停止生成"
-          >
-            <Square size={18} fill="currentColor" />
-          </button>
-        ) : (
-          // 发送按钮
+        {/* 右侧: 发送按钮 + 停止按钮（队列模式下可同时存在） */}
+        <div className="flex items-center gap-1">
+          {/* ✨ 停止按钮 - 流式输出时显示 */}
+          {isTyping && (
+            <button
+              onClick={onStop}
+              className="p-2 md:p-2 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
+              title="停止生成"
+            >
+              <Square size={18} fill="currentColor" />
+            </button>
+          )}
+          {/* 发送按钮 - 始终可用（队列模式下消息入队） */}
           <button
             onClick={handleInternalSend}
             disabled={!canSend}
             className="p-2 md:p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
+            title={isTyping ? "消息将加入队列" : "发送"}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
           </button>
-        )}
+        </div>
       </div>
     </div>
   );
