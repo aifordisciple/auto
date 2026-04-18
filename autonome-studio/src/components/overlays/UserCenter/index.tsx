@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useState } from 'react';
+import { useState, ReactNode } from 'react';
 import { useUIStore } from "@/store/useUIStore";
-import { X, User, Shield, Keyboard, Wallet } from "lucide-react";
+import { X, User, Shield, Keyboard, Wallet, Bot } from "lucide-react";
 import { ProfilePanel } from './ProfilePanel';
 import { SecurityPanel } from './SecurityPanel';
 import { ShortcutsPanel } from './ShortcutsPanel';
 import { WalletPanel } from './WalletPanel';
+import { AIModelPanel } from './AIModelPanel';
 
 // Tab 类型定义
-type TabType = 'profile' | 'security' | 'shortcuts' | 'wallet';
+type TabType = 'profile' | 'security' | 'ai-model' | 'wallet' | 'shortcuts';
 
 // ==========================================
 // 主组件：用户中心（统一入口）
@@ -23,9 +24,10 @@ export function UserCenter() {
   if (!isUserCenterOpen) return null;
 
   // Tab 配置
-  const tabs: { id: TabType; label: string; icon: React.ReactNode; color: string }[] = [
+  const tabs: { id: TabType; label: string; icon: ReactNode; color: string }[] = [
     { id: 'profile', label: '个人资料', icon: <User size={14} />, color: 'blue' },
     { id: 'security', label: '安全设置', icon: <Shield size={14} />, color: 'red' },
+    { id: 'ai-model', label: 'AI 模型', icon: <Bot size={14} />, color: 'purple' },
     { id: 'wallet', label: '钱包', icon: <Wallet size={14} />, color: 'amber' },
     { id: 'shortcuts', label: '快捷键', icon: <Keyboard size={14} />, color: 'green' },
   ];
@@ -84,6 +86,7 @@ export function UserCenter() {
         <div className="flex-1 overflow-hidden">
           {activeTab === 'profile' && <ProfilePanel />}
           {activeTab === 'security' && <SecurityPanel />}
+          {activeTab === 'ai-model' && <AIModelPanel />}
           {activeTab === 'wallet' && <WalletPanel />}
           {activeTab === 'shortcuts' && <ShortcutsPanel />}
         </div>

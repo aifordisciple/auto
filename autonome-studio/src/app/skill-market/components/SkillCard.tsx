@@ -4,7 +4,7 @@
 
 'use client';
 
-import React from 'react';
+import type { MouseEvent } from 'react';
 import { Star, Heart, Code, GitBranch, Users } from 'lucide-react';
 
 interface SkillSummary {
@@ -42,7 +42,7 @@ const EXECUTOR_LABELS: Record<string, string> = {
 };
 
 export function SkillCard({ skill, onFavoriteToggle, onClick }: SkillCardProps) {
-  const handleFavoriteClick = (e: React.MouseEvent) => {
+  const handleFavoriteClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     onFavoriteToggle(skill.skill_id);
   };

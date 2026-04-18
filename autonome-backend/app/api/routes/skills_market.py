@@ -890,7 +890,7 @@ async def get_recent_skills(
     session: Session = Depends(get_session)
 ):
     """获取最新上线的技能"""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     skills = session.exec(
         select(SkillAsset)
@@ -908,7 +908,7 @@ async def get_recent_skills(
         ).first() or 0
 
         # 判断是否是新技能（7天内创建）
-        days_old = (datetime.utcnow() - skill.created_at.replace(tzinfo=None)).days if skill.created_at else 999
+        days_old = (datetime.now(timezone.utc) - skill.created_at.replace(tzinfo=None)).days if skill.created_at else 999
         is_new = days_old < 7
 
         results.append(RecentSkillResponse(

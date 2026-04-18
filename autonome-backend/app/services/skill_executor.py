@@ -25,6 +25,16 @@ from enum import Enum
 from app.core.logger import log
 from app.core.sample_table import SampleTable
 from app.core.skill_parser import get_skill_parser, SkillBundleParser
+from app.core.sandbox_config import DEFAULT_EXECUTION_TIMEOUT
+
+# ==========================================
+# ✨ 输出截断常量
+# ==========================================
+# 防止超长输出导致内存溢出和传输延迟
+MAX_OUTPUT_LENGTH = 5000      # 标准输出最大字符数
+MAX_ERROR_LENGTH = 2000       # 错误输出最大字符数
+MAX_PREVIEW_LENGTH = 1000       # 预览最大字符数
+MAX_RESULT_PREVIEW = 500        # 结果预览/错误日志最大字符数
 
 
 class SkillExecutionError(Exception):
@@ -41,7 +51,7 @@ class MissingDependencyError(Exception):
 
 
 # ✨ 沙箱执行超时配置
-SKILL_EXECUTION_TIMEOUT = 3600  # 默认 1 小时
+SKILL_EXECUTION_TIMEOUT = DEFAULT_EXECUTION_TIMEOUT
 
 # ✨ 重试配置
 DEFAULT_RETRY_CONFIG = {
@@ -915,16 +925,16 @@ class SkillExecutor:
                 "execution_mode": "native",
                 "skill_id": self.skill_id,
                 "project_id": self.project_id,
-                "output": output[:2000] if len(output) > 2000 else output,
+                "output": output[:MAX_ERROR_LENGTH] if len(output) > MAX_ERROR_LENGTH else output,
                 "output_dir": self.params.get("output_dir"),
                 "sample_count": self.sample_table.sample_count if self.sample_table else 0,
                 "duration_seconds": billing_info.get("duration_seconds", 0),
             }
         else:
-            log.error(f"[SkillExecutor] 原生执行失败: {output[:500]}")
+            log.error(f"[SkillExecutor] 原生执行失败: {output[:MAX_RESULT_PREVIEW]}")
             return {
                 "status": "failed",
-                "error": output[:1000],
+                "error": output[:MAX_PREVIEW_LENGTH],
                 "exit_code": exit_code,
                 "execution_mode": "native",
                 "skill_id": self.skill_id,
@@ -1063,7 +1073,7 @@ class SkillExecutor:
         return {
             "status": "success",
             "executor": "nextflow",
-            "main_nf": main_nf[:1000] + "..." if len(main_nf) > 1000 else main_nf,
+            "main_nf": main_nf[:MAX_PREVIEW_LENGTH] + "..." if len(main_nf) > 1000 else main_nf,
             "sample_count": self.sample_table.sample_count if self.sample_table else 0,
         }
 
@@ -1167,21 +1177,21 @@ class SkillExecutor:
                     "execution_mode": "native",
                     "skill_id": self.skill_id,
                     "project_id": self.project_id,
-                    "output": output[:5000],
+                    "output": output[:MAX_OUTPUT_LENGTH],
                     "output_dir": work_dir,
                     "sample_count": self.sample_table.sample_count if self.sample_table else 0,
                     "duration_seconds": duration,
                 }
             else:
-                log.error(f"[SkillExecutor] Nextflow 原生执行失败: {process.stderr[:500]}")
+                log.error(f"[SkillExecutor] Nextflow 原生执行失败: {process.stderr[:MAX_RESULT_PREVIEW]}")
                 return {
                     "status": "failed",
                     "executor": "nextflow_native",
                     "execution_mode": "native",
                     "skill_id": self.skill_id,
-                    "error": process.stderr[:1000],
+                    "error": process.stderr[:MAX_PREVIEW_LENGTH],
                     "exit_code": process.returncode,
-                    "output": output[:5000],
+                    "output": output[:MAX_OUTPUT_LENGTH],
                 }
 
         except subprocess.TimeoutExpired:
@@ -1284,15 +1294,15 @@ class SkillExecutor:
                     "executor": "python",
                     "skill_id": self.skill_id,
                     "project_id": self.project_id,
-                    "output": output[:2000] if len(output) > 2000 else output,
+                    "output": output[:MAX_ERROR_LENGTH] if len(output) > MAX_ERROR_LENGTH else output,
                     "output_dir": self.params.get("output_dir"),
                     "sample_count": self.sample_table.sample_count if self.sample_table else 0,
                 }
             else:
-                log.error(f"[SkillExecutor] Python 脚本执行失败: {output[:500]}")
+                log.error(f"[SkillExecutor] Python 脚本执行失败: {output[:MAX_RESULT_PREVIEW]}")
                 return {
                     "status": "failed",
-                    "error": output[:1000],
+                    "error": output[:MAX_PREVIEW_LENGTH],
                     "exit_code": exit_code,
                     "skill_id": self.skill_id,
                 }
@@ -1360,15 +1370,15 @@ class SkillExecutor:
                     "executor": "r",
                     "skill_id": self.skill_id,
                     "project_id": self.project_id,
-                    "output": output[:2000] if len(output) > 2000 else output,
+                    "output": output[:MAX_ERROR_LENGTH] if len(output) > MAX_ERROR_LENGTH else output,
                     "output_dir": self.params.get("output_dir"),
                     "sample_count": self.sample_table.sample_count if self.sample_table else 0,
                 }
             else:
-                log.error(f"[SkillExecutor] R 脚本执行失败: {output[:500]}")
+                log.error(f"[SkillExecutor] R 脚本执行失败: {output[:MAX_RESULT_PREVIEW]}")
                 return {
                     "status": "failed",
-                    "error": output[:1000],
+                    "error": output[:MAX_PREVIEW_LENGTH],
                     "exit_code": exit_code,
                     "skill_id": self.skill_id,
                 }
@@ -1421,12 +1431,12 @@ class SkillExecutor:
                     "status": "success",
                     "executor": "bash",
                     "skill_id": self.skill_id,
-                    "output": output[:2000],
+                    "output": output[:MAX_ERROR_LENGTH],
                 }
             else:
                 return {
                     "status": "failed",
-                    "error": output[:1000],
+                    "error": output[:MAX_PREVIEW_LENGTH],
                     "skill_id": self.skill_id,
                 }
 

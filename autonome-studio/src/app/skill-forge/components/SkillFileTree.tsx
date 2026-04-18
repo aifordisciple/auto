@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import { useState, ReactNode, MouseEvent, useEffect } from 'react';
 import {
   Folder,
   FolderOpen,
@@ -31,7 +31,7 @@ import { useForgeStore, SkillFileNode, getFileLanguage } from '@/store/useForgeS
 function FileIcon({ name, className = '' }: { name: string; className?: string }) {
   const ext = name.split('.').pop()?.toLowerCase();
 
-  const iconMap: Record<string, React.ReactNode> = {
+  const iconMap: Record<string, ReactNode> = {
     py: <FileCode size={16} className={`text-yellow-400 ${className}`} />,
     r: <FileCode size={16} className={`text-blue-400 ${className}`} />,
     R: <FileCode size={16} className={`text-blue-400 ${className}`} />,
@@ -149,7 +149,7 @@ function FileTreeNode({ node, depth }: FileTreeNodeProps) {
   };
 
   // 右键菜单
-  const handleContextMenu = (e: React.MouseEvent) => {
+  const handleContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -323,7 +323,7 @@ export function SkillFileTree() {
   } = useForgeStore();
 
   // 确保文件系统已初始化
-  React.useEffect(() => {
+  useEffect(() => {
     if (skillFiles.length === 0 && skillDraft.script_code) {
       initSkillFiles();
     }

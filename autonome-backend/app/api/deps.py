@@ -4,7 +4,8 @@ from jose import jwt, JWTError
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.core.security import SECRET_KEY, ALGORITHM
+from app.core.config import settings
+from app.core.security import ALGORITHM
 from app.models.domain import User
 
 # FastAPI 自带的 OAuth2 密码流配置（告知 Swagger UI 登录接口在哪里）
@@ -23,7 +24,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Dep
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
@@ -60,7 +61,7 @@ def verify_token_and_get_user(token: str, session: Session) -> User:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception

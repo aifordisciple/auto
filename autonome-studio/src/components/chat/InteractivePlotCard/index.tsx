@@ -111,7 +111,6 @@ export function InteractivePlotCard({
       if (response.status === 'success' && response.data) {
         setChartData(response.data);
         setColumns(response.columns || []);
-        console.log(`[InteractivePlotCard] 加载了 ${response.data.length} 行数据，列: ${response.columns?.join(', ')}`);
       } else {
         setDataError(response.error || '加载数据失败');
       }
@@ -134,7 +133,6 @@ export function InteractivePlotCard({
       // 检查是否是当前图表的数据源
       const detail = event.detail as { data_source?: string; taskName?: string } | undefined;
       if (detail?.data_source === data.data_source || !detail?.data_source) {
-        console.log('[InteractivePlotCard] 收到刷新事件，重新加载数据');
         // 延迟 500ms 等待后端写入完成
         setTimeout(() => loadPlotData(), 500);
       }
@@ -319,7 +317,7 @@ export function InteractivePlotCard({
         }
 
         default:
-          console.warn('[InteractivePlotCard] 不支持的导出格式:', format);
+          break;
       }
 
       setTimeout(() => setExportSuccess(null), 3000);
@@ -753,7 +751,7 @@ function generateChartConfig(
     }
 
     default:
-      console.warn(`[generateChartConfig] Unsupported plot type: ${plotType}`);
+      break;
   }
 
   return config;

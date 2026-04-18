@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "../../store/useAuthStore";
-import { fetchAPI } from "../../lib/api";
+import { fetchAPI, getToken } from "../../lib/api";
 import { Users, Zap, Server, Activity, Shield, CreditCard, AlertTriangle, CheckCircle, XCircle, RefreshCw, ArrowLeft, Cpu, Box, Settings, History, Bot, Database, Sparkles, Save, Globe, Key } from "lucide-react";
 import { useKeyboardShortcut } from "../../hooks/useKeyboardShortcut";
 
@@ -88,7 +88,7 @@ export default function AdminDashboard() {
   const [embeddingSuccess, setEmbeddingSuccess] = useState(false);
 
   useEffect(() => {
-    const localToken = localStorage.getItem('autonome_access_token');
+    const localToken = getToken();
     if (!localToken) {
       router.push('/login');
       return;

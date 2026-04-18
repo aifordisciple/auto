@@ -10,7 +10,7 @@
  */
 'use client';
 
-import React from 'react';
+import type { ReactNode, RefObject } from 'react';
 import {
   Search,
   Play,
@@ -246,8 +246,8 @@ interface MobileParamConfigPanelProps {
   onExecute: () => void;
   onViewDetail: () => void;
   onAttachToChat: () => void;
-  renderParamInput: (key: string, prop: SkillParameter) => React.ReactNode;
-  terminalEndRef: React.RefObject<HTMLDivElement | null>;
+  renderParamInput: (key: string, prop: SkillParameter) => ReactNode;
+  terminalEndRef: RefObject<HTMLDivElement | null>;
 }
 
 export function MobileParamConfigPanel({

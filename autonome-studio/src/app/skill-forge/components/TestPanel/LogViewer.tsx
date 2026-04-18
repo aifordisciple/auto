@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal, Check, AlertTriangle, Info, Loader2 } from 'lucide-react';
 
 export interface LogEntry {

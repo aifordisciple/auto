@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_session
 from app.core.logger import log
@@ -576,7 +576,7 @@ def update_skill_execution_mode(
     # 更新执行模式
     old_mode = skill.execution_mode or "docker"
     skill.execution_mode = req.execution_mode
-    skill.execution_mode_updated_at = datetime.utcnow()
+    skill.execution_mode_updated_at = datetime.now(timezone.utc)
     skill.execution_mode_updated_by = admin_user.id
 
     session.add(skill)
@@ -641,7 +641,7 @@ def batch_update_execution_mode(
         # 更新执行模式
         old_mode = skill.execution_mode or "docker"
         skill.execution_mode = req.execution_mode
-        skill.execution_mode_updated_at = datetime.utcnow()
+        skill.execution_mode_updated_at = datetime.now(timezone.utc)
         skill.execution_mode_updated_by = admin_user.id
 
         session.add(skill)

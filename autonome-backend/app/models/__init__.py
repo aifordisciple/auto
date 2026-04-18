@@ -27,11 +27,12 @@ from app.models.domain import (
     # 枚举
     RoleEnum, SkillStatus, SkillVisibility, ExecutionMode,
     ExperienceType, PermissionLevel, PackageLanguage, PackageStatus,
-    DatabaseType,
+    DatabaseType, LiteratureStatus, ChunkType,
     # UUID 生成函数
     generate_project_id, generate_session_id, generate_msg_id,
     generate_skill_id, generate_share_token, generate_experience_id,
-    generate_package_id,
+    generate_package_id, generate_literature_id, generate_chunk_id,
+    generate_note_id, generate_ltag_id,
     # 工具函数
     get_utc_now,
     # 用户模型
@@ -60,6 +61,11 @@ from app.models.domain import (
     GenomeAsset, GenomeAssetCreate, GenomeAssetUpdate, GenomeAssetPublic,
     # 分析数据库
     AnalysisDatabase, AnalysisDatabaseCreate, AnalysisDatabaseUpdate, AnalysisDatabasePublic,
+    # 学习中心
+    Literature, LiteratureCreate, LiteratureUpdate, LiteraturePublic,
+    LiteratureChunk, LiteratureChunkCreate, LiteratureChunkUpdate, LiteratureChunkPublic,
+    LiteratureNote, LiteratureNoteCreate, LiteratureNoteUpdate, LiteratureNotePublic,
+    LiteratureTag, LiteratureTagCreate, LiteratureTagUpdate, LiteratureTagPublic,
 )
 
 # 技能模板
@@ -76,12 +82,13 @@ __all__ = [
     # 枚举
     "RoleEnum", "SkillStatus", "SkillVisibility", "ExecutionMode",
     "ExperienceType", "PermissionLevel", "PackageLanguage", "PackageStatus",
-    "DatabaseType",
+    "DatabaseType", "LiteratureStatus", "ChunkType",
 
     # UUID 生成函数
     "generate_project_id", "generate_session_id", "generate_msg_id",
     "generate_skill_id", "generate_share_token", "generate_experience_id",
-    "generate_package_id",
+    "generate_package_id", "generate_literature_id", "generate_chunk_id",
+    "generate_note_id", "generate_ltag_id",
 
     # 工具函数
     "get_utc_now",
@@ -116,6 +123,12 @@ __all__ = [
 
     # Database
     "AnalysisDatabase", "AnalysisDatabaseCreate", "AnalysisDatabaseUpdate", "AnalysisDatabasePublic",
+
+    # Learning Center
+    "Literature", "LiteratureCreate", "LiteratureUpdate", "LiteraturePublic",
+    "LiteratureChunk", "LiteratureChunkCreate", "LiteratureChunkUpdate", "LiteratureChunkPublic",
+    "LiteratureNote", "LiteratureNoteCreate", "LiteratureNoteUpdate", "LiteratureNotePublic",
+    "LiteratureTag", "LiteratureTagCreate", "LiteratureTagUpdate", "LiteratureTagPublic",
 
     # Forge Session
     "ForgeSession", "ForgeSessionCreate", "ForgeSessionUpdate", "ForgeSessionPublic",

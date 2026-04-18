@@ -208,8 +208,8 @@ async def create_recharge_session(
 
         session.commit()
 
-        from loguru import logger
-        logger.info(f"[Billing] 开发环境充值成功: user={current_user.id}, credits={credits}")
+        from app.core.logger import log
+        log.info(f"[Billing] 开发环境充值成功: user={current_user.id}, credits={credits}")
 
         # 返回成功页面 URL（前端刷新余额）
         return CheckoutSessionResponse(

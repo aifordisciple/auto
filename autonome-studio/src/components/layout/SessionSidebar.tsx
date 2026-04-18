@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { SquarePen, Trash2, Edit2, MessageSquare, Search, Bookmark } from "lucide-react";
 import dynamic from "next/dynamic";
-import { BASE_URL } from "@/lib/api";
+import { BASE_URL, getToken } from "@/lib/api";
 import { useChatStore, SessionTag } from "@/store/useChatStore";
 import { useUIStore } from "@/store/useUIStore";
 
@@ -29,12 +29,6 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
-  // ✨ 性能计时
-  const perfMark = (name: string) => {
-    const t = performance.now();
-    console.log(`[PERF SessionSidebar] ${name}: ${t.toFixed(1)}ms`);
-  };
-
   // 从 store 获取标签状态（搜索状态已移至 ChatSearchModal 组件）
   const {
     tags, setTags, selectedTagId, setSelectedTagId, showBookmarkPanel, setShowBookmarkPanel
@@ -45,8 +39,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 获取会话列表
   const fetchSessions = async () => {
-    perfMark("fetchSessions start");
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     try {
       const res = await fetch(`${BASE_URL}/api/chat/projects/${projectId}/sessions`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -55,7 +48,6 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
         const data = await res.json();
         const sessionList = data.data || [];
         setSessions(sessionList);
-        perfMark("fetchSessions done");
         // ✨ 不再自动选择第一个会话
         // 用户需要手动点击历史消息才会加载，避免页面打开时的卡顿
       }
@@ -66,8 +58,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 获取标签列表
   const fetchTags = async () => {
-    perfMark("fetchTags start");
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     try {
       const res = await fetch(`${BASE_URL}/api/chat/tags`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -75,7 +66,6 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
       if (res.ok) {
         const data = await res.json();
         setTags(data.data || []);
-        perfMark("fetchTags done");
       }
     } catch (e) {
       console.error('Failed to fetch tags:', e);
@@ -84,7 +74,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 按标签筛选会话
   const fetchSessionsByTag = async (tagId: number) => {
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     try {
       const res = await fetch(`${BASE_URL}/api/chat/projects/${projectId}/sessions/tagged/${tagId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -99,7 +89,6 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
   };
 
   useEffect(() => {
-    perfMark("useEffect fired");
     if (projectId) {
       fetchSessions();
       fetchTags();
@@ -145,7 +134,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this chat?")) return;
 
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     try {
       await fetch(`${BASE_URL}/api/chat/sessions/${id}`, {
         method: "DELETE",
@@ -163,7 +152,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
       setEditingId(null);
       return;
     }
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     try {
       await fetch(`${BASE_URL}/api/chat/sessions/${id}`, {
         method: "PUT",

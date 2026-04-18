@@ -696,7 +696,7 @@ async def update_file_content(
     """
     更新文件内容 - 用于数据中心文件编辑功能
     """
-    from loguru import logger
+    from app.core.logger import log
 
     # 安全检查：防止路径穿越攻击
     if ".." in file_path or file_path.startswith("/"):
@@ -725,7 +725,7 @@ async def update_file_content(
     try:
         # 写入文件内容
         full_path.write_text(request.content, encoding='utf-8')
-        logger.info(f"文件已更新: {file_path} (用户: {current_user.email})")
+        log.info(f"文件已更新: {file_path} (用户: {current_user.email})")
 
         return {
             "success": True,
@@ -734,7 +734,7 @@ async def update_file_content(
             "size": len(request.content)
         }
     except Exception as e:
-        logger.error(f"文件写入失败: {file_path}, 错误: {e}")
+        log.error(f"文件写入失败: {file_path}, 错误: {e}")
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
 

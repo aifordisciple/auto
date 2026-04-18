@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { X, UploadCloud, Loader2, Pause, Play, Trash2, CheckCircle, AlertCircle, FileText } from "lucide-react";
-import { fetchAPI } from "@/lib/api";
+import { fetchAPI, BASE_URL, getToken } from "@/lib/api";
 
 // 默认分段大小：5MB
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
@@ -62,10 +62,9 @@ export function UploadManager({ isOpen, onClose, projectId, targetPath, files, o
     formData.append("chunk_index", chunkIndex.toString());
     formData.append("chunk", chunkBlob, `${task.file.name}.part${chunkIndex}`);
 
-    const token = localStorage.getItem('autonome_access_token');
-    const baseUrl = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000';
+    const token = getToken();
 
-    const response = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/chunk`, {
+    const response = await fetch(`${BASE_URL}/api/projects/${projectId}/uploads/chunk`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData,

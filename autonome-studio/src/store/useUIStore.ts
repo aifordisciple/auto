@@ -27,6 +27,7 @@ type OverlayType =
   | 'terminal'
   | 'userCenter'
   | 'chatSearch'
+  | 'learningCenter'
   | null;
 
 interface UIState {
@@ -47,6 +48,7 @@ interface UIState {
   isTerminalOpen: boolean;
   isUserCenterOpen: boolean;
   isChatSearchOpen: boolean;
+  isLearningCenterOpen: boolean;
 
   // ==========================================
   // 终端特殊状态
@@ -128,6 +130,8 @@ interface UIState {
   openUserCenter: () => void;
   openChatSearch: () => void;
   closeChatSearch: () => void;
+  toggleLearningCenter: () => void;
+  openLearningCenter: () => void;
   closeAllOverlays: () => void;
 
   // V2: 内联展开操作
@@ -151,6 +155,7 @@ const getOverlayFlags = (activeOverlay: OverlayType) => ({
   isTerminalOpen: activeOverlay === 'terminal',
   isUserCenterOpen: activeOverlay === 'userCenter',
   isChatSearchOpen: activeOverlay === 'chatSearch',
+  isLearningCenterOpen: activeOverlay === 'learningCenter',
 });
 
 // ==========================================
@@ -256,6 +261,9 @@ export const useUIStore = create<UIState>()(
 
       openChatSearch: () => get().openOverlay('chatSearch'),
       closeChatSearch: () => get().closeOverlay(),
+
+      toggleLearningCenter: () => get().toggleOverlay('learningCenter'),
+      openLearningCenter: () => get().openOverlay('learningCenter'),
 
       closeAllOverlays: () => set(produce((state) => {
         state.activeOverlay = null;

@@ -11,7 +11,7 @@ import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict, deque
 
 from app.core.logger import log
@@ -46,7 +46,7 @@ class Alert:
     metric_name: Optional[str] = None
     metric_value: Optional[float] = None
     threshold: Optional[float] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     resolved: bool = False
     resolved_at: Optional[datetime] = None
 
@@ -56,7 +56,7 @@ class MetricData:
     """指标数据"""
     name: str
     value: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     tags: Dict[str, str] = field(default_factory=dict)
 
 
@@ -66,7 +66,7 @@ class SkillExecutionRecord:
     skill_id: str
     status: str  # SUCCESS, FAILURE, TIMEOUT
     execution_time: float  # seconds
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error_message: Optional[str] = None
 
 
@@ -158,7 +158,7 @@ class SkillMonitor:
             }
 
         # 过滤时间窗口内的记录
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         window_start = now - timedelta(seconds=self.TIME_WINDOW)
         recent_records = [
             r for r in records
@@ -394,7 +394,7 @@ class SkillMonitor:
         for key, alert in self.active_alerts.items():
             if alert.id == alert_id:
                 alert.resolved = True
-                alert.resolved_at = datetime.utcnow()
+                alert.resolved_at = datetime.now(timezone.utc)
                 del self.active_alerts[key]
                 log.info(f"✅ [Monitor] 告警已解决: {alert.title}")
                 return True

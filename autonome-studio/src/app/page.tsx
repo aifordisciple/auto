@@ -19,7 +19,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore, Message } from "../store/useChatStore";
-import { BASE_URL } from "@/lib/api";
+import { BASE_URL, getToken } from "@/lib/api";
 
 // ✨ ChatStage 懒加载 - 带骨架屏 fallback
 const ChatStage = dynamic(() => import("../components/chat/ChatStage").then(m => m.ChatStage), {
@@ -134,23 +134,11 @@ function SearchParamsHandler() {
 }
 
 // ==========================================
-// 性能计时
-// ==========================================
-const PERF = {
-  start: performance.now(),
-  mark: (name: string) => {
-    const elapsed = (performance.now() - PERF.start).toFixed(1);
-    console.log(`[PERF] ${name}: ${elapsed}ms`);
-  }
-};
-
-// ==========================================
 // 主组件
 // ==========================================
 export default function AutonomeStudio() {
   // ✨ 记录组件挂载时间
   useEffect(() => {
-    PERF.mark("Component mounted");
   }, []);
 
   // 状态订阅 - 使用精确订阅
@@ -185,13 +173,10 @@ export default function AutonomeStudio() {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     }, []),
     'new-chat': useCallback(() => {
-      console.log('[Shortcut] New chat');
     }, []),
     'open-history': useCallback(() => {
-      console.log('[Shortcut] Open history');
     }, []),
     'show-shortcuts-help': useCallback(() => {
-      console.log('[Shortcut] Show shortcuts help');
     }, []),
   };
 
@@ -250,7 +235,7 @@ export default function AutonomeStudio() {
       return;
     }
 
-    const localToken = localStorage.getItem('autonome_access_token');
+    const localToken = getToken();
     if (!localToken) return;
 
     try {
@@ -277,12 +262,9 @@ export default function AutonomeStudio() {
   // 合并的初始化 useEffect
   // ==========================================
   useEffect(() => {
-    PERF.mark("useEffect start");
-
     setMounted(true);
 
-    const localToken = localStorage.getItem('autonome_access_token');
-    PERF.mark("Token checked");
+    const localToken = getToken();
     if (!localToken) {
       window.location.href = '/login';
       return;
@@ -296,7 +278,6 @@ export default function AutonomeStudio() {
       // 没有选中的项目，自动打开项目中心
       toggleProjectCenter();
     }
-    PERF.mark("Init complete - UI interactive");
   }, [currentProjectId, fetchProjectName, toggleProjectCenter]);
 
   // ==========================================

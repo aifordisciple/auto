@@ -42,6 +42,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+      - SECRET_KEY=autonome_prod_secret_key_change_in_production
       # ✨ 修复1：使用 ${PWD} 动态获取物理机绝对路径，保证 AI 跑代码的沙箱也能挂载到正确数据
       - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
       # ✨ 关键修复：容器内使用 /workspace 而非默认的 uploads
@@ -68,6 +69,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DATABASE_URL=postgresql://autonome:autonome_super_password@postgres:5432/autonome_db
+      - SECRET_KEY=autonome_prod_secret_key_change_in_production
       # ✨ 同步修复
       - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
       # ✨ 关键修复：Worker 同样需要使用 /workspace

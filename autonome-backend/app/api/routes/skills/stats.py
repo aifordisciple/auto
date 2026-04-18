@@ -4,7 +4,7 @@
 包含技能使用统计、执行历史等接口
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
@@ -76,7 +76,7 @@ def get_skill_stats(
     rating_count = rating_result[1] if rating_result and rating_result[1] else 0
 
     # 最近30天趋势 - 使用 SQL GROUP BY
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
 
     # 获取按日期分组的执行数量
     trend_query = session.exec(

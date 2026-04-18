@@ -16,7 +16,7 @@
  * - 配额管理防止滥用
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import {
   X, Package, Search, Trash2, Download, AlertCircle,

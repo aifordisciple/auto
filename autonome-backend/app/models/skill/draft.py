@@ -6,7 +6,7 @@
 """
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlmodel import SQLModel, Field, Column
@@ -71,8 +71,8 @@ class PendingSkillDraft(PendingSkillDraftBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(..., foreign_key="user.id", index=True, description="用户ID")
 
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="创建时间")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}, description="更新时间")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="创建时间")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}, description="更新时间")
 
     # 发布后的技能ID（如果已发布）
     published_skill_id: Optional[str] = Field(default=None, description="发布后的技能ID")

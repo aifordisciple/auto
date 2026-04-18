@@ -132,12 +132,11 @@ class APICache {
   deleteByType(type: string): number {
     let deleted = 0;
     for (const key of this.cache.keys()) {
-      if (key.startsWith(type)) {
+        if (key.startsWith(type)) {
         this.cache.delete(key);
         deleted++;
       }
     }
-    console.log(`[APICache] 🗑️ 批量删除: ${type}, 共 ${deleted} 项`);
     return deleted;
   }
 
@@ -146,7 +145,6 @@ class APICache {
    */
   clear(): void {
     this.cache.clear();
-    console.log('[APICache] 🧹 缓存已清空');
   }
 
   /**
@@ -201,7 +199,6 @@ class APICache {
     // 2. 检查是否有进行中的相同请求（请求去重）
     const pendingRequest = this.getPendingRequest<T>(type, params);
     if (pendingRequest) {
-      console.log(`[APICache] ⏳ 等待进行中的请求: ${type}`);
       return pendingRequest;
     }
 

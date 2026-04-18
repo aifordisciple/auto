@@ -25,7 +25,7 @@ from functools import wraps
 from dataclasses import dataclass, field
 from datetime import datetime
 import redis
-from loguru import logger
+from app.core.logger import log
 
 from app.core.config import settings
 
@@ -166,7 +166,7 @@ class LRUCache(Generic[T]):
                 oldest_key = next(iter(self.cache))
                 del self.cache[oldest_key]
                 self.stats.evictions += 1
-                logger.debug(f"[L1Cache] 淘汰最老缓存项: {oldest_key}")
+                log.debug(f"[L1Cache] 淘汰最老缓存项: {oldest_key}")
 
             self.cache[key] = {"value": value, "expires_at": expires_at}
 
@@ -190,7 +190,7 @@ class LRUCache(Generic[T]):
         """清空缓存"""
         with self.lock:
             self.cache.clear()
-            logger.info("[L1Cache] 缓存已清空")
+            log.info("[L1Cache] 缓存已清空")
 
     def cleanup_expired(self) -> int:
         """
@@ -209,7 +209,7 @@ class LRUCache(Generic[T]):
                 self.stats.evictions += 1
 
             if expired_keys:
-                logger.debug(f"[L1Cache] 清理过期缓存: {len(expired_keys)} 项")
+                log.debug(f"[L1Cache] 清理过期缓存: {len(expired_keys)} 项")
 
             return len(expired_keys)
 
@@ -275,7 +275,7 @@ class RedisCache:
                         health_check_interval=30,  # 健康检查间隔（秒）
                     )
                     self._client = redis.Redis(connection_pool=pool)
-                    logger.info(f"[RedisCache] 连接池已初始化: host={self.host}, port={self.port}, db={self.db}")
+                    log.info(f"[RedisCache] 连接池已初始化: host={self.host}, port={self.port}, db={self.db}")
         return self._client
 
     def _make_key(self, key: str) -> str:
@@ -313,7 +313,7 @@ class RedisCache:
             return json.loads(value)
 
         except redis.RedisError as e:
-            logger.error(f"[RedisCache] 获取失败: {e}")
+            log.error(f"[RedisCache] 获取失败: {e}")
             self.stats.misses += 1
             self.stats.total_requests += 1
             return None
@@ -336,11 +336,11 @@ class RedisCache:
         try:
             serialized = json.dumps(value, ensure_ascii=False)
             client.setex(full_key, ttl, serialized)
-            logger.debug(f"[RedisCache] 设置缓存: {full_key}, TTL={ttl}s")
+            log.debug(f"[RedisCache] 设置缓存: {full_key}, TTL={ttl}s")
             return True
 
         except redis.RedisError as e:
-            logger.error(f"[RedisCache] 设置失败: {e}")
+            log.error(f"[RedisCache] 设置失败: {e}")
             return False
 
     def delete(self, key: str) -> bool:
@@ -360,7 +360,7 @@ class RedisCache:
             result = client.delete(full_key)
             return result > 0
         except redis.RedisError as e:
-            logger.error(f"[RedisCache] 删除失败: {e}")
+            log.error(f"[RedisCache] 删除失败: {e}")
             return False
 
     def delete_pattern(self, pattern: str) -> int:
@@ -398,10 +398,10 @@ class RedisCache:
                     break
 
             if deleted > 0:
-                logger.info(f"[RedisCache] 模式删除(SCAN): {pattern}, 删除 {deleted} 项")
+                log.info(f"[RedisCache] 模式删除(SCAN): {pattern}, 删除 {deleted} 项")
             return deleted
         except redis.RedisError as e:
-            logger.error(f"[RedisCache] 模式删除失败: {e}")
+            log.error(f"[RedisCache] 模式删除失败: {e}")
             return 0
 
     def exists(self, key: str) -> bool:
@@ -481,7 +481,7 @@ class CacheService:
                 default_ttl=config["l1_ttl"]
             )
 
-        logger.info("[CacheService] 缓存服务初始化完成")
+        log.info("[CacheService] 缓存服务初始化完成")
 
     def _get_cache_type(self, key: str) -> str:
         """
@@ -526,7 +526,7 @@ class CacheService:
             if value is not None:
                 latency = (time.time() - start_time) * 1000
                 self.global_stats.total_latency_ms += latency
-                logger.debug(f"[CacheService] L1命中: {key}, 延迟={latency:.2f}ms")
+                log.debug(f"[CacheService] L1命中: {key}, 延迟={latency:.2f}ms")
                 return value
 
         # L2 查询
@@ -540,7 +540,7 @@ class CacheService:
                 config = self.CACHE_CONFIGS.get(cache_type, {})
                 l1.set(key, value, ttl=config.get("l1_ttl", 300))
 
-            logger.debug(f"[CacheService] L2命中: {key}, 延迟={latency:.2f}ms")
+            log.debug(f"[CacheService] L2命中: {key}, 延迟={latency:.2f}ms")
             return value
 
         # L3 未命中（需要调用方查询数据库）
@@ -549,7 +549,7 @@ class CacheService:
         latency = (time.time() - start_time) * 1000
         self.global_stats.total_latency_ms += latency
 
-        logger.debug(f"[CacheService] 未命中: {key}, 延迟={latency:.2f}ms")
+        log.debug(f"[CacheService] 未命中: {key}, 延迟={latency:.2f}ms")
         return None
 
     def set(self, key: str, value: Any, cache_type: Optional[str] = None) -> None:
@@ -572,7 +572,7 @@ class CacheService:
         # 设置 L2
         self.l2_cache.set(key, value, ttl=config.get("l2_ttl", 3600))
 
-        logger.debug(f"[CacheService] 设置缓存: {key}")
+        log.debug(f"[CacheService] 设置缓存: {key}")
 
     def delete(self, key: str) -> None:
         """
@@ -591,7 +591,7 @@ class CacheService:
         # 删除 L2
         self.l2_cache.delete(key)
 
-        logger.debug(f"[CacheService] 删除缓存: {key}")
+        log.debug(f"[CacheService] 删除缓存: {key}")
 
     def invalidate_pattern(self, pattern: str) -> int:
         """
@@ -621,7 +621,7 @@ class CacheService:
         l2_deleted = self.l2_cache.delete_pattern(pattern)
         total_deleted += l2_deleted
 
-        logger.info(f"[CacheService] 批量失效缓存: {pattern}, 删除 {total_deleted} 项")
+        log.info(f"[CacheService] 批量失效缓存: {pattern}, 删除 {total_deleted} 项")
         return total_deleted
 
     def cleanup_expired(self) -> int:
@@ -703,7 +703,7 @@ def cache_result(
             if not skip_cache_check:
                 cached = cache_service.get(cache_key)
                 if cached is not None:
-                    logger.debug(f"[CacheDecorator] 缓存命中: {cache_key}")
+                    log.debug(f"[CacheDecorator] 缓存命中: {cache_key}")
                     return cached
 
             # 执行函数
@@ -711,7 +711,7 @@ def cache_result(
 
             # 存入缓存
             cache_service.set(cache_key, result, cache_type)
-            logger.debug(f"[CacheDecorator] 结果已缓存: {cache_key}")
+            log.debug(f"[CacheDecorator] 结果已缓存: {cache_key}")
 
             return result
 
@@ -724,7 +724,7 @@ def cache_result(
             if not skip_cache_check:
                 cached = cache_service.get(cache_key)
                 if cached is not None:
-                    logger.debug(f"[CacheDecorator] 缓存命中: {cache_key}")
+                    log.debug(f"[CacheDecorator] 缓存命中: {cache_key}")
                     return cached
 
             # 执行函数
@@ -732,7 +732,7 @@ def cache_result(
 
             # 存入缓存
             cache_service.set(cache_key, result, cache_type)
-            logger.debug(f"[CacheDecorator] 结果已缓存: {cache_key}")
+            log.debug(f"[CacheDecorator] 结果已缓存: {cache_key}")
 
             return result
 
@@ -813,14 +813,14 @@ def invalidate_cache(key_pattern: str):
         async def async_wrapper(*args, **kwargs):
             result = await func(*args, **kwargs)
             cache_service.invalidate_pattern(key_pattern)
-            logger.debug(f"[CacheDecorator] 缓存已失效: {key_pattern}")
+            log.debug(f"[CacheDecorator] 缓存已失效: {key_pattern}")
             return result
 
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
             result = func(*args, **kwargs)
             cache_service.invalidate_pattern(key_pattern)
-            logger.debug(f"[CacheDecorator] 缓存已失效: {key_pattern}")
+            log.debug(f"[CacheDecorator] 缓存已失效: {key_pattern}")
             return result
 
         import asyncio
@@ -884,12 +884,12 @@ def start_cache_cleanup_task(interval: int = 60):
             try:
                 cleaned = cache.cleanup_expired()
                 if cleaned > 0:
-                    logger.info(f"[CacheCleanup] 清理过期缓存: {cleaned} 项")
+                    log.info(f"[CacheCleanup] 清理过期缓存: {cleaned} 项")
                 time.sleep(interval)
             except Exception as e:
-                logger.error(f"[CacheCleanup] 清理任务异常: {e}")
+                log.error(f"[CacheCleanup] 清理任务异常: {e}")
                 time.sleep(interval)
 
     thread = threading.Thread(target=cleanup_loop, daemon=True)
     thread.start()
-    logger.info(f"[CacheService] 启动定期清理任务，间隔={interval}s")
+    log.info(f"[CacheService] 启动定期清理任务，间隔={interval}s")

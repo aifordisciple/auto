@@ -20,7 +20,7 @@
 
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, ReactNode, KeyboardEvent } from 'react';
 import { Plus, Send, ChevronDown, MessageSquare, Code, FileArchive, Loader2, X, Paperclip, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForgeStore, ToolMode, TOOL_MODE_CONFIG } from '@/store/useForgeStore';
@@ -53,7 +53,7 @@ function ToolModeSelector({ value, onChange, disabled }: ToolModeSelectorProps) 
     }
   }, [isOpen]);
 
-  const modeIcons: Record<ToolMode, React.ReactNode> = {
+  const modeIcons: Record<ToolMode, ReactNode> = {
     chat: <MessageSquare size={14} />,
     code_import: <Code size={14} />,
     skill_import: <FileArchive size={14} />
@@ -209,7 +209,7 @@ export function ForgeToolbar({
   }, [isTyping, inputValue, attachments, onSendMessage]);
 
   // 键盘事件处理
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();

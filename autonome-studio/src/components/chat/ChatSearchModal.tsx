@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Search, X, Loader2, MessageSquare } from "lucide-react";
-import { BASE_URL } from "@/lib/api";
+import { BASE_URL, getToken } from "@/lib/api";
 import { useUIStore } from "@/store/useUIStore";
 import { SearchResult } from "@/store/useChatStore";
 import { useDebounce } from "@/hooks/usePerformance";
@@ -71,7 +71,7 @@ export function ChatSearchModal({ projectId, onSelectSession }: ChatSearchModalP
   // 搜索 API 调用
   const performSearch = async (searchQuery: string) => {
     setIsSearching(true);
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     try {
       const res = await fetch(`${BASE_URL}/api/chat/search`, {
         method: 'POST',

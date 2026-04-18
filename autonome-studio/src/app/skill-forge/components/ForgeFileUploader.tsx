@@ -15,7 +15,7 @@
 
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, DragEvent } from 'react';
 import { Upload, FileCode, FileArchive, X, Check, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -105,23 +105,25 @@ export function ForgeFileUploader({
   }, []);
 
   // 拖拽事件处理
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    handleFileSelect(e.dataTransfer.files);
+    if (e.dataTransfer) {
+      handleFileSelect(e.dataTransfer.files);
+    }
   }, [handleFileSelect]);
 
   // 移除文件

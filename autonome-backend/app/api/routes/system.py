@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 
 # 引入刚刚拆分好的底层模块
 from app.core.database import get_session
+from app.core.config import settings
 from app.core.logger import log
 from app.models.domain import SystemConfig
 
@@ -46,7 +47,7 @@ class SettingsUpdate(BaseModel):
     """
     # 主模型配置
     openai_api_key: Optional[str] = None
-    openai_base_url: str = "https://api.openai.com/v1"
+    openai_base_url: str = settings.OPENAI_BASE_URL
     default_model: str = "gpt-3.5-turbo"
     # 视觉模型配置
     vision_api_key: Optional[str] = None

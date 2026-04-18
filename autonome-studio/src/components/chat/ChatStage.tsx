@@ -48,17 +48,12 @@ import {
   TablePreview,
   AttachmentPicker,
 } from "./components";
-import { BASE_URL } from "@/lib/api";
+import { BASE_URL, getToken } from "@/lib/api";
 
 // ==========================================
 // 主组件
 // ==========================================
 export function ChatStage() {
-  // ✨ 性能计时
-  useEffect(() => {
-    console.log(`[PERF] ChatStage mounted: ${performance.now().toFixed(1)}ms`);
-  }, []);
-
   // ==========================================
   // 状态订阅 - 使用精确订阅避免不必要的重渲染
   // ==========================================
@@ -99,7 +94,7 @@ export function ChatStage() {
   // ==========================================
   // 智能滚动 Hook
   // ==========================================
-  const { isAtBottom, isPaused, scrollToBottom, resumeAutoScroll } = useSmartScroll(scrollContainerRef, {
+  const { isAtBottom, isPaused, isAtBottomRef, isPausedRef, scrollToBottom, resumeAutoScroll } = useSmartScroll(scrollContainerRef, {
     bottomThreshold: 150,
     smoothScroll: true,
     scrollDuration: 100,
@@ -110,10 +105,11 @@ export function ChatStage() {
   // ==========================================
   const handleTypewriterUpdate = useCallback((content: string) => {
     setStreamingContent(content);
-    if (isAtBottom && !isPaused) {
+    // 使用 ref 读取最新值，避免闭包过期导致滚动失效
+    if (isAtBottomRef.current && !isPausedRef.current) {
       requestAnimationFrame(() => scrollToBottom());
     }
-  }, [setStreamingContent, isAtBottom, isPaused, scrollToBottom]);
+  }, [setStreamingContent, isAtBottomRef, isPausedRef, scrollToBottom]);
 
   const { append: appendStream, reset: resetStream, getCurrentContent } = useImmediateStream({
     onContentUpdate: handleTypewriterUpdate,
@@ -159,8 +155,8 @@ export function ChatStage() {
     setStreamingMessageId,
     commitStreamingContent,
     scrollToBottom,
-    isAtBottom,
-    isPaused,
+    isAtBottomRef,
+    isPausedRef,
   });
 
   // ==========================================
@@ -189,6 +185,16 @@ export function ChatStage() {
   }, [handleSend, handleSendRef]);
 
   // ==========================================
+  // 新消息到达时自动滚动到底部
+  // 防止用户发送消息后聊天窗口不滚动
+  // ==========================================
+  useEffect(() => {
+    if (messages.length > 0 && isAtBottomRef.current && !isPausedRef.current) {
+      requestAnimationFrame(() => scrollToBottom());
+    }
+  }, [messages.length, scrollToBottom, isAtBottomRef, isPausedRef]);
+
+  // ==========================================
   // 事件监听器 Hook
   // ==========================================
   useChatEventListeners({
@@ -209,7 +215,7 @@ export function ChatStage() {
         return;
       }
 
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       try {
         const res = await fetch(`${BASE_URL}/api/chat/sessions/${currentSessionId}/messages`, {
           headers: { 'Authorization': `Bearer ${token}` }

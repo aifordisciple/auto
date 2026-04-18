@@ -11,7 +11,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { fetchAPI } from '@/lib/api';
 import { User, Building2, Phone, FileText, Save, Loader2, CheckCircle, AlertCircle } from 'lucide-react';

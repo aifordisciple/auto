@@ -424,7 +424,7 @@ async def get_recent_skills(
 
     按创建时间倒序排列
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     # 获取已发布技能，按创建时间倒序
     skills = session.exec(
@@ -435,7 +435,7 @@ async def get_recent_skills(
     ).all()
 
     recent_skills = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
 
     for skill in skills[:limit]:

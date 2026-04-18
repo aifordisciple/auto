@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useMemo } from "react";
-import { User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, FileImage, FileSpreadsheet, ChevronDown, ChevronRight, FolderOpen, Folder, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
+import { User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, ChevronDown, ChevronRight, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { Message, MessageAttachments } from "@/store/useChatStore";
@@ -9,6 +9,7 @@ import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { BASE_URL } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
+import { buildAssetTreeFromFiles, AssetTreeNode } from "@/components/chat/shared/AssetTree";
 
 // ==========================================
 // ✨ 辅助函数：复制到剪贴板
@@ -91,84 +92,13 @@ const AssetTreeCard = memo(function AssetTreeCard({ files, onPreview, onDownload
   const [isExpanded, setIsExpanded] = useState(true);
   const apiBase = BASE_URL.replace(/\/$/, '');
 
-  // 构建树状结构
+  // 构建树状结构（使用共享的 buildAssetTreeFromFiles）
   const tree = useMemo(() => {
-    const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
-    files.forEach(file => {
-      const parts = file.path.split('/').filter(p => p);
-      let current = root;
-      parts.forEach((part, idx) => {
-        if (!current.children[part]) {
-          current.children[part] = {
-            name: part,
-            type: idx === parts.length - 1 ? 'file' : 'folder',
-            children: {},
-            url: idx === parts.length - 1 ? `${apiBase}/api/projects/${file.projectId || currentProjectId}/files/${file.path}/view` : null,
-            ext: idx === parts.length - 1 ? file.ext : null
-          };
-        }
-        current = current.children[part];
-      });
-    });
-    return root;
-  }, [files, apiBase, currentProjectId]);
-
-  // 递归渲染树节点
-  const TreeNode = ({ node, level = 0 }: { node: any; level?: number }) => {
-    const [nodeExpanded, setNodeExpanded] = useState(true);
-    const isFolder = node.type === 'folder';
-    const isImage = node.ext && ['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(node.ext);
-    const isData = node.ext && ['csv', 'tsv', 'txt', 'h5ad', 'xlsx'].includes(node.ext);
-
-    return (
-      <div className="flex flex-col">
-        <div
-          className={`flex items-center gap-2 py-1.5 px-2 hover:bg-neutral-800/60 rounded-md cursor-pointer group transition-colors`}
-          style={level > 0 ? { marginLeft: `${level * 16}px` } : {}}
-          onClick={() => isFolder ? setNodeExpanded(!nodeExpanded) : onPreview(node.url, node.name)}
-        >
-          {isFolder ? (
-            <div className="flex items-center gap-1 text-blue-400 shrink-0">
-              {nodeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              {nodeExpanded ? <FolderOpen size={15} /> : <Folder size={15} />}
-            </div>
-          ) : (
-            <div className="ml-5 shrink-0">
-              {isImage ? <FileImage size={14} className="text-blue-400" /> :
-               isData ? <FileSpreadsheet size={14} className="text-emerald-400" /> :
-               <FileText size={14} className="text-neutral-400" />}
-            </div>
-          )}
-          <span className="text-[13px] truncate flex-1 text-neutral-300 font-mono">{node.name}</span>
-          {!isFolder && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); onPreview(node.url, node.name); }}
-                className="p-1 text-neutral-400 hover:text-emerald-400 bg-neutral-800 rounded border border-neutral-700"
-                title="预览"
-              >
-                <Eye size={12} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDownload(node.url, node.name); }}
-                className="p-1 text-neutral-400 hover:text-blue-400 bg-neutral-800 rounded border border-neutral-700"
-                title="下载"
-              >
-                <Download size={12} />
-              </button>
-            </div>
-          )}
-        </div>
-        {isFolder && nodeExpanded && (
-          <div className="flex flex-col mt-0.5">
-            {Object.values(node.children).map((child: any) => (
-              <TreeNode key={child.name} node={child} level={level + 1} />
-            ))}
-          </div>
-        )}
-      </div>
+    return buildAssetTreeFromFiles(
+      files,
+      (file) => `${apiBase}/api/projects/${file.projectId || currentProjectId}/files/${file.path}/view`
     );
-  };
+  }, [files, apiBase, currentProjectId]);
 
   return (
     <div className="bg-[#1a1a1b] border border-neutral-700/60 rounded-xl overflow-hidden shadow-md w-full mt-3">
@@ -195,8 +125,8 @@ const AssetTreeCard = memo(function AssetTreeCard({ files, onPreview, onDownload
             exit={{ height: 0, opacity: 0 }}
             className="flex flex-col gap-1 p-2 border-t border-neutral-800/50 max-h-64 overflow-y-auto"
           >
-            {Object.values(tree.children).map((node: any) => (
-              <TreeNode key={node.name} node={node} />
+            {Object.values(tree.children).map((node) => (
+              <AssetTreeNode key={node.name} node={node} level={0} onPreview={onPreview} onDownload={onDownload} variant="dark-only" />
             ))}
           </motion.div>
         )}

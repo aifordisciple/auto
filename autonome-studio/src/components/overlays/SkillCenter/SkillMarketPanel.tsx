@@ -4,7 +4,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search, Star, Heart, Filter, ChevronLeft, ChevronRight, Loader2, Code, BarChart3, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BASE_URL } from '@/lib/api';

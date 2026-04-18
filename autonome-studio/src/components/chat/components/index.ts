@@ -17,5 +17,8 @@ export { MessageActionButtons, copyToClipboard } from './MessageActionButtons';
 export {
   ExecutionResultCard,
   AssetTreeCard,
-  getFileIcon,
 } from './ExecutionResultCard';
+
+// 共享资产树组件（从原 ExecutionResultCard 提取）
+export { getFileIcon, getFileTypeIcon, buildAssetTree, buildAssetTreeFromFiles, AssetTreeNode } from '../shared/AssetTree';
+export type { AssetNodeType, AssetTreeInputItem, AssetTreeNodeProps } from '../shared/AssetTree';

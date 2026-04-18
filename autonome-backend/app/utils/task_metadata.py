@@ -14,7 +14,7 @@
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-from loguru import logger
+from app.core.logger import log
 
 
 # ============================================================================
@@ -155,7 +155,7 @@ def generate_run_parameters_tsv(
     # 写入文件
     _write_tsv(output_path, rows)
 
-    logger.info(f"Generated run_parameters.tsv: {output_path}")
+    log.info(f"Generated run_parameters.tsv: {output_path}")
     return output_path
 
 
@@ -351,7 +351,7 @@ def generate_readme_autonome_md(
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    logger.info(f"Generated README_autonome.md: {output_path}")
+    log.info(f"Generated README_autonome.md: {output_path}")
     return output_path
 
 
@@ -488,7 +488,7 @@ def inject_metadata_files(
         output_paths=output_paths,
     )
 
-    logger.info(f"Injected metadata files into: {output_dir}")
+    log.info(f"Injected metadata files into: {output_dir}")
 
     return {
         "run_parameters_tsv": tsv_path,

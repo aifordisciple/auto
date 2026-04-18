@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, MouseEvent, ReactNode } from 'react';
 import { X, Folder, FolderOpen, FileText, ChevronRight, ChevronDown, Loader2, Check } from "lucide-react";
-import { BASE_URL } from "@/lib/api";
+import { BASE_URL, getToken } from "@/lib/api";
 import { CreateFolderModal } from "./overlays/CreateFolderModal";
 
 // ==========================================
@@ -109,7 +109,7 @@ export function FilePicker({
   const fetchFiles = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const res = await fetch(`${BASE_URL}/api/projects/${projectId}/files`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
@@ -209,7 +209,7 @@ export function FilePicker({
   };
 
   // 右键菜单处理
-  const handleContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
+  const handleContextMenu = useCallback((e: MouseEvent, node: FileNode) => {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, node });
@@ -245,7 +245,7 @@ export function FilePicker({
     const canSelect = (type === 'directory' && isFolder) || (type === 'file' && !isFolder);
 
     // 右键菜单事件
-    const onNodeContextMenu = (e: React.MouseEvent) => {
+    const onNodeContextMenu = (e: MouseEvent) => {
       handleContextMenu(e, node);
     };
 

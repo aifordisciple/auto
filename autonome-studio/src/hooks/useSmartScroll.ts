@@ -49,6 +49,7 @@ export function useSmartScroll(
 
   // 是否在底部附近
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const isAtBottomRef = useRef(true);
 
   // 是否暂停自动滚动（用户主动滚动时）
   // 使用 state 而不是 ref，确保组件能正确重渲染并获取最新状态
@@ -192,6 +193,7 @@ export function useSmartScroll(
    */
   const handleScroll = useCallback(() => {
     const atBottom = checkIfAtBottom();
+    isAtBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
 
     // 如果用户滚动到底部，恢复自动滚动
@@ -232,16 +234,19 @@ export function useSmartScroll(
   }, []);
 
   /**
-   * 处理鼠标按下 - 用户可能要拖拽滚动条
+   * 处理鼠标按下 - 仅在滚动条区域暂停自动滚动
+   * 修复：之前任何点击都会暂停，导致点击消息内的按钮也会停止自动滚动
    */
-  const handleMouseDown = useCallback(() => {
-    // 如果点击的是滚动条区域，暂停自动滚动
+  const handleMouseDown = useCallback((event: MouseEvent) => {
     const container = containerRef.current;
     if (!container) return;
 
-    // 检查是否点击在滚动条区域（简单判断：在容器右侧 20px 范围内）
-    // 这只是启发式判断，让用户拖拽滚动条时能暂停
-    if (!isPausedRef.current) {
+    // 检查是否点击在滚动条区域（容器右侧，滚动条宽度范围内）
+    const rect = container.getBoundingClientRect();
+    const scrollbarWidth = container.offsetWidth - container.clientWidth;
+    const isScrollbarClick = event.clientX >= rect.right - scrollbarWidth;
+
+    if (isScrollbarClick && !isPausedRef.current) {
       isPausedRef.current = true;
       setIsPaused(true);
     }
@@ -276,6 +281,10 @@ export function useSmartScroll(
     isAtBottom,
     /** 是否暂停了自动滚动 */
     isPaused,
+    /** 是否在底部附近的 ref（避免闭包过期） */
+    isAtBottomRef,
+    /** 是否暂停自动滚动的 ref（避免闭包过期） */
+    isPausedRef,
     /** 滚动到底部 */
     scrollToBottom,
     /** 暂停自动滚动 */

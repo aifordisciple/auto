@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from loguru import logger
+from app.core.logger import log
 
 from app.services.meters.base import BaseMeter, MeteringResult
 
@@ -79,7 +79,7 @@ class ExecutorMeter(BaseMeter):
         if self.container_id:
             self._start_stats_collector()
 
-        logger.info(
+        log.info(
             f"容器计量开始: record_id={record_id}, container_id={self.container_id}"
         )
 
@@ -104,7 +104,7 @@ class ExecutorMeter(BaseMeter):
                     if stats:
                         self.stats_samples.append(stats)
                 except Exception as e:
-                    logger.warning(f"获取容器统计失败: {e}")
+                    log.warning(f"获取容器统计失败: {e}")
                     # 容器可能已停止，退出采样
                     break
 
@@ -113,7 +113,7 @@ class ExecutorMeter(BaseMeter):
 
         self.collector_thread = threading.Thread(target=collect, daemon=True)
         self.collector_thread.start()
-        logger.debug(f"资源采样线程已启动: container_id={self.container_id}")
+        log.debug(f"资源采样线程已启动: container_id={self.container_id}")
 
     def _get_container_stats(self) -> Optional[Dict[str, Any]]:
         """获取容器资源使用统计
@@ -147,7 +147,7 @@ class ExecutorMeter(BaseMeter):
             }
 
         except Exception as e:
-            logger.warning(f"获取容器统计失败: {e}")
+            log.warning(f"获取容器统计失败: {e}")
             return None
 
     def _calc_cpu_percent(self, stats: Dict) -> float:
@@ -228,7 +228,7 @@ class ExecutorMeter(BaseMeter):
         # 计算费用
         result.cost_credits = self.calculate_cost(result)
 
-        logger.info(
+        log.info(
             f"容器计量结束: record_id={record_id}, "
             f"duration={duration:.1f}s, cost={result.cost_credits} CU"
         )

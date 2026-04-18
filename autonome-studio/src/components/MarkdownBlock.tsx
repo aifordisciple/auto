@@ -1,113 +1,28 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
+import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks'; // 兼容大模型（如 Kimi）的单换行输出习惯
 // ✨ 移除 rehypeRaw：允许原始 HTML 标签会导致 <think> 等标签被渲染，引发浏览器错误
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check, Eye, Download, FileText, Image as ImageIcon, Table2, X, Loader2, Folder, FolderOpen, ChevronRight, ChevronDown, Play } from 'lucide-react';
-import { BASE_URL, fetchAPI } from '@/lib/api';
+import { Copy, Check, Eye, Download, FileText, X, Loader2, Folder, FolderOpen, Play } from 'lucide-react';
+import { BASE_URL, fetchAPI, getToken } from '@/lib/api';
 import { useUIStore } from '@/store/useUIStore';
 import { useChatStore } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+import { buildAssetTree, AssetTreeNode, getFileIcon } from '@/components/chat/shared/AssetTree';
 
 interface MarkdownBlockProps {
   content: string;
   projectId?: string;  // ✨ 新增：用于代码执行
 }
 
-// 🎨 根据扩展名匹配漂亮的图标
-const getFileIcon = (filename: string) => {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith('.tsv') || lower.endsWith('.csv') || lower.endsWith('.txt') || lower.endsWith('.log')) {
-    return <Table2 size={16} className="text-blue-500 dark:text-blue-400 shrink-0" />;
-  }
-  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.pdf') || lower.endsWith('.svg')) {
-    return <ImageIcon size={16} className="text-pink-500 dark:text-pink-400 shrink-0" />;
-  }
-  return <FileText size={16} className="text-gray-500 dark:text-neutral-400 shrink-0" />;
-};
-
-// 🎨 辅助：树节点递归渲染组件
-const AssetTreeNode = ({ node, level, onPreview, onDownload }: { node: any, level: number, onPreview: any, onDownload: any }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const isFolder = node.type === 'folder';
-
-  return (
-    <div className="flex flex-col">
-      <div
-        className={`flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 dark:hover:bg-[#2d2d30]/50 rounded cursor-pointer group transition-colors ${level > 0 ? 'ml-4 border-l border-gray-200 dark:border-gray-700 pl-3' : ''}`}
-        onClick={() => isFolder ? setIsExpanded(!isExpanded) : onPreview(node.url, node.name)}
-      >
-        {/* 图标区域 */}
-        {isFolder ? (
-          <div className="flex items-center gap-1 text-gray-400 dark:text-gray-500">
-            {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-            {isExpanded ? <FolderOpen size={16} className="text-blue-400"/> : <Folder size={16} className="text-blue-400"/>}
-          </div>
-        ) : (
-          <div className="ml-5">{getFileIcon(node.name)}</div>
-        )}
-
-        {/* 文件名 */}
-        <span className={`text-sm truncate flex-1 ${isFolder ? 'font-medium text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
-          {node.name}
-        </span>
-
-        {/* 文件操作悬浮按钮 */}
-        {!isFolder && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-             <button onClick={(e) => { e.stopPropagation(); onPreview(node.url, node.name); }} className="p-1 text-gray-400 hover:text-emerald-500" title="安全预览"><Eye size={14} /></button>
-             <button onClick={(e) => { e.stopPropagation(); onDownload(node.url, node.name); }} className="p-1 text-gray-400 hover:text-blue-500" title="下载"><Download size={14} /></button>
-          </div>
-        )}
-      </div>
-
-      {/* 递归子节点 */}
-      {isFolder && isExpanded && (
-        <div className="flex flex-col">
-          {Object.values(node.children).map((child: any) => (
-            <AssetTreeNode key={child.name} node={child} level={level + 1} onPreview={onPreview} onDownload={onDownload} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// 🎨 主树状卡片组件
+// 🎨 主树状卡片组件（使用共享的 buildAssetTree + AssetTreeNode）
 const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, title: string}[], onPreview: any, onDownload: any }) => {
   // 将平铺的 links 转换为树状结构
-  const tree = useMemo(() => {
-    const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
-
-    links.forEach(link => {
-      // 尝试从 URL 中提取合理的相对路径
-      let pathStr = link.title;
-      if (link.url.includes('/files/')) {
-        // 从 URL 中截取真实路径
-        pathStr = link.url.split('/files/')[1] || link.title;
-      }
-
-      const parts = pathStr.split('/').filter(p => p);
-      let current = root;
-
-      parts.forEach((part, idx) => {
-        if (!current.children[part]) {
-          current.children[part] = {
-            name: part,
-            type: idx === parts.length - 1 ? 'file' : 'folder',
-            children: {},
-            url: idx === parts.length - 1 ? link.url : null
-          };
-        }
-        current = current.children[part];
-      });
-    });
-    return root;
-  }, [links]);
+  const tree = useMemo(() => buildAssetTree(links), [links]);
 
   return (
     <div className="w-full max-w-xl my-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm overflow-hidden">
@@ -119,7 +34,7 @@ const AssetTreeCard = ({ links, onPreview, onDownload }: { links: {url: string, 
       </div>
       {/* 树状内容区 */}
       <div className="p-2 max-h-64 overflow-y-auto custom-scrollbar">
-        {Object.values(tree.children).map((node: any) => (
+        {Object.values(tree.children).map((node) => (
           <AssetTreeNode key={node.name} node={node} level={0} onPreview={onPreview} onDownload={onDownload} />
         ))}
       </div>
@@ -144,7 +59,7 @@ const SecureImage = ({ src, alt, onPreview, onDownload, ...props }: any) => {
 
     const fetchImage = async () => {
       try {
-        const token = localStorage.getItem('autonome_access_token');
+        const token = getToken();
         if (!token) {
           setErrorMsg('未授权 (本地无访问令牌)');
           return;
@@ -273,7 +188,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, projectId }:
     setExecuteResult(null);
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const toolId = language.toLowerCase() === 'r' ? 'execute-r' : 'execute-python';
 
       const response = await fetch(`${BASE_URL}/api/skills/execute`, {
@@ -356,7 +271,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, projectId }:
   // ✨ 基于流的安全下载
   const handleDownloadAsset = async (url: string, filename: string) => {
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const fetchUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
       const res = await fetch(fetchUrl, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error("获取文件失败");
@@ -388,7 +303,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, projectId }:
     setIsPreviewLoading(true); setPreviewContent(null);
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const fetchUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
       const res = await fetch(fetchUrl, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error("获取失败");

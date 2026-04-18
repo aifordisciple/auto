@@ -23,27 +23,14 @@ from pathlib import Path
 
 from app.core.logger import log
 from app.core.config import settings
-
-# ==========================================
-# Docker 挂载路径配置（与 bio_tools.py 保持一致）
-# ==========================================
-DOCKER_SOCKET = '/var/run/docker.sock'
-
-# Conda 持久化路径
-CONDA_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome_conda"
-CONDA_CONTAINER_PATH = "/opt/conda"
-
-# Biosource 生信脚本库路径
-BIOSOURCE_HOST_PATH = "/opt/data1/public/software/systools/autonome/biosource"
-BIOSOURCE_CONTAINER_PATH = "/app/biosource"
-
-# SKILL 技能包目录
-SKILLS_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome-backend/app/skills"
-SKILLS_CONTAINER_PATH = "/app/skills"
-
-# 用户包目录
-USER_PACKAGES_HOST_PATH = "/opt/data1/public/software/systools/autonome/uploads/user_packages"
-USER_PACKAGES_CONTAINER_PATH = "/app/user_packages"
+from app.core.docker_api import docker_api_request
+from app.core.sandbox_config import (
+    DOCKER_SOCKET,
+    CONDA_HOST_PATH, CONDA_CONTAINER_PATH,
+    BIOSOURCE_HOST_PATH, BIOSOURCE_CONTAINER_PATH,
+    SKILLS_HOST_PATH, SKILLS_CONTAINER_PATH,
+    USER_PACKAGES_HOST_PATH, USER_PACKAGES_CONTAINER_PATH,
+)
 
 
 class TerminalSession:

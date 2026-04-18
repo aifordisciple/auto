@@ -93,3 +93,22 @@ class DatabaseType(str, Enum):
     METABOLISM = "metabolism"     # 代谢：KEGG Compound、HMDB 等
     CUSTOM = "custom"             # 用户自定义数据库
 
+
+# ==========================================
+# 学习中心相关枚举
+# ==========================================
+class LiteratureStatus(str, Enum):
+    """文献解析状态"""
+    UPLOADING = "uploading"       # 上传中
+    PARSING = "parsing"           # 解析中
+    READY = "ready"              # 解析完成，可检索
+    ERROR = "error"              # 解析失败
+
+
+class ChunkType(str, Enum):
+    """知识块类型"""
+    TEXT = "text"                 # 文本段落
+    FIGURE = "figure"            # 图表
+    TABLE = "table"              # 表格
+    EQUATION = "equation"        # 公式
+

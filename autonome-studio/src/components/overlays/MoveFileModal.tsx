@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, ReactNode, ChangeEvent } from 'react';
 import { X, Move, Loader2, Folder, FolderOpen, ChevronRight, ChevronDown, Lock, File, FileText } from "lucide-react";
 import { moveFile, getFolderTree, FolderNode } from "@/lib/api";
 

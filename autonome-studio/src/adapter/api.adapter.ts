@@ -214,6 +214,5 @@ export const api = {
 };
 
 // 重新导出原有的 BASE_URL（向后兼容）
-export const BASE_URL = typeof window !== 'undefined'
-  ? `http://${window.location.hostname}:8000`
-  : 'http://localhost:8000';
+export { BASE_URL } from '@/lib/api';
+// getToken 已在上方本地定义，无需重新导出

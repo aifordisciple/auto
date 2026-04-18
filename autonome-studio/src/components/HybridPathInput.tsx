@@ -13,7 +13,7 @@
  * - 需要路径输入但希望提供文件选择便利的场景
  */
 
-import React, { useState } from 'react';
+import { useState, ChangeEvent } from 'react';
 import { FolderOpen, FileText } from 'lucide-react';
 import { FilePicker } from './FilePicker';
 
@@ -73,7 +73,7 @@ export function HybridPathInput({
   };
 
   // 文本输入变更
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.value);
   };
 

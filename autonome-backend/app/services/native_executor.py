@@ -27,6 +27,13 @@ from pathlib import Path
 
 from app.core.logger import log
 from app.core.config import settings
+from app.core.sandbox_config import (
+    CONDA_HOST_PATH,
+    BIOSOURCE_HOST_PATH,
+    SKILLS_HOST_PATH,
+    USER_PACKAGES_HOST_PATH,
+    DEFAULT_EXECUTION_TIMEOUT,
+)
 
 
 # ==========================================
@@ -36,20 +43,20 @@ from app.core.config import settings
 # 允许原生执行的脚本路径白名单
 # 只有位于这些目录下的脚本才能被原生执行
 NATIVE_EXECUTION_ALLOWED_PATHS = [
-    "/opt/data1/public/software/systools/autonome/autonome-backend/app/skills",
-    "/opt/data1/public/software/systools/autonome/biosource",
+    SKILLS_HOST_PATH,
+    BIOSOURCE_HOST_PATH,
 ]
 
 # Conda 环境路径
-NATIVE_EXECUTION_CONDA_PATH = "/opt/data1/public/software/systools/autonome/autonome_conda"
+NATIVE_EXECUTION_CONDA_PATH = CONDA_HOST_PATH
 
 # 资源限制配置
 NATIVE_EXECUTION_MEMORY_LIMIT_GB = 8      # 内存限制：8GB
-NATIVE_EXECUTION_CPU_TIME_LIMIT = 3600    # CPU 时间限制：1小时
-NATIVE_EXECUTION_DEFAULT_TIMEOUT = 3600   # 默认超时：1小时
+NATIVE_EXECUTION_CPU_TIME_LIMIT = DEFAULT_EXECUTION_TIMEOUT    # CPU 时间限制：1小时
+NATIVE_EXECUTION_DEFAULT_TIMEOUT = DEFAULT_EXECUTION_TIMEOUT   # 默认超时：1小时
 
-# 用户包路径
-USER_PACKAGES_HOST_PATH = "/opt/data1/public/software/systools/autonome/uploads/user_packages"
+# 用户包路径（使用 sandbox_config 中的统一配置）
+# USER_PACKAGES_HOST_PATH 已从 sandbox_config 导入
 
 
 class NativeExecutionError(Exception):
@@ -74,7 +81,7 @@ class NativeExecutor:
             skill_id="fastqc_multiqc_pipeline_01",
             script_path="/app/skills/fastqc_multiqc_pipeline_01/scripts/main.py",
             environment={"PROJECT_ID": "proj_xxx"},
-            timeout=3600,
+            timeout=DEFAULT_EXECUTION_TIMEOUT,
             user_id=1,
         )
         output, exit_code, billing_info = executor.execute_python(["--input", "sample.fastq"])

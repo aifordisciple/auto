@@ -31,7 +31,7 @@ class SystemConfig(SQLModel, table=True):
 
     # 主模型配置（用于文本对话和主要推理）
     openai_api_key: Optional[str] = None
-    openai_base_url: str = Field(default="https://api.openai.com/v1")
+    openai_base_url: str = Field(default="https://api.openai.com/v1")  # 默认值与 config.settings.OPENAI_BASE_URL 保持一致
     default_model: str = Field(default="gpt-3.5-turbo")
 
     # ✨ 视觉模型配置（用于图像识别）

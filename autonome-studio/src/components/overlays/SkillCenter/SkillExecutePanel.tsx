@@ -104,7 +104,6 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
       const skill = skills.find(s => s.skill_id === preSelectedSkillId);
       if (skill) {
         setSelectedSkill(skill);
-        console.log('[SkillExecutePanel] 已预选技能:', preSelectedSkillId);
       }
     }
   }, [preSelectedSkillId, skills]);
@@ -115,7 +114,6 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
   useEffect(() => {
     const handleReExecute = (event: CustomEvent) => {
       const { skillId, skillName, parameters } = event.detail;
-      console.log('[SkillExecutePanel] 收到重新执行事件:', skillId, parameters);
 
       // 查找技能
       const skill = skills.find(s => s.skill_id === skillId);

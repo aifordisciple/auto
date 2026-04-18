@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, ReactNode, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Command as CommandIcon, Navigation, Settings, Zap, Clock, X } from 'lucide-react';
 
@@ -28,7 +28,7 @@ export interface Command {
   label: string;
   category: CommandCategory;
   shortcut?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   action: () => void;
 }
 
@@ -44,7 +44,7 @@ interface CommandPaletteProps {
 // 分类配置
 // ==========================================
 
-const CATEGORY_CONFIG: Record<CommandCategory, { label: string; icon: React.ReactNode }> = {
+const CATEGORY_CONFIG: Record<CommandCategory, { label: string; icon: ReactNode }> = {
   navigation: { label: '导航', icon: <Navigation className="w-4 h-4" /> },
   action: { label: '操作', icon: <CommandIcon className="w-4 h-4" /> },
   skill: { label: '技能', icon: <Zap className="w-4 h-4" /> },
@@ -108,7 +108,7 @@ export function CommandPalette({
   // ==========================================
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+    (e: KeyboardEvent) => {
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
@@ -287,7 +287,7 @@ export function CommandPalette({
 
 interface CommandGroupProps {
   title: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   commands: Command[];
   globalIndex?: Command[];
   selectedIndex: number;

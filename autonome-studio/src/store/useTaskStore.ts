@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { BASE_URL, getToken } from '@/lib/api';
 
 export interface Task {
   task_id: string;
@@ -38,8 +39,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchTasks: async () => {
     set({ isLoading: true });
     try {
-      const token = localStorage.getItem('autonome_access_token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/tasks/list`, {
+      const token = getToken();
+      const res = await fetch(`${BASE_URL}/api/tasks/list`, {
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

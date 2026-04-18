@@ -112,6 +112,15 @@ from app.services.tasks import register_all_tasks
 # 注册任务并获取任务引用
 _registered_tasks = register_all_tasks(celery_app)
 
+# 📚 注册学习中心 Celery 任务（文献解析、DOI 导入等）
+# shared_task 装饰器在模块导入时自动注册到 celery_app，
+# 必须在此处导入以确保 Worker 启动时能发现这些任务
+try:
+    from app.tasks import learning_tasks as _learning_tasks  # noqa: F401
+    log.info("✅ 学习中心 Celery 任务已注册到 Worker")
+except Exception as e:
+    log.warning(f"学习中心任务注册失败: {e}")
+
 # 导出任务函数（保持向后兼容）
 run_rnaseq_qc_pipeline = _registered_tasks.get("run_rnaseq_qc_pipeline")
 run_variant_calling_pipeline = _registered_tasks.get("run_variant_calling_pipeline")

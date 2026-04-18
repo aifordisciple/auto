@@ -1,5 +1,6 @@
 from sqlmodel import Session, create_engine, SQLModel, text
 from app.core.config import settings
+from app.core.logger import log
 
 # 根据配置初始化数据库引擎
 connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
@@ -36,9 +37,9 @@ def create_db_and_tables():
                 if not result.fetchone():
                     conn.execute(text("ALTER TYPE skillstatus ADD VALUE IF NOT EXISTS 'DEPRECATED'"))
                     conn.commit()
-                    print("Added 'DEPRECATED' to skillstatus enum")
+                    log.info("Added 'DEPRECATED' to skillstatus enum")
             except Exception as e:
-                print(f"Warning: Could not update skillstatus enum: {e}")
+                log.warning(f"Could not update skillstatus enum: {e}")
 
     SQLModel.metadata.create_all(engine)
 

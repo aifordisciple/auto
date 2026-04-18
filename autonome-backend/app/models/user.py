@@ -34,6 +34,13 @@ class User(SQLModel, table=True):
     phone: Optional[str] = Field(default=None, max_length=20, description="手机号码")
     bio: Optional[str] = Field(default=None, max_length=500, description="个人简介")
 
+    # ==========================================
+    # 🤖 用户级 AI 模型配置（覆盖系统全局配置）
+    # ==========================================
+    llm_api_key: Optional[str] = Field(default=None, max_length=500, description="用户自定义 LLM API Key")
+    llm_base_url: Optional[str] = Field(default=None, max_length=500, description="用户自定义 LLM Base URL")
+    llm_model_name: Optional[str] = Field(default=None, max_length=100, description="用户自定义模型名称")
+
     # ✨ 安全相关
     is_active: bool = Field(default=True)
     is_superuser: bool = Field(default=False)

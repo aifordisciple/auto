@@ -15,7 +15,7 @@ from app.models.domain import SystemConfig
 from app.models.billing import Wallet, ComputeRecord, TransactionLedger, ResourceFlavor  # noqa: F401
 
 # ✨ 导入路由模块（已移除所有 AI/Agent 路由）
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard, learning
 # ✨ 导入拆分后的 chat 子模块路由
 from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_search
 
@@ -141,7 +141,7 @@ def on_startup():
     with Session(engine) as session:
         if not session.get(SystemConfig, 1):
             env_key = os.getenv("OPENAI_API_KEY")
-            session.add(SystemConfig(id=1, openai_api_key=env_key, openai_base_url="https://api.openai.com/v1", default_model="gpt-3.5-turbo", theme="dark"))
+            session.add(SystemConfig(id=1, openai_api_key=env_key, openai_base_url=settings.OPENAI_BASE_URL, default_model="gpt-3.5-turbo", theme="dark"))
             session.commit()
             log.info("✅ 已初始化系统配置")
 
@@ -238,6 +238,8 @@ app.include_router(terminal.router, prefix="/api/terminal", tags=["Terminal"])
 app.include_router(skill_monitor.router, prefix="/api/monitor", tags=["SkillMonitor"])
 # ✨ Dashboard 科研项目指挥中心
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+# ✨ 学习中心
+app.include_router(learning.router, prefix="/api/learning", tags=["Learning"])
 
 # ✨ 挂载静态文件服务器，允许前端读取 AI 吐出的生信图表！
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")

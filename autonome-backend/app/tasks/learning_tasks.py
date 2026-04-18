@@ -1,20 +1,28 @@
 """
 学习任务模块
 
-提供智能学习系统的定时任务：
-1. 反馈聚合 - 每5分钟聚合反馈数据
-2. 用户偏好更新 - 每小时更新用户偏好画像
-3. 知识提炼 - 每6小时提炼领域知识
-4. 权重优化 - 每天优化推荐权重
-5. 学习报告 - 每周生成学习报告
+提供两类任务：
+1. 文献解析任务（异步 Celery 任务）：
+   - process_literature: PDF 解析 → 分块 → Vision LLM → Embedding → 入库
+   - process_doi: DOI 元数据获取 → PDF 下载 → 触发 process_literature
+
+2. 定时学习任务（Celery Beat）：
+   - 反馈聚合 - 每5分钟
+   - 用户偏好更新 - 每小时
+   - 知识提炼 - 每6小时
+   - 权重优化 - 每天优化推荐权重
+   - 学习报告 - 每周生成学习报告
 
 设计原则：
 - 模块化任务函数
 - 支持手动触发
 - 详细结果记录
-- 错误处理和重试
+- 错误处理和重试（指数退避）
 """
 
+import os
+import json
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field, asdict
@@ -360,6 +368,303 @@ def generate_learning_report(
 
 
 # ==========================================
+# 文献解析任务（核心异步任务）
+# ==========================================
+
+def process_literature(literature_id: int) -> TaskResult:
+    """
+    处理文献：PDF 解析 → 分块 → Vision LLM → Embedding → 入库
+
+    Args:
+        literature_id: 文献数据库 ID
+
+    Returns:
+        任务结果
+    """
+    start_time = get_utc_now()
+    log.info(f"📚 [LearningTask] 开始处理文献: id={literature_id}")
+
+    try:
+        from sqlmodel import Session, select
+        from app.core.database import engine
+        from app.models.learning import Literature, LiteratureChunk
+        from app.models.enums import LiteratureStatus, ChunkType
+        from app.services.learning_ingestion_service import (
+            extract_pdf_with_figures,
+            smart_chunking,
+            align_captions,
+            analyze_figure_with_vision_llm,
+            analyze_figure_with_text_llm,
+            generate_embedding,
+        )
+        from app.services.learning_service import update_literature_status
+
+        with Session(engine) as session:
+            # 1. 获取文献记录
+            literature = session.get(Literature, literature_id)
+            if not literature:
+                return TaskResult(
+                    task_name="process_literature",
+                    status=TaskStatus.ERROR.value,
+                    message=f"文献不存在: id={literature_id}",
+                )
+
+            # 2. 更新状态为解析中
+            update_literature_status(session, literature_id, LiteratureStatus.PARSING)
+
+            file_path = literature.file_path
+            if not file_path or not os.path.exists(file_path):
+                update_literature_status(
+                    session, literature_id, LiteratureStatus.ERROR,
+                    "PDF 文件路径无效或文件不存在"
+                )
+                return TaskResult(
+                    task_name="process_literature",
+                    status=TaskStatus.ERROR.value,
+                    message="PDF 文件不存在",
+                )
+
+            # 3. 提取 PDF 文本和图表
+            output_dir = os.path.join(os.path.dirname(file_path), f"figures_{literature.literature_id}")
+            pdf_result = extract_pdf_with_figures(file_path, output_dir)
+
+            if pdf_result.get("error"):
+                update_literature_status(
+                    session, literature_id, LiteratureStatus.ERROR,
+                    pdf_result["error"]
+                )
+                return TaskResult(
+                    task_name="process_literature",
+                    status=TaskStatus.ERROR.value,
+                    message=pdf_result["error"],
+                )
+
+            # 4. 图注对齐
+            figures = align_captions(pdf_result["text_by_page"], pdf_result["figures"])
+
+            # 5. 智能分块
+            chunks_data = smart_chunking(pdf_result["text_by_page"], figures)
+
+            # 6. Vision LLM 处理图表块 + Embedding 生成
+            chunk_count = 0
+            for chunk_data in chunks_data:
+                # 对图表块调用 Vision LLM
+                metadata = chunk_data.get("metadata_") or {}
+                if chunk_data["chunk_type"] == "figure" and metadata.get("image_path"):
+                    # 尝试 Vision LLM
+                    vision_result = asyncio.run(
+                        analyze_figure_with_vision_llm(
+                            metadata["image_path"],
+                            chunk_data.get("figure_caption", ""),
+                        )
+                    )
+                    if vision_result:
+                        metadata["vision_extraction"] = vision_result
+                    else:
+                        # 降级为文本 LLM
+                        text_result = asyncio.run(
+                            analyze_figure_with_text_llm(chunk_data.get("figure_caption", ""))
+                        )
+                        if text_result:
+                            metadata["vision_extraction"] = text_result
+
+                # 生成 Embedding
+                embedding = None
+                embed_text = chunk_data["content"]
+                if chunk_data["chunk_type"] == "figure" and metadata.get("vision_extraction"):
+                    ve = metadata["vision_extraction"]
+                    embed_text = f"{chunk_data.get('figure_caption', '')} {ve.get('methodology', '')}"
+                embedding = generate_embedding(embed_text)
+
+                # 创建知识块记录
+                chunk = LiteratureChunk(
+                    literature_id=literature_id,
+                    chunk_index=chunk_data["chunk_index"],
+                    chunk_type=ChunkType(chunk_data["chunk_type"]),
+                    content=chunk_data["content"],
+                    page_number=chunk_data["page_number"],
+                    section_title=chunk_data.get("section_title", ""),
+                    figure_caption=chunk_data.get("figure_caption"),
+                    metadata_=metadata if metadata else None,
+                )
+                session.add(chunk)
+                session.flush()  # 获取 chunk.id
+
+                # 存储 embedding（需要原生 SQL）
+                if embedding:
+                    from sqlalchemy import text as sql_text
+                    session.exec(sql_text(
+                        "UPDATE literature_chunk SET embedding = :embedding WHERE id = :id"
+                    ), params={"embedding": json.dumps(embedding), "id": chunk.id})
+
+                chunk_count += 1
+
+            session.commit()
+
+            # 7. 更新文献状态和元数据
+            literature.page_count = pdf_result["page_count"]
+            literature.status = LiteratureStatus.READY
+            session.add(literature)
+            session.commit()
+
+            log.info(f"📚 [LearningTask] 文献处理完成: {literature.literature_id}, {chunk_count} 个知识块")
+
+            return TaskResult(
+                task_name="process_literature",
+                status=TaskStatus.SUCCESS.value,
+                duration_seconds=(get_utc_now() - start_time).total_seconds(),
+                processed_count=1,
+                success_count=1,
+                message=f"成功处理文献，生成 {chunk_count} 个知识块",
+                metadata={
+                    "literature_id": literature.literature_id,
+                    "chunk_count": chunk_count,
+                    "page_count": pdf_result["page_count"],
+                    "figure_count": len(figures),
+                },
+            )
+
+    except Exception as e:
+        log.error(f"📚 [LearningTask] 文献处理失败: {e}")
+        # 尝试更新状态为错误
+        try:
+            from sqlmodel import Session
+            from app.core.database import engine
+            from app.services.learning_service import update_literature_status
+            with Session(engine) as session:
+                update_literature_status(session, literature_id, LiteratureStatus.ERROR, str(e))
+        except Exception:
+            pass
+
+        return TaskResult(
+            task_name="process_literature",
+            status=TaskStatus.ERROR.value,
+            message=str(e),
+        )
+
+
+def process_doi(literature_id: int, doi: str) -> TaskResult:
+    """
+    处理 DOI 导入：获取元数据 → 下载 PDF → 触发 process_literature
+
+    Args:
+        literature_id: 文献数据库 ID
+        doi: DOI 标识符
+
+    Returns:
+        任务结果
+    """
+    start_time = get_utc_now()
+    log.info(f"📚 [LearningTask] 开始处理 DOI: {doi}")
+
+    try:
+        import httpx
+        from sqlmodel import Session
+        from app.core.database import engine
+        from app.models.learning import Literature
+        from app.models.enums import LiteratureStatus
+        from app.services.learning_service import update_literature_status
+
+        # 1. 通过 CrossRef API 获取元数据
+        crossref_url = f"https://api.crossref.org/works/{doi}"
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(crossref_url)
+            if resp.status_code != 200:
+                raise Exception(f"CrossRef API 返回 {resp.status_code}")
+
+            data = resp.json().get("message", {})
+            title = data.get("title", [""])[0] if data.get("title") else ""
+            authors_list = data.get("author", [])
+            authors = ", ".join(
+                f"{a.get('given', '')} {a.get('family', '')}".strip()
+                for a in authors_list
+            )
+            journal = data.get("container-title", [""])[0] if data.get("container-title") else ""
+            year = data.get("published-print", {}).get("date-parts", [[None]])[0][0]
+            abstract = data.get("abstract", "")
+
+        # 2. 尝试通过 Unpaywall 获取开放获取 PDF
+        pdf_path = None
+        unpaywall_url = f"https://api.unpaywall.org/v2/{doi}?email=autonome@example.com"
+        try:
+            with httpx.Client(timeout=15) as client:
+                resp = client.get(unpaywall_url)
+                if resp.status_code == 200:
+                    up_data = resp.json()
+                    best_oa = up_data.get("best_oa_location", {})
+                    pdf_url = best_oa.get("url_for_pdf")
+                    if pdf_url:
+                        with client.stream("GET", pdf_url, timeout=60) as stream:
+                            if stream.status_code == 200:
+                                from app.core.config import settings
+                                upload_dir = os.path.join(settings.UPLOAD_DIR, "literatures")
+                                os.makedirs(upload_dir, exist_ok=True)
+                                pdf_path = os.path.join(upload_dir, f"doi_{doi.replace('/', '_')}.pdf")
+                                with open(pdf_path, "wb") as f:
+                                    for chunk in stream.iter_bytes():
+                                        f.write(chunk)
+        except Exception as e:
+            log.warning(f"📚 [LearningTask] Unpaywall 获取 PDF 失败: {e}")
+
+        # 3. 更新文献元数据
+        with Session(engine) as session:
+            literature = session.get(Literature, literature_id)
+            if literature:
+                literature.title = title or literature.title
+                literature.authors = authors
+                literature.journal = journal
+                literature.year = year
+                literature.abstract = abstract
+                if pdf_path:
+                    literature.file_path = pdf_path
+                    from app.services.learning_ingestion_service import compute_file_hash
+                    literature.file_hash = compute_file_hash(pdf_path)
+                session.add(literature)
+                session.commit()
+
+        # 4. 如果获取到 PDF，触发解析任务
+        if pdf_path:
+            try:
+                task_process_literature.delay(literature_id)
+            except Exception:
+                process_literature(literature_id)
+        else:
+            # 没有获取到 PDF，标记为需要手动上传
+            with Session(engine) as session:
+                update_literature_status(
+                    session, literature_id, LiteratureStatus.ERROR,
+                    "无法自动获取 PDF，请手动上传"
+                )
+
+        return TaskResult(
+            task_name="process_doi",
+            status=TaskStatus.SUCCESS.value,
+            duration_seconds=(get_utc_now() - start_time).total_seconds(),
+            processed_count=1,
+            success_count=1,
+            message=f"DOI 元数据获取成功，{'PDF 已下载' if pdf_path else 'PDF 未获取'}",
+            metadata={"doi": doi, "pdf_downloaded": pdf_path is not None},
+        )
+
+    except Exception as e:
+        log.error(f"📚 [LearningTask] DOI 处理失败: {e}")
+        try:
+            from sqlmodel import Session
+            from app.core.database import engine
+            from app.services.learning_service import update_literature_status
+            with Session(engine) as session:
+                update_literature_status(session, literature_id, LiteratureStatus.ERROR, str(e))
+        except Exception:
+            pass
+
+        return TaskResult(
+            task_name="process_doi",
+            status=TaskStatus.ERROR.value,
+            message=str(e),
+        )
+
+
+# ==========================================
 # Celery 任务包装器
 # ==========================================
 
@@ -394,7 +699,27 @@ LEARNING_TASKS_REGISTERED = False
 try:
     from celery import shared_task
 
-    @shared_task
+    # 文献解析任务（核心异步任务，支持重试）
+    @shared_task(bind=True, max_retries=3, default_retry_delay=60)
+    def task_process_literature(self, literature_id: int):
+        """Celery 任务：处理文献 PDF"""
+        try:
+            result = process_literature(literature_id)
+            return result.to_dict()
+        except Exception as exc:
+            # 指数退避重试
+            raise self.retry(exc=exc, countdown=2 ** self.request.retries * 60)
+
+    @shared_task(bind=True, max_retries=2, default_retry_delay=30)
+    def task_process_doi(self, literature_id: int, doi: str):
+        """Celery 任务：处理 DOI 导入"""
+        try:
+            result = process_doi(literature_id, doi)
+            return result.to_dict()
+        except Exception as exc:
+            raise self.retry(exc=exc, countdown=2 ** self.request.retries * 30)
+
+    # 定时学习任务
     def task_aggregate_feedback():
         """Celery 任务：聚合反馈数据"""
         result = aggregate_feedback()
@@ -450,6 +775,10 @@ def _register_beat_schedule():
 __all__ = [
     "TaskResult",
     "TaskStatus",
+    # 文献解析任务
+    "process_literature",
+    "process_doi",
+    # 定时学习任务
     "aggregate_feedback",
     "update_user_profiles",
     "extract_domain_knowledge",

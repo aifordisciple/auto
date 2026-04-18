@@ -12,7 +12,6 @@
 - Pydantic 模型 → schemas/chat.py
 """
 
-import os
 import json
 from http import HTTPStatus
 from typing import Optional
@@ -22,7 +21,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.core.database import get_session, engine
 from app.models.domain import (
-    ChatSession, ChatMessage, SystemConfig, RoleEnum, Project, User,
+    ChatSession, ChatMessage, RoleEnum, Project, User,
 )
 from app.core.logger import log
 from app.api.deps import get_current_user
@@ -38,12 +37,18 @@ router = APIRouter()
 # 系统提示词
 # ==========================================
 
-SYSTEM_PROMPT = """你是一个专业的生物信息学AI助手。你可以帮助用户解答生物信息学相关的问题，包括数据分析方法、工具使用、实验设计等。
+SYSTEM_PROMPT = """你是一个专业的生物信息学AI助手，名为 Autonome。你可以帮助用户解答生物信息学相关的问题，包括数据分析方法、工具使用、实验设计等。
 
-请注意：
+核心原则：
 - 用中文回答问题
 - 回答要准确、专业
-- 如果不确定，请诚实说明"""
+- 如果不确定，请诚实说明
+- 对于用户的提问，始终直接给出专业、详细的回答，这是最重要的规则
+
+身份相关：
+- 不要提及你的训练来源、模型身份或开发机构（如 Google、OpenAI 等）
+- 当且仅当用户明确询问"你是谁"或"你是什么"时，简洁回答"我是 Autonome 生物信息学AI助手"
+- 其他任何情况下，不要提及身份，直接回答用户的问题"""
 
 
 # ==========================================
@@ -107,26 +112,13 @@ async def chat_stream(
     session_id_for_ai = chat_session.id
     user_id = current_user.id
 
-    # 5. 加载 LLM 配置
-    config = session.get(SystemConfig, 1)
-    db_api_key = config.openai_api_key if config else None
-    db_base_url = config.openai_base_url if config else None
-    db_model = config.default_model if config else None
-    env_api_key = os.getenv("OPENAI_API_KEY")
-
-    is_local_model = db_base_url and (
-        "host.docker.internal" in db_base_url
-        or "ollama" in db_base_url
-        or "localhost" in db_base_url
-    )
-
-    if is_local_model:
-        api_key = db_api_key if db_api_key is not None else ""
-    else:
-        api_key = db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key
-
-    base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
-    model_name = db_model if db_model else "gpt-3.5-turbo"
+    # 5. 加载 LLM 配置（共享工具：per-user override → system global → env fallback）
+    from app.utils.llm_config import get_llm_config, _is_local_model
+    llm_cfg = get_llm_config(session, user_id=current_user.id)
+    api_key = llm_cfg.api_key
+    base_url = llm_cfg.base_url
+    model_name = llm_cfg.model_name
+    is_local_model = _is_local_model(base_url)
 
     # 6. 加载对话历史
     history_messages = session.exec(

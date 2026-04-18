@@ -35,6 +35,8 @@ from app.models.enums import (
     PackageLanguage,
     PackageStatus,
     DatabaseType,
+    LiteratureStatus,
+    ChunkType,
 )
 
 # ==========================================
@@ -48,6 +50,10 @@ from app.models.uuid import (
     generate_share_token,
     generate_experience_id,
     generate_package_id,
+    generate_literature_id,
+    generate_chunk_id,
+    generate_note_id,
+    generate_ltag_id,
 )
 
 # ==========================================
@@ -181,6 +187,28 @@ from app.models.database import (
 )
 
 # ==========================================
+# 学习中心模型
+# ==========================================
+from app.models.learning import (
+    Literature,
+    LiteratureCreate,
+    LiteratureUpdate,
+    LiteraturePublic,
+    LiteratureChunk,
+    LiteratureChunkCreate,
+    LiteratureChunkUpdate,
+    LiteratureChunkPublic,
+    LiteratureNote,
+    LiteratureNoteCreate,
+    LiteratureNoteUpdate,
+    LiteratureNotePublic,
+    LiteratureTag,
+    LiteratureTagCreate,
+    LiteratureTagUpdate,
+    LiteratureTagPublic,
+)
+
+# ==========================================
 # 导入其他模型以确保数据库表被创建
 # ==========================================
 from app.models.skill_template import SkillTemplate  # noqa: F401
@@ -206,6 +234,8 @@ __all__ = [
     "PackageLanguage",
     "PackageStatus",
     "DatabaseType",
+    "LiteratureStatus",
+    "ChunkType",
     # UUID 生成函数
     "generate_project_id",
     "generate_session_id",
@@ -214,6 +244,10 @@ __all__ = [
     "generate_share_token",
     "generate_experience_id",
     "generate_package_id",
+    "generate_literature_id",
+    "generate_chunk_id",
+    "generate_note_id",
+    "generate_ltag_id",
     # 工具函数
     "get_utc_now",
     # 用户模型
@@ -283,4 +317,21 @@ __all__ = [
     "AnalysisDatabaseCreate",
     "AnalysisDatabaseUpdate",
     "AnalysisDatabasePublic",
+    # 学习中心
+    "Literature",
+    "LiteratureCreate",
+    "LiteratureUpdate",
+    "LiteraturePublic",
+    "LiteratureChunk",
+    "LiteratureChunkCreate",
+    "LiteratureChunkUpdate",
+    "LiteratureChunkPublic",
+    "LiteratureNote",
+    "LiteratureNoteCreate",
+    "LiteratureNoteUpdate",
+    "LiteratureNotePublic",
+    "LiteratureTag",
+    "LiteratureTagCreate",
+    "LiteratureTagUpdate",
+    "LiteratureTagPublic",
 ]

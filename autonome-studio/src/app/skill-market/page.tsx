@@ -4,10 +4,11 @@
  * 技能市场页面 - 技能浏览、搜索、评分、收藏
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, ReactNode, ChangeEvent } from 'react';
 import { Search, Star, Heart, Filter, ChevronLeft, ChevronRight, Loader2, Code, GitBranch, BarChart3, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import { BASE_URL, getToken } from '@/lib/api';
 
 import { SkillCard } from './components/SkillCard';
 import { SkillDetailDrawer } from './components/SkillDetailDrawer';
@@ -44,7 +45,7 @@ interface Category {
 }
 
 // 执行器类型图标
-const EXECUTOR_ICONS: Record<string, React.ReactNode> = {
+const EXECUTOR_ICONS: Record<string, ReactNode> = {
   'Python_env': <Code size={14} className="text-blue-400" />,
   'R_env': <Code size={14} className="text-green-400" />,
   'Logical_Blueprint': <GitBranch size={14} className="text-purple-400" />,
@@ -74,13 +75,9 @@ export default function SkillMarketPage() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const BASE_URL = typeof window !== 'undefined'
-          ? `http://${window.location.hostname}:8000`
-          : 'http://localhost:8000';
-
         const response = await fetch(`${BASE_URL}/api/skills/market/categories`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+            'Authorization': `Bearer ${getToken()}`
           }
         });
         const data = await response.json();
@@ -96,10 +93,6 @@ export default function SkillMarketPage() {
   const fetchSkills = useCallback(async () => {
     setIsLoading(true);
     try {
-      const BASE_URL = typeof window !== 'undefined'
-        ? `http://${window.location.hostname}:8000`
-        : 'http://localhost:8000';
-
       const params = new URLSearchParams();
       params.set('page', page.toString());
       params.set('page_size', pageSize.toString());
@@ -109,7 +102,7 @@ export default function SkillMarketPage() {
 
       const response = await fetch(`${BASE_URL}/api/skills/market/skills?${params}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       });
 
@@ -146,14 +139,10 @@ export default function SkillMarketPage() {
   // 收藏切换
   const handleFavoriteToggle = async (skillId: string) => {
     try {
-      const BASE_URL = typeof window !== 'undefined'
-        ? `http://${window.location.hostname}:8000`
-        : 'http://localhost:8000';
-
       const response = await fetch(`${BASE_URL}/api/skills/market/skills/${skillId}/favorite`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       });
 

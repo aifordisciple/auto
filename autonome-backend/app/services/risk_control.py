@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import docker
-from loguru import logger
+from app.core.logger import log
 from sqlmodel import Session, select
 
 from app.models.billing import (
@@ -170,13 +170,13 @@ class RiskControlService:
         wallet = self.billing_service.get_wallet(wallet_id)
 
         if wallet.status == WalletStatus.SUSPENDED:
-            logger.warning(f"钱包 {wallet_id} 已经是挂起状态")
+            log.warning(f"钱包 {wallet_id} 已经是挂起状态")
             return
 
         wallet.status = WalletStatus.SUSPENDED
         self.session.commit()
 
-        logger.warning(f"钱包 {wallet_id} 已挂起: {reason}")
+        log.warning(f"钱包 {wallet_id} 已挂起: {reason}")
 
         # TODO: 发送通知给用户
 
@@ -189,13 +189,13 @@ class RiskControlService:
         wallet = self.billing_service.get_wallet(wallet_id)
 
         if wallet.status != WalletStatus.SUSPENDED:
-            logger.warning(f"钱包 {wallet_id} 不是挂起状态")
+            log.warning(f"钱包 {wallet_id} 不是挂起状态")
             return
 
         wallet.status = WalletStatus.ACTIVE
         self.session.commit()
 
-        logger.info(f"钱包 {wallet_id} 已恢复")
+        log.info(f"钱包 {wallet_id} 已恢复")
 
     def get_all_active_wallets(self) -> List[Wallet]:
         """获取所有活跃钱包
@@ -292,7 +292,7 @@ class EscapeWatchdog:
                         )
 
         except Exception as e:
-            logger.error(f"扫描僵尸容器失败: {e}")
+            log.error(f"扫描僵尸容器失败: {e}")
 
         return zombies
 
@@ -329,15 +329,15 @@ class EscapeWatchdog:
             container.stop(timeout=10)
             container.remove()
 
-            logger.info(f"已清理僵尸容器: {container_id}")
+            log.info(f"已清理僵尸容器: {container_id}")
             return True
 
         except docker.errors.NotFound:
-            logger.warning(f"容器不存在: {container_id}")
+            log.warning(f"容器不存在: {container_id}")
             return True
 
         except Exception as e:
-            logger.error(f"清理容器失败: {container_id}, {e}")
+            log.error(f"清理容器失败: {container_id}, {e}")
             return False
 
     def settle_orphan_record(self, record: ComputeRecord) -> bool:
@@ -360,11 +360,11 @@ class EscapeWatchdog:
                 execution_details={"force_settle": True, "reason": "orphan_record"},
             )
 
-            logger.info(f"已结算孤立记录: {record.record_id}")
+            log.info(f"已结算孤立记录: {record.record_id}")
             return True
 
         except Exception as e:
-            logger.error(f"结算孤立记录失败: {record.record_id}, {e}")
+            log.error(f"结算孤立记录失败: {record.record_id}, {e}")
             return False
 
 
@@ -411,7 +411,7 @@ class OOMCarePolicy:
         record = self.session.get(ComputeRecord, record_id)
 
         if not record:
-            logger.warning(f"计算记录不存在: {record_id}")
+            log.warning(f"计算记录不存在: {record_id}")
             return None
 
         if record.status != TaskStatus.FAILED:
@@ -442,7 +442,7 @@ class OOMCarePolicy:
                 description=f"OOM 关怀退款: {record_id}",
             )
 
-            logger.info(
+            log.info(
                 f"OOM 关怀退款: record_id={record_id}, "
                 f"actual_cost={record.actual_cost}, refund={refund_amount}"
             )
@@ -450,7 +450,7 @@ class OOMCarePolicy:
             return refund_amount
 
         except Exception as e:
-            logger.error(f"OOM 退款失败: {record_id}, {e}")
+            log.error(f"OOM 退款失败: {record_id}, {e}")
             return None
 
     def scan_oom_records(self, hours: int = 24) -> List[ComputeRecord]:

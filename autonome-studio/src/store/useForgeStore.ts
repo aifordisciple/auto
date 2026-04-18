@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand';
+import { BASE_URL, getToken } from '@/lib/api';
 
 // 执行器类型
 export type ExecutorType = 'Python_env' | 'R_env' | 'Logical_Blueprint' | 'Python_Package';
@@ -560,14 +561,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   // 刷新会话列表（用于保存/提交后）
   refreshSessionList: async () => {
-    const BASE_URL = typeof window !== 'undefined'
-      ? `http://${window.location.hostname}:8000`
-      : 'http://localhost:8000';
-
     try {
       const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       });
 
@@ -581,16 +578,13 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   // 创建会话
   createSession: async () => {
     const { executorType } = get();
-    const BASE_URL = typeof window !== 'undefined'
-      ? `http://${window.location.hostname}:8000`
-      : 'http://localhost:8000';
 
     try {
       const response = await fetch(`${BASE_URL}/api/skills/forge/session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           title: '新技能锻造',
@@ -616,28 +610,16 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   // 加载会话
   loadSession: async (sessionId) => {
-    const BASE_URL = typeof window !== 'undefined'
-      ? `http://${window.location.hostname}:8000`
-      : 'http://localhost:8000';
-
     try {
       const response = await fetch(`${BASE_URL}/api/skills/forge/session/${sessionId}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       });
 
       const data = await response.json();
       const draft = data.skill_draft || initialDraft;
       const execType = data.executor_type || draft.executor_type || 'Python_env';
-
-      console.log('[loadSession] 加载的草稿数据:', {
-        id: data.id,
-        name: draft.name,
-        executor_type: draft.executor_type,
-        script_code_length: draft.script_code?.length || 0,
-        has_code: !!draft.script_code
-      });
 
       // 先更新基本状态
       set({
@@ -651,9 +633,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       });
 
       // 然后根据加载的草稿初始化文件系统
-      console.log('[loadSession] 初始化文件系统，executorType:', execType, 'script_code preview:', draft.script_code?.substring(0, 100));
       const nodes = initVirtualFileSystem(draft, execType as ExecutorType);
-      console.log('[loadSession] 生成的文件节点:', nodes.map(n => ({ id: n.id, name: n.name, hasContent: !!n.content, children: n.children?.map(c => c.id) })));
 
       set({
         skillFiles: nodes,
@@ -661,8 +641,6 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
         openTabs: [],
         expandedFolders: new Set(['scripts'])
       });
-
-      console.log('[loadSession] 会话加载完成，文件系统已初始化');
     } catch (error) {
       console.error('加载会话失败:', error);
       throw error;
@@ -671,14 +649,10 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
 
   // 加载会话列表
   loadSessionList: async () => {
-    const BASE_URL = typeof window !== 'undefined'
-      ? `http://${window.location.hostname}:8000`
-      : 'http://localhost:8000';
-
     try {
       const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       });
 

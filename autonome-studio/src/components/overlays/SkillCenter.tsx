@@ -8,7 +8,7 @@
  */
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, ReactNode } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { X, Box, Play, Store, User, Hammer, Settings } from "lucide-react";
 import { SkillExecutePanel } from './SkillCenter/SkillExecutePanel';
@@ -55,7 +55,7 @@ type TabType = 'execute' | 'my' | 'market' | 'forge' | 'settings';
 // ==========================================
 // Tab 配置
 // ==========================================
-const TABS: { id: TabType; label: string; icon: React.ReactNode; color: string }[] = [
+const TABS: { id: TabType; label: string; icon: ReactNode; color: string }[] = [
   { id: 'execute', label: '执行', icon: <Play size={14} />, color: 'blue' },
   { id: 'my', label: '我的', icon: <User size={14} />, color: 'green' },
   { id: 'market', label: '市场', icon: <Store size={14} />, color: 'purple' },
@@ -96,14 +96,12 @@ export function SkillCenter() {
   // 事件处理函数
   // ==========================================
   const handleSwitchToForge = useCallback(() => {
-    console.log('[SkillCenter] 收到切换到工厂 Tab 事件');
     setActiveTab('forge');
   }, []);
 
   const handleEditSkill = useCallback((event: Event) => {
     const customEvent = event as CustomEvent;
     const { skillId } = customEvent.detail || {};
-    console.log('[SkillCenter] 收到编辑技能事件:', skillId);
 
     if (skillId) {
       setPendingEditSkillId(skillId);
@@ -114,7 +112,6 @@ export function SkillCenter() {
   const handleTransformToSkill = useCallback((event: Event) => {
     const customEvent = event as CustomEvent;
     const draft = customEvent.detail;
-    console.log('[SkillCenter] 收到固化为SKILL事件:', draft);
 
     if (draft) {
       setTransformDraft(draft);
@@ -126,7 +123,6 @@ export function SkillCenter() {
   const handlePreSelectSkill = useCallback((event: Event) => {
     const customEvent = event as CustomEvent;
     const { skillId } = customEvent.detail || {};
-    console.log('[SkillCenter] 收到预选技能事件:', skillId);
 
     if (skillId) {
       setPreSelectedSkillId(skillId);

@@ -31,6 +31,10 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 from app.core.logger import log
+from app.core.sandbox_config import (
+    USER_PACKAGES_HOST_PATH, USER_PACKAGES_CONTAINER_PATH,
+    MAX_PACKAGES_PER_USER, MAX_SIZE_PER_USER,
+)
 from app.models.domain import (
     UserPackage,
     UserPackageCreate,
@@ -44,13 +48,7 @@ from app.models.domain import (
 # ✨ 配置常量
 # ==========================================
 
-# 用户包存储路径
-USER_PACKAGES_HOST_PATH = "/opt/data1/public/software/systools/autonome/uploads/user_packages"
-USER_PACKAGES_CONTAINER_PATH = "/app/user_packages"
-
-# 配额限制
-MAX_PACKAGES_PER_USER = 100  # 每用户最多安装包数量
-MAX_SIZE_PER_USER = 2 * 1024 * 1024 * 1024  # 每用户最多 2GB
+# 用户包路径和配额已从 sandbox_config 导入
 
 # 包安装超时
 PACKAGE_INSTALL_TIMEOUT = 600  # 10 分钟

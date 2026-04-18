@@ -32,35 +32,27 @@ export default function LoginPage() {
 
         if (!res.ok) throw new Error("账号或密码错误");
         const data = await res.json();
-        console.log("Login response:", data);
-        
+
         // 1. 存 Token
-        console.log("Setting token...");
         setToken(data.access_token);
         // ✨ 这里有个小 trick：存入 localStorage 方便 fetchAPI 读取
-        localStorage.setItem('autonome_access_token', data.access_token); 
-        
+        localStorage.setItem('autonome_access_token', data.access_token);
+
         // 2. 拉取用户信息
-        console.log("Fetching user info...");
         const userRes = await fetch(`${BASE_URL}/api/auth/me`, {
           headers: { 'Authorization': `Bearer ${data.access_token}` }
         });
-        console.log("User response status:", userRes.status);
-        
+
         if (!userRes.ok) {
           // 即使 /me 请求失败，仍然使用基本信息跳转
-          console.warn("/me endpoint failed, using minimal user data");
           setUser({ id: 1, email, credits_balance: 0, is_superuser: false });
         } else {
           const userData = await userRes.json();
-          console.log("User data:", userData);
           setUser(userData);
         }
-        
+
         // 3. 跳转主页
-        console.log("Redirecting to /...");
         window.location.href = "/";
-        console.log("Redirect done");
       } else {
         // 注册流程
         await fetchAPI('/api/auth/register', {

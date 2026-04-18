@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from loguru import logger
+from app.core.logger import log
 
 if TYPE_CHECKING:
     from app.models.billing import ResourceFlavor
@@ -180,7 +180,7 @@ class BaseMeter(ABC):
         self.record_id = record_id
         self.context = context
         self.start_time = time.time()
-        logger.debug(f"计量开始: record_id={record_id}, context={context}")
+        log.debug(f"计量开始: record_id={record_id}, context={context}")
 
     def _calculate_duration(self) -> float:
         """计算执行时长（内部方法）
@@ -205,6 +205,6 @@ class BaseMeter(ABC):
         """
         if self.flavor and self.flavor.discount_rate > 0:
             discount_amount = cost * self.flavor.discount_rate
-            logger.info(f"应用折扣: 原价 {cost:.2f} CU, 折扣 {discount_amount:.2f} CU")
+            log.info(f"应用折扣: 原价 {cost:.2f} CU, 折扣 {discount_amount:.2f} CU")
             cost -= discount_amount
         return round(cost, 2)

@@ -15,7 +15,8 @@ from app.core.database import get_session
 from app.core.logger import log
 from app.core.content_filter import preprocess_llm_response
 from app.api.deps import get_current_user
-from app.models.domain import User, SystemConfig, RoleEnum
+from app.models.domain import User, RoleEnum
+from app.utils.llm_config import get_llm_config
 from app.schemas.skill import TransformFromLiveRequest
 
 router = APIRouter()
@@ -193,19 +194,9 @@ async def transform_from_live(
     # 4. 构建原始素材
     raw_material = build_raw_material_from_session(messages, all_code_blocks, all_strategies)
 
-    # 5. 获取 LLM 配置
-    config = session.get(SystemConfig, 1)
-    db_api_key = config.openai_api_key if config else None
-    db_base_url = config.openai_base_url if config else None
-    db_model = config.default_model if config else None
-
-    import os
-    env_api_key = os.getenv("OPENAI_API_KEY")
-    is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
-
-    api_key = (db_api_key if db_api_key is not None else "") if is_local_model else (db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key)
-    base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
-    model_name = db_model if db_model else "gpt-3.5-turbo"
+    # 5. 获取 LLM 配置（共享工具：per-user override → system global → env fallback）
+    llm_cfg = get_llm_config(session, user_id=current_user.id)
+    api_key, base_url, model_name = llm_cfg.api_key, llm_cfg.base_url, llm_cfg.model_name
 
     # 6. 调用 Crafter Agent
     try:
@@ -294,19 +285,9 @@ async def consolidate_blueprint(
         # 构建原始素材
         raw_material = f"【蓝图数据】\n{json.dumps(blueprint, ensure_ascii=False, indent=2)}"
 
-        # 获取 LLM 配置
-        config = session.get(SystemConfig, 1)
-        db_api_key = config.openai_api_key if config else None
-        db_base_url = config.openai_base_url if config else None
-        db_model = config.default_model if config else None
-
-        import os
-        env_api_key = os.getenv("OPENAI_API_KEY")
-        is_local_model = db_base_url and ("host.docker.internal" in db_base_url or "ollama" in db_base_url or "localhost" in db_base_url)
-
-        api_key = (db_api_key if db_api_key is not None else "") if is_local_model else (db_api_key if db_api_key and db_api_key != "ollama-local" else env_api_key)
-        base_url = db_base_url if db_base_url else "https://api.openai.com/v1"
-        model_name = db_model if db_model else "gpt-3.5-turbo"
+        # 获取 LLM 配置（共享工具：per-user override → system global → env fallback）
+        llm_cfg = get_llm_config(session, user_id=current_user.id)
+        api_key, base_url, model_name = llm_cfg.api_key, llm_cfg.base_url, llm_cfg.model_name
 
         # 调用 Crafter Agent
         from app.agent.crafter import craft_skill_from_material

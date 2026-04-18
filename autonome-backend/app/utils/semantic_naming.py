@@ -15,7 +15,7 @@ import re
 import os
 from datetime import datetime
 from typing import Optional, Union
-from loguru import logger
+from app.core.logger import log
 
 
 # ============================================================================
@@ -112,7 +112,7 @@ def generate_semantic_dir_name(
         safe_alias = safe_alias[:max(10, len(safe_alias) - excess)]
         full_name = f"{ts_str}_{safe_alias}_{short_id}"
 
-    logger.debug(f"Generated semantic dir name: {full_name}")
+    log.debug(f"Generated semantic dir name: {full_name}")
     return full_name
 
 
@@ -600,5 +600,5 @@ def ensure_output_directory(
     """
     full_path = get_semantic_output_path(project_id, semantic_dir_name, base_dir)
     os.makedirs(full_path, exist_ok=True)
-    logger.info(f"Created semantic output directory: {full_path}")
+    log.info(f"Created semantic output directory: {full_path}")
     return full_path

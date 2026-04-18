@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { adminApi, SkillAsset } from '@/lib/api';
 import { TopHeader } from '@/components/layout/TopHeader';
 import { Sidebar } from '@/components/layout/Sidebar';

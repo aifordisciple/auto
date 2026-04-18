@@ -11,10 +11,10 @@
 
 'use client';
 
-import React, { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useForgeStore, ExecutorType } from '@/store/useForgeStore';
 import { SkillDraftEditor } from '@/app/skill-forge/components/SkillDraftEditor';
-import { skillForgeApi, forgeSessionApi } from '@/lib/api';
+import { skillForgeApi, forgeSessionApi, BASE_URL, getToken } from '@/lib/api';
 import { toast } from 'sonner';
 import { PendingDraftsList } from './PendingDraftsList';
 
@@ -72,7 +72,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
     const currentDraftStr = JSON.stringify(skillDraft);
 
     if (hasContent && currentDraftStr !== lastSavedDraftRef.current) {
-      console.log('[ForgePanel] 离开时自动保存草稿');
       try {
         await forgeSessionApi.updateDraft(sessionId, {
           name: skillDraft.name,
@@ -85,7 +84,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
           dependencies: skillDraft.dependencies
         });
         lastSavedDraftRef.current = currentDraftStr;
-        console.log('[ForgePanel] 草稿已自动保存');
       } catch (error) {
         console.error('[ForgePanel] 自动保存草稿失败:', error);
       }
@@ -99,10 +97,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
       if (sessionId && skillDraft) {
         const hasContent = skillDraft.name || skillDraft.description || skillDraft.script_code || skillDraft.nextflow_code;
         if (hasContent) {
-          const BASE_URL = typeof window !== 'undefined'
-            ? `http://${window.location.hostname}:8000`
-            : 'http://localhost:8000';
-
           const payload = JSON.stringify({
             name: skillDraft.name,
             description: skillDraft.description,
@@ -125,7 +119,7 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+              'Authorization': `Bearer ${getToken()}`
             },
             body: payload,
             keepalive: true
@@ -133,8 +127,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
             // 静默处理：页面卸载时 fetch 失败是预期行为，无需输出错误
             // 实际的草稿会在 visibilitychange 事件中保存
           });
-
-          console.log('[ForgePanel] 组件卸载，已触发草稿保存');
         }
       }
     };
@@ -162,8 +154,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
     initRef.current = true;
 
     const init = async () => {
-      console.log('[ForgePanel] 初始化...', { editSkillId });
-
       // 记录当前的 editSkillId
       lastEditSkillIdRef.current = editSkillId;
 
@@ -171,15 +161,12 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
       // 场景1：编辑现有技能（优先级最高）
       // ==========================================
       if (editSkillId) {
-        console.log('[ForgePanel] 检测到待编辑技能 ID:', editSkillId);
         try {
           // 获取技能详情
           const skill = await skillForgeApi.getSkill(editSkillId);
-          console.log('[ForgePanel] 获取技能详情完整数据:', JSON.stringify(skill, null, 2));
 
           // 创建新会话
           const newSessionId = await createSession();
-          console.log('[ForgePanel] 创建新会话:', newSessionId);
 
           // 填充技能草稿
           const skillDraftData = {
@@ -196,35 +183,9 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
             tags: skill.tags || []
           };
 
-          console.log('[ForgePanel] 准备设置的草稿数据:', JSON.stringify({
-            name: skillDraftData.name,
-            description: skillDraftData.description,
-            executor_type: skillDraftData.executor_type,
-            script_code_length: skillDraftData.script_code?.length || 0,
-            nextflow_code_length: skillDraftData.nextflow_code?.length || 0,
-            has_parameters_schema: !!skillDraftData.parameters_schema,
-            has_expert_knowledge: !!skillDraftData.expert_knowledge,
-            dependencies_count: skillDraftData.dependencies?.length || 0
-          }, null, 2));
-
           // 关键修复：传入完整的草稿数据到 setExecutorType
           // 这样 initVirtualFileSystem 就能使用正确的 script_code/nextflow_code 初始化文件系统
           setExecutorType(skill.executor_type || 'Python_env', skillDraftData);
-
-          // 验证设置后的状态
-          const stateAfterSet = useForgeStore.getState();
-          console.log('[ForgePanel] setExecutorType 后的状态验证:', {
-            skillDraft: {
-              name: stateAfterSet.skillDraft.name,
-              script_code_length: stateAfterSet.skillDraft.script_code?.length || 0
-            },
-            skillFiles: stateAfterSet.skillFiles.map(f => ({
-              id: f.id,
-              name: f.name,
-              content_length: f.content?.length || 0,
-              children: f.children?.map(c => ({ id: c.id, content_length: c.content?.length || 0 }))
-            }))
-          });
 
           // 设置 skillId 表示这是编辑现有技能
           setSkillId(editSkillId);
@@ -233,7 +194,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
           if (newSessionId) {
             try {
               await forgeSessionApi.updateDraft(newSessionId, skillDraftData);
-              console.log('[ForgePanel] 编辑模式草稿已持久化:', newSessionId);
             } catch (persistErr) {
               console.error('[ForgePanel] 持久化编辑草稿失败:', persistErr);
             }
@@ -242,7 +202,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
           // 通知父组件编辑已完成
           onEditComplete?.();
 
-          console.log('[ForgePanel] 技能加载完成:', skill.name);
           return; // 编辑模式结束，不再执行后续逻辑
         } catch (error) {
           console.error('[ForgePanel] 加载技能详情失败:', error);
@@ -255,12 +214,9 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
       // 场景2：从聊天转化的草稿
       // ==========================================
       if (transformDraft) {
-        console.log('[ForgePanel] 初始化时检测到转化草稿:', transformDraft);
-
         try {
           // 创建新会话
           const newSessionId = await createSession();
-          console.log('[ForgePanel] 为转化草稿创建新会话:', newSessionId);
 
           // 确定执行器类型（显式类型断言以满足 ExecutorType 类型要求）
           const executorType: ExecutorType = (transformDraft.executor_type as ExecutorType) || 'Python_env';
@@ -277,12 +233,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
             dependencies: transformDraft.dependencies || []
           };
 
-          console.log('[ForgePanel] 转化草稿数据:', {
-            name: skillDraftData.name,
-            executor_type: skillDraftData.executor_type,
-            script_code_length: skillDraftData.script_code?.length || 0
-          });
-
           // 关键修复：调用 setExecutorType 初始化文件系统
           setExecutorType(executorType, skillDraftData);
 
@@ -295,7 +245,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
           if (newSessionId) {
             try {
               await forgeSessionApi.updateDraft(newSessionId, skillDraftData);
-              console.log('[ForgePanel] 转化草稿已持久化:', newSessionId);
             } catch (persistErr) {
               console.error('[ForgePanel] 持久化转化草稿失败:', persistErr);
             }
@@ -304,7 +253,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
           // 通知父组件转化已完成
           onTransformComplete?.();
 
-          console.log('[ForgePanel] 转化草稿加载完成');
           return; // 转化模式结束，不再执行后续逻辑
         } catch (error) {
           console.error('[ForgePanel] 处理转化草稿失败:', error);
@@ -316,13 +264,9 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
       // 场景3：检查是否有草稿会话
       // ==========================================
       try {
-        const BASE_URL = typeof window !== 'undefined'
-          ? `http://${window.location.hostname}:8000`
-          : 'http://localhost:8000';
-
         const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+            'Authorization': `Bearer ${getToken()}`
           }
         });
 
@@ -335,10 +279,8 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
         );
 
         if (draftSession) {
-          console.log('[ForgePanel] 找到草稿会话，加载:', draftSession.id);
           await loadSession(draftSession.id);
         } else {
-          console.log('[ForgePanel] 没有草稿会话，创建新会话');
           await createSession();
           initSkillFiles();
         }
@@ -358,13 +300,10 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
   useEffect(() => {
     // 检查 editSkillId 是否变化（且不是初始化时的设置）
     if (initRef.current && editSkillId !== lastEditSkillIdRef.current && editSkillId) {
-      console.log('[ForgePanel] editSkillId 变化，重新加载技能:', editSkillId);
-
       const loadSkillForEdit = async () => {
         try {
           // 获取技能详情
           const skill = await skillForgeApi.getSkill(editSkillId);
-          console.log('[ForgePanel] 获取技能详情:', skill.name);
 
           // 创建新会话
           const newSessionId = await createSession();
@@ -400,8 +339,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
 
           // 通知父组件
           onEditComplete?.();
-
-          console.log('[ForgePanel] 技能重新加载完成:', skill.name);
         } catch (error) {
           console.error('[ForgePanel] 重新加载技能失败:', error);
           toast.error?.('加载技能详情失败');
@@ -420,8 +357,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
     if (initRef.current && transformDraft) {
       const currentDraftStr = JSON.stringify(transformDraft);
       if (currentDraftStr !== lastTransformDraftRef.current) {
-        console.log('[ForgePanel] transformDraft 变化，重新加载:', transformDraft);
-
         const loadTransformDraft = async () => {
           try {
             // 创建新会话
@@ -460,8 +395,6 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
 
             // 通知父组件
             onTransformComplete?.();
-
-            console.log('[ForgePanel] transformDraft 重新加载完成');
           } catch (error) {
             console.error('[ForgePanel] 重新加载 transformDraft 失败:', error);
           }

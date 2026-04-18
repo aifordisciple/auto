@@ -18,7 +18,7 @@
 from typing import Optional, Tuple
 from sqlmodel import Session, select
 from datetime import datetime, timezone
-from loguru import logger
+from app.core.logger import log
 
 from app.models.billing import (
     Wallet,
@@ -143,7 +143,7 @@ class BillingService:
 
         if not wallet and create_if_not_exists:
             wallet = self._create_wallet(user_id)
-            logger.info(f"[BillingService] 为用户 {user_id} 创建钱包: {wallet.wallet_id}")
+            log.info(f"[BillingService] 为用户 {user_id} 创建钱包: {wallet.wallet_id}")
 
         return wallet
 
@@ -327,7 +327,7 @@ class BillingService:
         self.session.commit()
         self.session.refresh(transaction)
 
-        logger.info(f"[BillingService] 冻结成功: wallet={wallet_id}, amount={amount:.2f}, tx={transaction.transaction_id}")
+        log.info(f"[BillingService] 冻结成功: wallet={wallet_id}, amount={amount:.2f}, tx={transaction.transaction_id}")
 
         return transaction
 
@@ -428,7 +428,7 @@ class BillingService:
         self.session.refresh(settle_tx)
         self.session.refresh(record)
 
-        logger.info(f"[BillingService] 结算成功: wallet={wallet_id}, actual={actual_cost:.2f}, refund={refund_amount:.2f}")
+        log.info(f"[BillingService] 结算成功: wallet={wallet_id}, actual={actual_cost:.2f}, refund={refund_amount:.2f}")
 
         return settle_tx, record
 
@@ -467,7 +467,7 @@ class BillingService:
         frozen_amount = record.frozen_amount
 
         if frozen_amount <= 0:
-            logger.warning(f"[BillingService] 无冻结金额可退款: record={record_id}")
+            log.warning(f"[BillingService] 无冻结金额可退款: record={record_id}")
             return None
 
         # 记录快照
@@ -503,7 +503,7 @@ class BillingService:
         self.session.commit()
         self.session.refresh(transaction)
 
-        logger.info(f"[BillingService] 退款成功: wallet={wallet_id}, amount={frozen_amount:.2f}, reason={reason}")
+        log.info(f"[BillingService] 退款成功: wallet={wallet_id}, amount={frozen_amount:.2f}, reason={reason}")
 
         return transaction
 
@@ -627,7 +627,7 @@ class BillingService:
                 wallet.status = WalletStatus.ACTIVE
                 wallet.suspended_at = None
                 wallet.suspended_reason = None
-                logger.info(f"[BillingService] 钱包恢复: {wallet_id}")
+                log.info(f"[BillingService] 钱包恢复: {wallet_id}")
 
         # 创建交易记录
         transaction = TransactionLedger(
@@ -647,7 +647,7 @@ class BillingService:
         self.session.commit()
         self.session.refresh(transaction)
 
-        logger.info(f"[BillingService] 充值成功: wallet={wallet_id}, amount={amount:.2f}")
+        log.info(f"[BillingService] 充值成功: wallet={wallet_id}, amount={amount:.2f}")
 
         return transaction
 

@@ -9,7 +9,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { X, Sparkles, Database, BarChart3, Dna } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -24,7 +24,7 @@ export interface OnboardingStep {
   title: string;
   description: string;
   example: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
 }
 
 interface OnboardingGuideProps {

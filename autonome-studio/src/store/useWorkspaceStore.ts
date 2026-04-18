@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://113.44.66.210:8000';
+import { BASE_URL, getToken } from '@/lib/api';
 
 // Define tool parameter JSON Schema structure
 export type ParamType = 'number' | 'boolean' | 'select' | 'string';
@@ -152,7 +151,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           pid = stored || undefined;
         }
         if (!pid) return;
-        const token = localStorage.getItem('autonome_access_token');
+        const token = getToken();
         try {
           const res = await fetch(`${BASE_URL}/api/projects/${pid}/files`, {
             headers: { 'Authorization': `Bearer ${token}` }

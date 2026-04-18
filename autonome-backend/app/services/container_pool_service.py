@@ -45,28 +45,15 @@ from queue import Queue, Empty
 
 from app.core.logger import log
 from app.core.config import settings
-
-DOCKER_SOCKET = '/var/run/docker.sock'
-
-# ==========================================
-# 常量定义
-# ==========================================
-
-# Conda 持久化路径
-CONDA_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome_conda"
-CONDA_CONTAINER_PATH = "/opt/conda"
-
-# Biosource 生信脚本库路径
-BIOSOURCE_HOST_PATH = "/opt/data1/public/software/systools/autonome/biosource"
-BIOSOURCE_CONTAINER_PATH = "/app/biosource"
-
-# SKILL 技能包目录
-SKILLS_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome-backend/app/skills"
-SKILLS_CONTAINER_PATH = "/app/skills"
-
-# 用户包目录
-USER_PACKAGES_HOST_PATH = "/opt/data1/public/software/systools/autonome/uploads/user_packages"
-USER_PACKAGES_CONTAINER_PATH = "/app/user_packages"
+from app.core.docker_api import docker_api_request
+from app.core.sandbox_config import (
+    DOCKER_SOCKET,
+    CONDA_HOST_PATH, CONDA_CONTAINER_PATH,
+    BIOSOURCE_HOST_PATH, BIOSOURCE_CONTAINER_PATH,
+    SKILLS_HOST_PATH, SKILLS_CONTAINER_PATH,
+    USER_PACKAGES_HOST_PATH, USER_PACKAGES_CONTAINER_PATH,
+    DEFAULT_EXECUTION_TIMEOUT,
+)
 
 
 class ContainerType(Enum):
@@ -108,78 +95,6 @@ class PooledContainer:
             "task_count": self.task_count,
             "error_count": self.error_count
         }
-
-
-# ==========================================
-# Docker API 辅助函数
-# ==========================================
-
-def docker_api_request(method: str, path: str, data: str = None, return_raw: bool = False, timeout: int = 30) -> Any:
-    """
-    直接通过 Unix socket 调用 Docker API
-
-    Args:
-        method: HTTP 方法
-        path: API 路径
-        data: 请求体
-        return_raw: 是否返回原始文本
-        timeout: socket 超时时间（秒）
-    """
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-    sock.connect(DOCKER_SOCKET)
-
-    body = data.encode('utf-8') if data else None
-
-    request = f"{method} {path} HTTP/1.0\r\n"
-    request += "Host: localhost\r\n"
-    request += "Connection: close\r\n"
-    if body:
-        request += f"Content-Length: {len(body)}\r\n"
-    request += "Content-Type: application/json\r\n\r\n"
-
-    if body:
-        request = request.encode('utf-8') + body
-    else:
-        request = request.encode('utf-8')
-
-    sock.sendall(request)
-
-    response = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break
-        response += chunk
-
-    sock.close()
-
-    if b"\r\n\r\n" in response:
-        headers, raw_body = response.split(b"\r\n\r\n", 1)
-    else:
-        raw_body = response
-
-    body_str = raw_body.decode('utf-8', errors='ignore').strip()
-
-    if not body_str:
-        return "" if return_raw else {}
-
-    if return_raw:
-        return body_str
-
-    start_dict = body_str.find('{')
-    end_dict = body_str.rfind('}')
-    start_list = body_str.find('[')
-    end_list = body_str.rfind(']')
-
-    try:
-        if start_dict != -1 and end_dict != -1 and (start_list == -1 or start_dict < start_list):
-            return json.loads(body_str[start_dict:end_dict+1])
-        elif start_list != -1 and end_list != -1:
-            return json.loads(body_str[start_list:end_list+1])
-        return json.loads(body_str)
-    except Exception:
-        return {"body": body_str}
 
 
 # ==========================================
@@ -522,7 +437,7 @@ class ContainerPoolService:
         self,
         container: PooledContainer,
         command: List[str],
-        timeout: int = 3600,
+        timeout: int = DEFAULT_EXECUTION_TIMEOUT,
         enable_network: bool = False
     ) -> tuple[str, int]:
         """

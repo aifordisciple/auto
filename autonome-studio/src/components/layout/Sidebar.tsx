@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, HardDrive, Sun, Moon, Box, Terminal, UserCircle } from "lucide-react";
+import { LogOut, ShieldAlert, Activity, FolderGit2, ListTodo, ChevronUp, Sparkles, HardDrive, Sun, Moon, Box, Terminal, UserCircle, BookOpen } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useUIStore } from "../../store/useUIStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { removeToken } from "@/lib/api";
 
 // ✨ 延迟加载会话管理组件
 const SessionSidebar = dynamic(() => import("./SessionSidebar").then(m => m.SessionSidebar), {
@@ -26,7 +27,7 @@ const BookmarkPanel = dynamic(() => import("../chat/BookmarkPanel").then(m => m.
 });
 
 export function Sidebar() {
-  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSkillCenter, toggleTerminal, openUserCenter, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, theme, toggleTheme } = useUIStore();
+  const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSkillCenter, toggleTerminal, toggleLearningCenter, openUserCenter, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, isLearningCenterOpen, theme, toggleTheme } = useUIStore();
   const { user, logout } = useAuthStore();
   const { currentProjectId, currentSessionId, setCurrentSessionId } = useWorkspaceStore();
 
@@ -44,7 +45,7 @@ export function Sidebar() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('autonome_access_token');
+    removeToken();
     localStorage.removeItem('autonome_current_project_id');
     logout();
     window.location.href = '/login';
@@ -102,6 +103,14 @@ export function Sidebar() {
           className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isSkillCenterOpen ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
         >
           <Box size={18} /> <span>技能中心</span>
+        </div>
+
+        {/* ✨ Learning Center - 学习中心 */}
+        <div
+          onClick={toggleLearningCenter}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isLearningCenterOpen ? 'bg-emerald-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
+        >
+          <BookOpen size={18} /> <span>学习中心</span>
         </div>
 
         {/* ✨ Web Terminal - 终端 */}

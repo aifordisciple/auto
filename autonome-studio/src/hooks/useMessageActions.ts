@@ -187,11 +187,9 @@ export function useMessageActions(config: MessageActionsConfig) {
             updateCredits(data.balance);
           } else if (event.event === 'ai_message_id') {
             const data = JSON.parse(event.data);
-            console.log('[Chat] Received AI message ID:', data.message_id);
             updateLastMessageId(data.message_id);
           } else if (event.event === 'ai_message_content') {
             const data = JSON.parse(event.data);
-            console.log('[Chat] Received fixed AI message content, length:', data.content?.length);
             commitStreamingContent(data.content);
             clearStreamingContent();
             isStreamingRef.current = false;

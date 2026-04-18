@@ -4,9 +4,10 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Star, Heart, Copy, Play, Code, GitBranch, Clock, Users, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { BASE_URL, getToken } from '@/lib/api';
 
 interface SkillDetail {
   skill_id: string;
@@ -65,13 +66,9 @@ export function SkillDetailDrawer({ skillId, isOpen, onClose, onFavoriteToggle }
   const loadSkillDetail = async (id: string) => {
     setIsLoading(true);
     try {
-      const BASE_URL = typeof window !== 'undefined'
-        ? `http://${window.location.hostname}:8000`
-        : 'http://localhost:8000';
-
       const response = await fetch(`${BASE_URL}/api/skills/market/skills/${id}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         }
       });
 
@@ -91,15 +88,11 @@ export function SkillDetailDrawer({ skillId, isOpen, onClose, onFavoriteToggle }
 
     setIsSubmittingRating(true);
     try {
-      const BASE_URL = typeof window !== 'undefined'
-        ? `http://${window.location.hostname}:8000`
-        : 'http://localhost:8000';
-
       const response = await fetch(`${BASE_URL}/api/skills/market/skills/${skill.skill_id}/rate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           rating: userRating,

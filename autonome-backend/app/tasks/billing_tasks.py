@@ -10,7 +10,7 @@
 
 from datetime import datetime
 
-from loguru import logger
+from app.core.logger import log
 from sqlmodel import Session
 
 from app.core.database import engine
@@ -38,7 +38,7 @@ def cleanup_zombie_containers():
     每 30 分钟执行一次。
     扫描运行时间超过阈值的容器并强制清理。
     """
-    logger.info("[定时任务] 开始扫描僵尸容器...")
+    log.info("[定时任务] 开始扫描僵尸容器...")
 
     session = get_session()
     try:
@@ -50,12 +50,12 @@ def cleanup_zombie_containers():
             if watchdog.cleanup_zombie(zombie["container_id"]):
                 cleaned += 1
 
-        logger.info(
+        log.info(
             f"[定时任务] 僵尸容器清理完成: 扫描 {len(zombies)} 个, 清理 {cleaned} 个"
         )
 
     except Exception as e:
-        logger.error(f"[定时任务] 僵尸容器清理失败: {e}")
+        log.error(f"[定时任务] 僵尸容器清理失败: {e}")
     finally:
         session.close()
 
@@ -66,7 +66,7 @@ def settle_orphan_records():
     每小时执行一次。
     结算长时间 RUNNING 但容器已不存在的计算记录。
     """
-    logger.info("[定时任务] 开始扫描孤立记录...")
+    log.info("[定时任务] 开始扫描孤立记录...")
 
     session = get_session()
     try:
@@ -78,12 +78,12 @@ def settle_orphan_records():
             if watchdog.settle_orphan_record(orphan):
                 settled += 1
 
-        logger.info(
+        log.info(
             f"[定时任务] 孤立记录结算完成: 扫描 {len(orphans)} 个, 结算 {settled} 个"
         )
 
     except Exception as e:
-        logger.error(f"[定时任务] 孤立记录结算失败: {e}")
+        log.error(f"[定时任务] 孤立记录结算失败: {e}")
     finally:
         session.close()
 
@@ -94,7 +94,7 @@ def check_wallet_health():
     每 5 分钟执行一次。
     检查所有活跃钱包的余额，自动挂起低余额钱包。
     """
-    logger.info("[定时任务] 开始检查钱包健康状态...")
+    log.info("[定时任务] 开始检查钱包健康状态...")
 
     session = get_session()
     try:
@@ -122,13 +122,13 @@ def check_wallet_health():
                 warned += 1
                 # TODO: 发送告警通知
 
-        logger.info(
+        log.info(
             f"[定时任务] 钱包健康检查完成: 扫描 {len(wallets)} 个, "
             f"挂起 {suspended} 个, 告警 {warned} 个"
         )
 
     except Exception as e:
-        logger.error(f"[定时任务] 钱包健康检查失败: {e}")
+        log.error(f"[定时任务] 钱包健康检查失败: {e}")
     finally:
         session.close()
 
@@ -139,7 +139,7 @@ def process_oom_refunds():
     每小时执行一次。
     扫描最近 OOM 失败的任务并执行退款。
     """
-    logger.info("[定时任务] 开始处理 OOM 退款...")
+    log.info("[定时任务] 开始处理 OOM 退款...")
 
     session = get_session()
     try:
@@ -160,13 +160,13 @@ def process_oom_refunds():
                 refunded += 1
                 total_refund += refund
 
-        logger.info(
+        log.info(
             f"[定时任务] OOM 退款处理完成: 扫描 {len(oom_records)} 个, "
             f"退款 {refunded} 个, 总额 {total_refund:.2f} CU"
         )
 
     except Exception as e:
-        logger.error(f"[定时任务] OOM 退款处理失败: {e}")
+        log.error(f"[定时任务] OOM 退款处理失败: {e}")
     finally:
         session.close()
 
@@ -219,7 +219,7 @@ try:
         },
     }
 
-    logger.info("✅ 计费定时任务已注册")
+    log.info("✅ 计费定时任务已注册")
 
 except ImportError:
-    logger.warning("Celery 未安装，跳过定时任务注册")
+    log.warning("Celery 未安装，跳过定时任务注册")

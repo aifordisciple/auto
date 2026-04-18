@@ -8,7 +8,7 @@
  *
  * 从 ChatStage.tsx 提取，减少主组件复杂度
  */
-import { useCallback, useRef } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useChatStore, ChatState } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
@@ -34,10 +34,10 @@ export interface ChatStreamConfig {
   commitStreamingContent: (content: string) => void;
   /** 滚动到底部 */
   scrollToBottom: () => void;
-  /** 是否在底部 */
-  isAtBottom: boolean;
-  /** 是否暂停自动滚动 */
-  isPaused: boolean;
+  /** 是否在底部的 ref（避免 SSE onmessage 闭包过期） */
+  isAtBottomRef: React.RefObject<boolean>;
+  /** 是否暂停自动滚动的 ref（避免 SSE onmessage 闭包过期） */
+  isPausedRef: React.RefObject<boolean>;
 }
 
 // ==========================================
@@ -53,8 +53,8 @@ export function useChatStream(config: ChatStreamConfig) {
     setStreamingMessageId,
     commitStreamingContent,
     scrollToBottom,
-    isAtBottom,
-    isPaused,
+    isAtBottomRef,
+    isPausedRef,
   } = config;
 
   // Store 状态 - 使用精确订阅避免不必要的重渲染
@@ -183,7 +183,6 @@ export function useChatStream(config: ChatStreamConfig) {
 
     try {
       const token = localStorage.getItem('autonome_access_token');
-      console.log('[Chat] Sending message:', { project_id: currentProjectId, session_id: currentSessionId });
 
       await fetchEventSource(`${BASE_URL}/api/chat/stream`, {
         method: 'POST',
@@ -246,8 +245,8 @@ export function useChatStream(config: ChatStreamConfig) {
             // 通过 appendStream 写入 useImmediateStream，由其 flushRender 机制
             // 自动将完整累积内容传递给 Zustand store
             appendStream(data.content);
-            // 只有在底部附近且用户没有暂停时才自动滚动
-            if (isAtBottom && !isPaused) {
+            // 使用 ref 读取最新值，避免闭包过期导致滚动失效
+            if (isAtBottomRef.current && !isPausedRef.current) {
               requestAnimationFrame(() => scrollToBottom());
             }
           } else if (event.event === 'billing') {
@@ -255,11 +254,9 @@ export function useChatStream(config: ChatStreamConfig) {
             updateCredits(data.balance);
           } else if (event.event === 'ai_message_id') {
             const data = JSON.parse(event.data);
-            console.log('[Chat] Received AI message ID:', data.message_id);
             updateLastMessageId(data.message_id);
           } else if (event.event === 'ai_message_content') {
             const data = JSON.parse(event.data);
-            console.log('[Chat] Received fixed AI message content, length:', data.content?.length);
             // ✨ 使用 ref 防止重复提交
             if (!hasCommittedRef.current && data.content) {
               commitStreamingContent(data.content);
@@ -336,8 +333,8 @@ export function useChatStream(config: ChatStreamConfig) {
     setStreamingMessageId,
     commitStreamingContent,
     scrollToBottom,
-    isAtBottom,
-    isPaused,
+    isAtBottomRef,
+    isPausedRef,
   ]);
 
   return {

@@ -294,7 +294,7 @@ async def list_available_tasks():
 @router.delete("/clear")
 async def clear_all_tasks(current_user: User = Depends(get_current_user)):
     """强行终止所有正在运行的任务，并清空用户的整个任务列表"""
-    from loguru import logger
+    from app.core.logger import log
 
     # 1. 获取用户所有的任务 ID
     task_ids = redis_client.lrange(f"user_tasks:{current_user.id}", 0, -1)
@@ -303,7 +303,7 @@ async def clear_all_tasks(current_user: User = Depends(get_current_user)):
         # 尝试强行杀死对应的计算容器 (对 PENDING/STARTED 的任务生效)
         try:
             celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
-            logger.info(f"Task {task_id} has been revoked with SIGKILL during clear all")
+            log.info(f"Task {task_id} has been revoked with SIGKILL during clear all")
         except Exception:
             pass
 
@@ -320,14 +320,14 @@ async def clear_all_tasks(current_user: User = Depends(get_current_user)):
 @router.delete("/{task_id}")
 async def terminate_and_delete_task(task_id: str, current_user: User = Depends(get_current_user)):
     """终止正在运行的任务并从看板中彻底删除"""
-    from loguru import logger
+    from app.core.logger import log
 
     # 1. 发送系统级 SIGTERM/SIGKILL 信号给 Celery Worker，强制终止该任务
     try:
         celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
-        logger.info(f"Task {task_id} has been revoked with SIGKILL")
+        log.info(f"Task {task_id} has been revoked with SIGKILL")
     except Exception as e:
-        logger.warning(f"Failed to revoke task {task_id}: {e}")
+        log.warning(f"Failed to revoke task {task_id}: {e}")
 
     # 2. 从用户的任务列表中移除
     redis_client.lrem(f"user_tasks:{current_user.id}", 0, task_id)

@@ -13,7 +13,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from loguru import logger
+from app.core.logger import log
 
 from app.services.meters.base import BaseMeter, MeteringResult
 
@@ -77,7 +77,7 @@ class NextflowMeter(BaseMeter):
         # 清空之前的任务记录
         self.task_records = []
 
-        logger.info(
+        log.info(
             f"Nextflow 计量开始: record_id={record_id}, blueprint_id={self.blueprint_id}"
         )
 
@@ -99,11 +99,11 @@ class NextflowMeter(BaseMeter):
             trace_path = os.path.join(self.work_dir, "trace.txt")
             if os.path.exists(trace_path):
                 self.task_records = self.parse_trace_file(trace_path)
-                logger.info(
+                log.info(
                     f"解析 trace.txt: {len(self.task_records)} 个任务, path={trace_path}"
                 )
             else:
-                logger.warning(f"trace.txt 不存在: {trace_path}")
+                log.warning(f"trace.txt 不存在: {trace_path}")
 
         # 计算总时长和 CPU 时间
         total_duration = sum(t.get("realtime", 0) for t in self.task_records)
@@ -135,7 +135,7 @@ class NextflowMeter(BaseMeter):
         # 计算费用
         result.cost_credits = self.calculate_cost(result)
 
-        logger.info(
+        log.info(
             f"Nextflow 计量结束: record_id={record_id}, "
             f"tasks={len(self.task_records)}, cost={result.cost_credits} CU"
         )
@@ -175,11 +175,11 @@ class NextflowMeter(BaseMeter):
             return tasks
 
         except ImportError:
-            logger.warning("pandas 未安装，使用简单解析")
+            log.warning("pandas 未安装，使用简单解析")
             return self._parse_trace_simple(trace_path)
 
         except Exception as e:
-            logger.error(f"解析 trace.txt 失败: {e}")
+            log.error(f"解析 trace.txt 失败: {e}")
             return []
 
     def _parse_trace_simple(self, trace_path: str) -> List[Dict[str, Any]]:
@@ -222,7 +222,7 @@ class NextflowMeter(BaseMeter):
                 tasks.append(task)
 
         except Exception as e:
-            logger.error(f"简单解析 trace.txt 失败: {e}")
+            log.error(f"简单解析 trace.txt 失败: {e}")
 
         return tasks
 

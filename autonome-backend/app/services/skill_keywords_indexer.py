@@ -24,7 +24,7 @@ import os
 import re
 import json
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.logger import log
 from app.core.skill_parser import get_skill_parser, get_combined_skills
@@ -188,7 +188,7 @@ class SkillKeywordsIndexer:
             keywords = self._extract_keywords_from_skill(skill)
             self._keywords_index[skill_id] = keywords
 
-        self._last_updated = datetime.utcnow()
+        self._last_updated = datetime.now(timezone.utc)
         log.info(f"[KeywordsIndexer] 关键词索引构建完成，共 {len(self._keywords_index)} 个技能")
 
         return self._keywords_index

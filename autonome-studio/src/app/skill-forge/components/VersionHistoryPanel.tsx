@@ -4,7 +4,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   History, GitBranch, RotateCcw, Plus, CheckCircle, Clock,
   Loader2, AlertCircle, ChevronDown, ChevronUp, X, FileCode

@@ -8,15 +8,12 @@
 
 import React, { useState, useMemo } from "react";
 import {
-  Folder,
   FolderOpen,
   ChevronRight,
   ChevronDown,
   FileText,
   Eye,
   Download,
-  Table2,
-  Image as ImageIcon,
   FileImage,
   FileSpreadsheet,
   Sparkles,
@@ -25,83 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { MarkdownBlock } from "@/components/MarkdownBlock";
 import { BASE_URL } from "@/lib/api";
-
-// ==========================================
-// 文件图标获取函数
-// ==========================================
-export const getFileIcon = (filename: string) => {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith('.tsv') || lower.endsWith('.csv') || lower.endsWith('.txt') || lower.endsWith('.log')) {
-    return <Table2 size={15} className="text-blue-500 dark:text-blue-400 shrink-0" />;
-  }
-  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.pdf') || lower.endsWith('.svg')) {
-    return <ImageIcon size={15} className="text-pink-500 dark:text-pink-400 shrink-0" />;
-  }
-  return <FileText size={15} className="text-gray-500 dark:text-neutral-400 shrink-0" />;
-};
-
-// ==========================================
-// 资产树节点组件
-// ==========================================
-interface AssetTreeNodeProps {
-  node: {
-    name: string;
-    type: 'file' | 'folder';
-    url?: string | null;
-    children: Record<string, any>;
-  };
-  level: number;
-  onPreview: (url: string, name: string) => void;
-  onDownload: (url: string, name: string) => void;
-}
-
-const AssetTreeNode: React.FC<AssetTreeNodeProps> = ({
-  node,
-  level,
-  onPreview,
-  onDownload,
-}) => {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const isFolder = node.type === 'folder';
-
-  return (
-    <div className="flex flex-col">
-      <div
-        className={`flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-[#2d2d30]/80 rounded-md cursor-pointer group transition-colors`}
-        style={level > 0 ? { marginLeft: `${level * 16}px`, borderLeft: '1px solid', borderLeftColor: level > 1 ? 'transparent' : undefined, paddingLeft: '12px' } : {}}
-        onClick={() => isFolder ? setIsExpanded(!isExpanded) : onPreview(node.url || '', node.name)}
-      >
-        {isFolder ? (
-          <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 shrink-0">
-            {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-            {isExpanded ? <FolderOpen size={15} className="text-blue-500 dark:text-blue-400"/> : <Folder size={15} className="text-blue-500 dark:text-blue-400"/>}
-          </div>
-        ) : (
-          <div className="ml-5 shrink-0">{getFileIcon(node.name)}</div>
-        )}
-
-        <span className={`text-[13px] truncate flex-1 tracking-wide ${isFolder ? 'font-medium text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
-          {node.name}
-        </span>
-
-        {!isFolder && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-             <button onClick={(e) => { e.stopPropagation(); onPreview(node.url || '', node.name); }} className="p-1 text-gray-400 hover:text-emerald-500 bg-white dark:bg-[#1e1e20] shadow-sm rounded border border-gray-200 dark:border-gray-700" title="安全预览"><Eye size={13} /></button>
-             <button onClick={(e) => { e.stopPropagation(); onDownload(node.url || '', node.name); }} className="p-1 text-gray-400 hover:text-blue-500 bg-white dark:bg-[#1e1e20] shadow-sm rounded border border-gray-200 dark:border-gray-700" title="下载"><Download size={13} /></button>
-          </div>
-        )}
-      </div>
-
-      {isFolder && isExpanded && (
-        <div className="flex flex-col mt-0.5">
-          {Object.values(node.children).map((child: any) => (
-            <AssetTreeNode key={child.name} node={child} level={level + 1} onPreview={onPreview} onDownload={onDownload} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
+import { buildAssetTree, AssetTreeNode } from "@/components/chat/shared/AssetTree";
 
 // ==========================================
 // 执行结果卡片组件
@@ -256,7 +177,7 @@ interface AssetTreeCardProps {
 }
 
 /**
- * AssetTreeCard - 升级版树状卡片，带有解读按钮
+ * AssetTreeCard - 升级版树状卡片，带有解读按钮（使用共享的 buildAssetTree + AssetTreeNode）
  */
 export const AssetTreeCard: React.FC<AssetTreeCardProps> = ({
   links,
@@ -271,25 +192,7 @@ export const AssetTreeCard: React.FC<AssetTreeCardProps> = ({
     return match ? match[1] : null;
   }, [links]);
 
-  const tree = useMemo(() => {
-    const root: any = { type: 'folder', name: 'Analysis Results', children: {} };
-    links.forEach(link => {
-      const parts = link.title.split('/');
-      let current = root;
-      parts.forEach((part, idx) => {
-        if (!current.children[part]) {
-          current.children[part] = {
-            name: part,
-            type: idx === parts.length - 1 ? 'file' : 'folder',
-            children: {},
-            url: idx === parts.length - 1 ? link.url : null
-          };
-        }
-        current = current.children[part];
-      });
-    });
-    return root;
-  }, [links]);
+  const tree = useMemo(() => buildAssetTree(links), [links]);
 
   return (
     <div className="w-full max-w-xl mt-3 bg-white dark:bg-[#1e1e20] border border-gray-200 dark:border-[#2d2d30] rounded-xl shadow-sm dark:shadow-none overflow-hidden flex flex-col">
@@ -306,7 +209,7 @@ export const AssetTreeCard: React.FC<AssetTreeCardProps> = ({
         <span className="text-xs bg-gray-200 dark:bg-black/30 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full ml-auto">{links.length} files</span>
       </div>
       <div className="p-2 max-h-64 overflow-y-auto custom-scrollbar">
-        {Object.values(tree.children).map((node: any) => (
+        {Object.values(tree.children).map((node) => (
           <AssetTreeNode key={node.name} node={node} level={0} onPreview={onPreview} onDownload={onDownload} />
         ))}
       </div>

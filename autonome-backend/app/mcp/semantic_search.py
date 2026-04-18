@@ -14,7 +14,7 @@ import json
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.logger import log
 
@@ -209,7 +209,7 @@ class SemanticSearchEngine:
             meta = {
                 "model_name": self.model_name,
                 "skill_count": len(self._skill_ids),
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "skill_ids": self._skill_ids,
             }
             with open(meta_path, 'w', encoding='utf-8') as f:

@@ -12,6 +12,7 @@ from celery import Celery
 from sqlmodel import Session
 
 from app.core.database import engine
+from app.core.config import settings
 from app.core.logger import log
 from app.models.domain import User
 from app.services.task_logger import redis_client
@@ -62,7 +63,7 @@ def register_executor_tasks(celery_app: Celery):
         project_id = payload.get("project_id", "1")
         user_id = payload.get("user_id", 1)
         api_key = payload.get("api_key", "")
-        base_url = payload.get("base_url", "https://api.openai.com/v1")
+        base_url = payload.get("base_url", settings.OPENAI_BASE_URL)
         model_name = payload.get("model_name", "gpt-3.5-turbo")
         enable_visual_review = payload.get("enable_visual_review", True)
         max_review_attempts = payload.get("max_review_attempts", 2)

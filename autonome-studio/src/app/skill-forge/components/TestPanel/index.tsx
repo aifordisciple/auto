@@ -11,7 +11,7 @@
 
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Play, Square, RefreshCw, Settings, CheckCircle, XCircle, Clock, Cpu, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 

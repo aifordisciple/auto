@@ -103,7 +103,6 @@ export function MySkillsPanel() {
   // 监听技能保存成功事件
   useEffect(() => {
     const handleSkillSaved = () => {
-      console.log('[MySkillsPanel] 收到技能保存事件，刷新列表');
       loadData();
     };
 
@@ -133,8 +132,6 @@ export function MySkillsPanel() {
   // 编辑技能 - 跳转到技能工厂
   // ==========================================
   const handleEditSkill = (skillId: string) => {
-    console.log('[MySkillsPanel] 编辑技能:', skillId);
-
     // 发送事件通知 SkillCenter 加载技能并切换到工厂 Tab
     // SkillCenter 会捕获此事件，设置 pendingEditSkillId 并切换 Tab
     // ForgePanel 挂载后会检测 editSkillId prop 并加载技能数据
@@ -186,8 +183,6 @@ export function MySkillsPanel() {
   // 重新执行技能 - 使用历史参数一键执行
   // ==========================================
   const handleReExecute = (record: ExecutionHistory) => {
-    console.log('[MySkillsPanel] 重新执行技能:', record.skill_id, '参数:', record.parameters);
-
     // 发送事件通知 SkillCenter 打开执行面板并预填充参数
     window.dispatchEvent(new CustomEvent('re-execute-skill', {
       detail: {

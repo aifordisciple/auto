@@ -46,3 +46,23 @@ def generate_experience_id() -> str:
 def generate_package_id() -> str:
     """生成用户包唯一 ID"""
     return f"pkg_{uuid.uuid4().hex[:8]}"
+
+
+def generate_literature_id() -> str:
+    """生成文献唯一 ID"""
+    return f"lit_{uuid.uuid4().hex[:8]}"
+
+
+def generate_chunk_id() -> str:
+    """生成知识块唯一 ID"""
+    return f"chk_{uuid.uuid4().hex[:8]}"
+
+
+def generate_note_id() -> str:
+    """生成笔记唯一 ID"""
+    return f"note_{uuid.uuid4().hex[:8]}"
+
+
+def generate_ltag_id() -> str:
+    """生成文献标签唯一 ID"""
+    return f"ltag_{uuid.uuid4().hex[:8]}"

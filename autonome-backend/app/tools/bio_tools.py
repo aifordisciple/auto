@@ -6,101 +6,15 @@ import time
 from langchain_core.tools import tool
 from app.core.logger import log
 from app.core.config import settings
-
-DOCKER_SOCKET = '/var/run/docker.sock'
-
-# ✨ Conda 持久化路径（挂载到宿主机）
-CONDA_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome_conda"
-CONDA_CONTAINER_PATH = "/opt/conda"
-
-# ✨ Biosource 生信脚本库路径（包含 besaltpipe 等分析脚本）
-BIOSOURCE_HOST_PATH = "/opt/data1/public/software/systools/autonome/biosource"
-BIOSOURCE_CONTAINER_PATH = "/app/biosource"
-
-# ✨ SKILL 技能包目录（包含各 SKILL 的脚本）
-SKILLS_HOST_PATH = "/opt/data1/public/software/systools/autonome/autonome-backend/app/skills"
-SKILLS_CONTAINER_PATH = "/app/skills"
-
-# ✨ 用户包目录（用户级 Python/R 包缓存）
-# 核心设计：用户包独立存储，不污染系统 conda 环境
-# 环境变量优先级：用户包 > 系统包
-USER_PACKAGES_HOST_PATH = "/opt/data1/public/software/systools/autonome/uploads/user_packages"
-USER_PACKAGES_CONTAINER_PATH = "/app/user_packages"
-
-# ✨ 新增 return_raw 参数，专门用于读取纯文本日志，防止把报错日志强行解析为 JSON
-def docker_api_request(method: str, path: str, data: str = None, return_raw: bool = False, timeout: int = 30):
-    """直接通过 Unix socket 调用 Docker API (完美版)
-
-    Args:
-        method: HTTP 方法
-        path: API 路径
-        data: 请求体
-        return_raw: 是否返回原始文本
-        timeout: socket 超时时间（秒）
-    """
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout)  # ✨ 设置 socket 超时，防止阻塞
-    sock.connect(DOCKER_SOCKET)
-
-    body = data.encode('utf-8') if data else None
-
-    # 使用 HTTP/1.0 强制服务器发送完毕后断开连接
-    request = f"{method} {path} HTTP/1.0\r\n"
-    request += "Host: localhost\r\n"
-    request += "Connection: close\r\n"
-    if body:
-        request += f"Content-Length: {len(body)}\r\n"
-    request += "Content-Type: application/json\r\n\r\n"
-
-    if body:
-        request = request.encode('utf-8') + body
-    else:
-        request = request.encode('utf-8')
-
-    sock.sendall(request)
-
-    # 安全地读取全部数据，直到连接自然关闭
-    response = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break  # 服务器断开连接时，安全退出
-        response += chunk
-
-    sock.close()
-
-    # 解析响应（分离 Headers 和 Body）
-    if b"\r\n\r\n" in response:
-        headers, raw_body = response.split(b"\r\n\r\n", 1)
-    else:
-        raw_body = response
-
-    body_str = raw_body.decode('utf-8', errors='ignore').strip()
-
-    if not body_str:
-        return "" if return_raw else {}
-
-    # ✨ 核心修复 2：如果是获取日志，直接返回纯文本，不走 JSON 解析！
-    if return_raw:
-        return body_str
-
-    # 用最安全的截取方式提取 JSON
-    start_dict = body_str.find('{')
-    end_dict = body_str.rfind('}')
-
-    start_list = body_str.find('[')
-    end_list = body_str.rfind(']')
-
-    try:
-        if start_dict != -1 and end_dict != -1 and (start_list == -1 or start_dict < start_list):
-            return json.loads(body_str[start_dict:end_dict+1])
-        elif start_list != -1 and end_list != -1:
-            return json.loads(body_str[start_list:end_list+1])
-
-        return json.loads(body_str)
-    except Exception as e:
-        log.warning(f"JSON 解析回退, 原始数据长度: {len(body_str)}")
-        return {"body": body_str}
+from app.core.docker_api import docker_api_request
+from app.core.sandbox_config import (
+    DOCKER_SOCKET,
+    CONDA_HOST_PATH, CONDA_CONTAINER_PATH,
+    BIOSOURCE_HOST_PATH, BIOSOURCE_CONTAINER_PATH,
+    SKILLS_HOST_PATH, SKILLS_CONTAINER_PATH,
+    USER_PACKAGES_HOST_PATH, USER_PACKAGES_CONTAINER_PATH,
+    DEFAULT_EXECUTION_TIMEOUT,
+)
 
 
 def run_container_simple(
@@ -108,7 +22,7 @@ def run_container_simple(
     command,
     language: str = "python",
     environment: dict = None,
-    timeout: int = 3600,
+    timeout: int = DEFAULT_EXECUTION_TIMEOUT,
     cli_mode: bool = False,
     user_id: int = None,
     enable_network: bool = False,
@@ -142,7 +56,7 @@ def run_container(
     command,  # 可以是字符串（脚本代码）或列表（完整命令）
     language: str = "python",
     environment: dict = None,
-    timeout: int = 3600,
+    timeout: int = DEFAULT_EXECUTION_TIMEOUT,
     cli_mode: bool = False,
     user_id: int = None,  # ✨ 新增：用户 ID，用于用户级包管理
     enable_network: bool = False,  # ✨ 新增：是否启用网络（用于包安装）
@@ -564,7 +478,7 @@ def run_nextflow_in_sandbox(
     work_dir: str,
     params: dict,
     log_callback: callable = None,
-    timeout_seconds: int = 3600
+    timeout_seconds: int = DEFAULT_EXECUTION_TIMEOUT
 ) -> tuple[str, int]:
     """
     在沙箱中执行 Nextflow 流程
@@ -818,7 +732,7 @@ def run_container_pooled(
     code: str,
     language: str = "python",
     environment: dict = None,
-    timeout: int = 3600,
+    timeout: int = DEFAULT_EXECUTION_TIMEOUT,
     user_id: int = None,
 ) -> tuple[str, int]:
     """

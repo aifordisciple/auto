@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, KeyboardEvent } from 'react';
 import { Package, Plus, X, Search, Upload } from 'lucide-react';
 
 interface DependenciesEditorProps {
@@ -105,7 +105,7 @@ export function DependenciesEditor({ value, onChange, executorType, showHeader =
   }, [value, onChange]);
 
   // 处理回车添加
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
       handleAddDependency(searchQuery);
     }

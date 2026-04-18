@@ -33,6 +33,7 @@ const ForgeOverlay = dynamic(() => import("./overlays/ForgeOverlay").then(m => m
 const PackageManager = dynamic(() => import("./overlays/PackageManager").then(m => m.PackageManager), { ssr: false });
 const WebTerminal = dynamic(() => import("./overlays/WebTerminal").then(m => m.WebTerminal), { ssr: false });
 const UserCenter = dynamic(() => import("./overlays/UserCenter").then(m => m.UserCenter), { ssr: false });
+const LearningCenter = dynamic(() => import("./overlays/LearningCenter").then(m => m.LearningCenter), { ssr: false });
 
 export function GlobalOverlay() {
   const { isTaskCenterOpen, isSettingsOpen, isProjectCenterOpen, isControlPanelOpen, isDataCenterOpen, closeAllOverlays, theme } = useUIStore();
@@ -90,6 +91,7 @@ export function GlobalOverlay() {
       <PackageManager />
       <WebTerminal />
       <UserCenter />
+      <LearningCenter />
       
       <AnimatePresence>
         {anyOverlayOpen && (

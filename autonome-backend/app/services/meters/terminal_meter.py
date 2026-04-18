@@ -12,7 +12,7 @@ import asyncio
 import time
 from typing import Any, Dict, Optional
 
-from loguru import logger
+from app.core.logger import log
 
 from app.services.meters.base import BaseMeter, MeteringResult
 
@@ -91,7 +91,7 @@ class TerminalMeter(BaseMeter):
         self.cols = context.get("cols", 80)
         self.rows = context.get("rows", 24)
 
-        logger.info(
+        log.info(
             f"终端计量开始: record_id={record_id}, session_id={self.session_id}"
         )
 
@@ -107,7 +107,7 @@ class TerminalMeter(BaseMeter):
         self.heartbeat_count += 1
         current_cost = self.get_current_cost()
 
-        logger.debug(
+        log.debug(
             f"终端心跳: session_id={self.session_id}, "
             f"heartbeat=#{self.heartbeat_count}, cost={current_cost} CU"
         )
@@ -142,7 +142,7 @@ class TerminalMeter(BaseMeter):
         # 计算费用
         result.cost_credits = self.calculate_cost(result)
 
-        logger.info(
+        log.info(
             f"终端计量结束: record_id={record_id}, "
             f"duration={duration:.1f}s, heartbeats={self.heartbeat_count}, "
             f"cost={result.cost_credits} CU"

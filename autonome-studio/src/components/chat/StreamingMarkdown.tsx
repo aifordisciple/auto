@@ -6,7 +6,7 @@
  * 2. 流式时持续解析完整 Markdown，但只更新变化的 DOM 节点
  * 3. 避免全局 innerHTML 替换，消除闪烁和跳动
  */
-import React, { useRef, useEffect, useMemo, memo, useCallback } from 'react';
+import { useRef, useEffect, useMemo, memo, useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks'; // 兼容大模型（如 Kimi）的单换行输出习惯
@@ -66,9 +66,9 @@ function parseAndFilterThinking(content: string): { cleanContent: string; isThin
  * 预处理流式 Markdown - 处理未闭合的结构
  * 对于未闭合的代码块，自动补全闭合标记
  */
-function preprocessStreamingMarkdown(content: string): { processed: string; isThinking: boolean } {
+function preprocessStreamingMarkdown(content: string): { processedContent: string; isCurrentlyThinking: boolean } {
   // ✨ 空内容时处于思考等待状态，直到收到第一个有效字符
-  if (!content) return { processed: '', isThinking: true };
+  if (!content) return { processedContent: '', isCurrentlyThinking: true };
 
   // ✨ 首先处理 think 标签，检测是否处于思考中状态
   const { cleanContent, isThinking } = parseAndFilterThinking(content);
@@ -84,7 +84,7 @@ function preprocessStreamingMarkdown(content: string): { processed: string; isTh
     processed += '\n```';
   }
 
-  return { processed, isThinking };
+  return { processedContent: processed, isCurrentlyThinking: isThinking };
 }
 
 // ==========================================
@@ -98,7 +98,7 @@ interface CodeBlockProps {
 }
 
 const CodeBlock = memo(({ language, children, isDark }: CodeBlockProps) => {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     await copyToClipboard(children);

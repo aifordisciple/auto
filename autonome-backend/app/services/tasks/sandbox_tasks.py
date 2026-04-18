@@ -11,11 +11,9 @@ import time
 import traceback
 
 from celery import Celery
-from sqlmodel import Session
 
-from app.core.database import engine
 from app.core.logger import log
-from app.models.domain import SystemConfig
+from app.utils.llm_config import get_llm_config_standalone
 from app.services.task_logger import create_task_logger, safe_add_chat_message, redis_client
 from app.utils.argparse_injector import inject_python_argparse_params, inject_r_argparse_params
 from app.tools.bio_tools import run_container
@@ -77,26 +75,6 @@ def register_sandbox_tasks(celery_app: Celery):
         else:
             for line in lines[:15]:
                 log_msg(f"   {prefix}{line[:100]}")
-
-    def _get_llm_config() -> tuple:
-        """
-        从数据库获取 LLM 配置
-
-        Returns:
-            (api_key, base_url, model_name) 元组
-        """
-        with Session(engine) as db:
-            config = db.get(SystemConfig, 1)
-            if config:
-                api_key = config.openai_api_key or os.getenv("OPENAI_API_KEY", "")
-                base_url = config.openai_base_url or "https://api.openai.com/v1"
-                model_name = config.default_model or "gpt-3.5-turbo"
-            else:
-                api_key = os.getenv("OPENAI_API_KEY", "")
-                base_url = "https://api.openai.com/v1"
-                model_name = "gpt-3.5-turbo"
-
-        return api_key, base_url, model_name
 
     def _build_success_message(
         task_id: str,

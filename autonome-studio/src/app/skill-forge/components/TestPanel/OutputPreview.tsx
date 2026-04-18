@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FileText, Image, Table, File, Download, Eye, Maximize2, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BASE_URL } from '@/lib/api';
@@ -224,7 +224,6 @@ export function OutputPreview({ outputs, baseDir, onSelect }: OutputPreviewProps
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: mimeType });
       const url = URL.createObjectURL(blob);
-      console.log('[OutputPreview] base64ToBlobUrl 成功, blob大小:', blob.size, 'URL:', url);
       return url;
     } catch (e) {
       console.error('[OutputPreview] base64ToBlobUrl 失败:', e);
@@ -244,7 +243,6 @@ export function OutputPreview({ outputs, baseDir, onSelect }: OutputPreviewProps
       setIsLoading(true);
       try {
         const token = localStorage.getItem('autonome_access_token');
-        console.log('[OutputPreview] 加载文件:', file.path, '类型:', file.type);
 
         const response = await fetch(
           `${BASE_URL}/api/skills/forge/test_file?path=${encodeURIComponent(file.path)}`,
@@ -258,12 +256,6 @@ export function OutputPreview({ outputs, baseDir, onSelect }: OutputPreviewProps
         }
 
         const data = await response.json();
-        console.log('[OutputPreview] API响应:', {
-          status: data.status,
-          type: data.type,
-          mime_type: data.mime_type,
-          data_length: data.data?.length
-        });
 
         if (data.status === 'success') {
           setFileContent(data.data);
@@ -273,7 +265,6 @@ export function OutputPreview({ outputs, baseDir, onSelect }: OutputPreviewProps
           if (file.type === 'pdf') {
             try {
               const url = base64ToBlobUrl(data.data, data.mime_type);
-              console.log('[OutputPreview] 创建Blob URL成功:', url);
               setBlobUrl(url);
             } catch (e) {
               console.error('[OutputPreview] 创建Blob URL失败:', e);

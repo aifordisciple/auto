@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { Code, Save, Send, Check, AlertTriangle, Settings2, BookOpen, Package, Tag, FlaskConical, History, FileEdit } from 'lucide-react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 
 import { useForgeStore, ExecutorType } from '@/store/useForgeStore';
-import { forgeSessionApi, skillForgeApi } from '@/lib/api';
+import { forgeSessionApi, skillForgeApi, BASE_URL, getToken } from '@/lib/api';
 import { ParameterSchemaEditor, JsonSchema } from './ParameterSchemaEditor';
 import { TestPanel } from './TestPanel';
 import { ExpertKnowledgeEditor } from './ExpertKnowledgeEditor';
@@ -15,13 +15,6 @@ import { CategoryTagsEditor } from './CategoryTagsEditor';
 import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { SkillFileTree } from './SkillFileTree';
 import { SkillEditorMain } from './SkillEditorMain';
-
-// Simple console log wrapper
-const log = {
-  info: (...args: any[]) => console.log('[SkillDraftEditor]', ...args),
-  warn: (...args: any[]) => console.warn('[SkillDraftEditor]', ...args),
-  error: (...args: any[]) => console.error('[SkillDraftEditor]', ...args),
-};
 
 // 执行器类型配置
 const EXECUTOR_TYPES = [
@@ -34,7 +27,7 @@ const EXECUTOR_TYPES = [
 type EditorTabType = 'editor' | 'config' | 'metadata' | 'test';
 
 // 编辑器 Tab 配置
-const EDITOR_TABS: { id: EditorTabType; label: string; icon: React.ReactNode; color: string }[] = [
+const EDITOR_TABS: { id: EditorTabType; label: string; icon: ReactNode; color: string }[] = [
   { id: 'editor', label: '编辑', icon: <Code size={14} />, color: 'blue' },
   { id: 'config', label: '配置', icon: <Settings2 size={14} />, color: 'green' },
   { id: 'metadata', label: '元数据', icon: <BookOpen size={14} />, color: 'purple' },
@@ -110,7 +103,6 @@ export function SkillDraftEditor() {
         dependencies: skillDraft.dependencies
       });
       hasUnsavedChanges.current = false;
-      log.info('[AutoSave] 草稿已自动保存');
     } catch (error) {
       console.error('[AutoSave] 自动保存失败:', error);
     }
@@ -179,15 +171,11 @@ export function SkillDraftEditor() {
 
     setIsInferring(true);
     try {
-      const BASE_URL = typeof window !== 'undefined'
-        ? `http://${window.location.hostname}:8000`
-        : 'http://localhost:8000';
-
       const response = await fetch(`${BASE_URL}/api/skills/forge/infer_parameters`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('autonome_access_token')}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           code: currentCode,

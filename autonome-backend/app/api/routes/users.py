@@ -4,9 +4,12 @@
 设计日期: 2026-03-22
 
 ## API 端点列表
-- GET    /api/users/me          - 获取当前用户完整资料
-- PUT    /api/users/me          - 更新用户资料
-- POST   /api/users/me/password - 修改密码
+- GET    /api/users/me              - 获取当前用户完整资料
+- PUT    /api/users/me              - 更新用户资料
+- POST   /api/users/me/password     - 修改密码
+- GET    /api/users/me/llm-config   - 获取用户 AI 模型配置
+- PUT    /api/users/me/llm-config   - 更新用户 AI 模型配置
+- POST   /api/users/me/llm-config/test - 测试 AI 模型连接
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,7 +21,7 @@ import hashlib
 
 from app.core.database import get_session
 from app.core.security import verify_password, get_password_hash
-from app.models.domain import User
+from app.models.domain import User, SystemConfig
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -111,7 +114,7 @@ async def update_user_profile(
 
     注意：邮箱修改需要单独的验证流程（MVP 阶段暂不支持）
     """
-    from loguru import logger
+    from app.core.logger import log
 
     # 更新字段（仅更新非 None 的字段）
     update_data = profile.model_dump(exclude_unset=True)
@@ -125,7 +128,7 @@ async def update_user_profile(
     session.commit()
     session.refresh(current_user)
 
-    logger.info(f"用户 {current_user.id} 更新资料成功: {list(update_data.keys())}")
+    log.info(f"用户 {current_user.id} 更新资料成功: {list(update_data.keys())}")
 
     return {"status": "success", "message": "资料更新成功"}
 
@@ -148,7 +151,7 @@ async def change_password(
     - 新密码不能与原密码相同
     - 新密码需满足最小强度要求
     """
-    from loguru import logger
+    from app.core.logger import log
 
     # 1. 验证原密码
     if not verify_password(request.current_password, current_user.hashed_password):
@@ -187,6 +190,176 @@ async def change_password(
     session.add(current_user)
     session.commit()
 
-    logger.info(f"用户 {current_user.id} 修改密码成功")
+    log.info(f"用户 {current_user.id} 修改密码成功")
 
     return {"status": "success", "message": "密码修改成功"}
+
+
+# ==========================================
+# 🤖 用户级 AI 模型配置
+# ==========================================
+
+class UserLLMConfigResponse(BaseModel):
+    """用户 LLM 配置响应（API Key 脱敏）"""
+    llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_model_name: Optional[str] = None
+    is_using_user_config: bool
+    # 系统回退信息（供前端展示）
+    system_base_url: Optional[str] = None
+    system_model_name: Optional[str] = None
+
+
+class UserLLMConfigUpdate(BaseModel):
+    """用户 LLM 配置更新请求"""
+    llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_model_name: Optional[str] = None
+
+
+@router.get("/me/llm-config", response_model=UserLLMConfigResponse)
+async def get_user_llm_config(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    获取当前用户 LLM 配置
+
+    返回用户配置（API Key 脱敏）+ 系统回退信息，
+    前端据此判断当前使用的是个人配置还是系统全局配置。
+    """
+    from app.utils.llm_config import mask_api_key
+
+    config = session.get(SystemConfig, 1)
+
+    is_using_user_config = (
+        current_user.llm_api_key is not None
+        or current_user.llm_base_url is not None
+        or current_user.llm_model_name is not None
+    )
+
+    return UserLLMConfigResponse(
+        llm_api_key=mask_api_key(current_user.llm_api_key),
+        llm_base_url=current_user.llm_base_url,
+        llm_model_name=current_user.llm_model_name,
+        is_using_user_config=is_using_user_config,
+        system_base_url=config.openai_base_url if config else None,
+        system_model_name=config.default_model if config else None,
+    )
+
+
+@router.put("/me/llm-config")
+async def update_user_llm_config(
+    config_update: UserLLMConfigUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    更新用户 LLM 配置
+
+    - 发送实际值：更新对应字段
+    - 发送 null：清除字段（回退到系统配置）
+    - 发送脱敏值 sk-***：跳过该字段（前端未修改）
+    """
+    from app.core.logger import log
+
+    update_data = config_update.model_dump(exclude_unset=True)
+
+    # 脱敏值跳过：前端未修改 API Key 时会发回脱敏值
+    if "llm_api_key" in update_data:
+        val = update_data["llm_api_key"]
+        if val and val.startswith("sk-***"):
+            del update_data["llm_api_key"]
+
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
+
+    current_user.updated_at = datetime.now(timezone.utc)
+
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+
+    log.info(f"🤖 用户 {current_user.id} 更新 LLM 配置: {list(update_data.keys())}")
+
+    return {"status": "success", "message": "AI 模型配置已更新"}
+
+
+@router.post("/me/llm-config/test")
+async def test_user_llm_config(
+    config_update: UserLLMConfigUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    测试 LLM 连接（不保存）
+
+    使用提供的配置值（合并现有用户配置和系统回退），
+    发送一个简单的 OpenAI API 请求验证连通性。
+    """
+    import time
+    import openai
+
+    # 合并配置：测试值 → 现有用户值 → 系统回退
+    from app.utils.llm_config import get_llm_config, _is_local_model
+
+    # 构建临时 User 对象用于测试
+    test_api_key = config_update.llm_api_key
+    test_base_url = config_update.llm_base_url
+    test_model_name = config_update.llm_model_name
+
+    # 如果测试值中某些字段为 None，回退到用户现有配置
+    if test_api_key is None and current_user.llm_api_key is not None:
+        test_api_key = current_user.llm_api_key
+    if test_base_url is None and current_user.llm_base_url is not None:
+        test_base_url = current_user.llm_base_url
+    if test_model_name is None and current_user.llm_model_name is not None:
+        test_model_name = current_user.llm_model_name
+
+    # 如果仍为 None，回退到系统配置
+    if test_api_key is None or test_base_url is None or test_model_name is None:
+        sys_cfg = get_llm_config(session, user_id=None)
+        test_api_key = test_api_key or sys_cfg.api_key
+        test_base_url = test_base_url or sys_cfg.base_url
+        test_model_name = test_model_name or sys_cfg.model_name
+
+    is_local = _is_local_model(test_base_url)
+
+    try:
+        start_time = time.time()
+
+        client = openai.OpenAI(
+            api_key=test_api_key or ("not-needed" if is_local else ""),
+            base_url=test_base_url,
+        )
+
+        # 🤖 真正验证模型可用性：发送最小 completion 请求
+        # 仅 models.list() 无法验证模型名称是否真实存在
+        response = client.chat.completions.create(
+            model=test_model_name,
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=1,
+            stream=False,
+        )
+
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        # 验证响应中包含有效内容
+        model_used = response.model if response else test_model_name
+
+        return {
+            "status": "success",
+            "message": f"连接成功（{latency_ms}ms），模型: {model_used}",
+            "latency_ms": latency_ms,
+            "model_name": test_model_name,
+            "base_url": test_base_url,
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"连接失败: {str(e)[:200]}",
+            "latency_ms": None,
+            "model_name": test_model_name,
+            "base_url": test_base_url,
+        }

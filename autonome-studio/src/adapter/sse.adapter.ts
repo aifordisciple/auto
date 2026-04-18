@@ -5,6 +5,7 @@
  */
 
 import { isTauri } from './platform';
+import { BASE_URL, getToken } from '@/lib/api';
 
 /**
  * SSE 事件处理器
@@ -69,7 +70,7 @@ class WebSSEAdapter<T = unknown> implements ISSEAdapter<T> {
   async connect(): Promise<void> {
     this.controller = new AbortController();
 
-    const token = localStorage.getItem('autonome_access_token');
+    const token = getToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
@@ -207,7 +208,7 @@ class TauriSSEAdapter<T = unknown> implements ISSEAdapter<T> {
     const { invoke } = await import('@tauri-apps/api/core');
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
 
       // 调用 Rust 后端的 SSE 流式请求
       await invoke('sse_connect', {
@@ -306,12 +307,7 @@ export async function connectChatStream(
   onComplete?: (messageId?: string) => void,
   onError?: (error: Error) => void
 ): Promise<ISSEAdapter<ChatStreamEvent>> {
-  // 构建 SSE URL
-  const baseUrl = typeof window !== 'undefined'
-    ? `http://${window.location.hostname}:8000`
-    : 'http://localhost:8000';
-
-  const url = `${baseUrl}/api/chat/stream`;
+  const url = `${BASE_URL}/api/chat/stream`;
 
   const adapter = createSSEAdapter<ChatStreamEvent>(url, {
     method: 'POST',
@@ -371,11 +367,7 @@ export async function connectTaskLogStream(
   onProgress?: (progress: number) => void,
   onComplete?: () => void
 ): Promise<ISSEAdapter<TaskLogEvent>> {
-  const baseUrl = typeof window !== 'undefined'
-    ? `http://${window.location.hostname}:8000`
-    : 'http://localhost:8000';
-
-  const url = `${baseUrl}/api/tasks/${taskId}/logs/stream`;
+  const url = `${BASE_URL}/api/tasks/${taskId}/logs/stream`;
 
   const adapter = createSSEAdapter<TaskLogEvent>(url, {
     method: 'GET',
