@@ -191,9 +191,9 @@ def _is_local_model(base_url: Optional[str]) -> bool:
 
 
 def mask_api_key(api_key: Optional[str]) -> Optional[str]:
-    """脱敏 API Key：保留前缀和后 4 位"""
+    """脱敏 API Key：使用 sk-*** 前缀 + 后 4 位，便于前端识别脱敏值"""
     if not api_key:
         return None
     if len(api_key) <= 8:
-        return API_KEY_MASK
-    return api_key[:4] + "************************" + api_key[-4:]
+        return "sk-***"
+    return "sk-***" + api_key[-4:]
