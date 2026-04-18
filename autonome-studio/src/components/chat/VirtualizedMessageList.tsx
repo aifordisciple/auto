@@ -133,13 +133,9 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
   // 渲染
   // ==========================================
 
-  // ✨ 占位动画显示时，不渲染最后一条空 assistant 消息（避免双重头像）
-  const shouldHideLastEmptyAssistant = footer !== null;
-
-  // 计算要渲染的消息范围
-  const messagesToRender = shouldHideLastEmptyAssistant && messages.length >= 2
-    ? messages.slice(0, -1)  // 去掉最后一条
-    : messages;
+  // ✨ 不再移除空的 assistant 消息
+  // StreamingMarkdown 会正确处理空内容（显示思考框/思考中状态）
+  const messagesToRender = messages;
 
   return (
     <div

@@ -297,8 +297,8 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     onInterpret(filePaths, interpretMeta.code, interpretMeta.userMessage);
   };
 
-  // ✨ 隐藏空的 assistant 消息（但在流式生成中保留，以显示 Thinking 状态）
-  if (msg.role === 'assistant' && !displayContent && !(isLast && isTyping)) {
+  // ✨ 隐藏空的 assistant 消息（但在流式生成中或思考中保留，以显示思考框）
+  if (msg.role === 'assistant' && !displayContent && !(isLast && isTyping) && !isThinking) {
     return null;
   }
 
@@ -423,9 +423,8 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
               )}
               {/* ✨ 流式消息丝滑渲染：使用 StreamingMarkdown 组件 */}
               {(() => {
-                if (!displayContent) return null;
-
-                // 流式输出中：使用 StreamingMarkdown（处理未闭合结构 + DOM Diff）
+                // ✨ 流式输出中：使用 StreamingMarkdown（处理未闭合结构 + DOM Diff）
+                // 即使 displayContent 为空也要渲染，因为 StreamingMarkdown 需要显示思考框
                 if (isLast && isTyping) {
                   return (
                     <StreamingMarkdown
@@ -436,6 +435,8 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     />
                   );
                 }
+
+                if (!displayContent) return null;
 
                 // ✨ 文件资产树渲染：检测到文件时显示资产树卡片
                 if (fileAssets.length > 0) {
