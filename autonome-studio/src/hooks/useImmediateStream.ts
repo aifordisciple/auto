@@ -36,8 +36,8 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
   const {
     onContentUpdate,
     minUpdateInterval = 16,
-    baseCharsPerFrame = 2,
-    catchUpFactor = 80,  // ✨ 从 30 提高到 80，降低追赶速度，让流式效果更明显
+    baseCharsPerFrame = 1,
+    catchUpFactor = 150,  // ✨ 从 80 提高到 150，进一步降低追赶速度，让流式效果更明显
   } = config;
 
   // ==========================================
@@ -58,6 +58,12 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
 
   /** 上次渲染时间戳（用于节流） */
   const lastRenderTimeRef = useRef<number>(0);
+
+  /** ✨ 上次向 store 推送内容的时间戳（节流 store 更新，减少 React 重渲染） */
+  const lastStoreUpdateTimeRef = useRef<number>(0);
+
+  /** ✨ store 更新最小间隔（毫秒），减少 React 重渲染频率 */
+  const storeUpdateInterval = 50;
 
   /**
    * 用 ref 存储 onContentUpdate，避免 useCallback 重建导致
@@ -100,8 +106,13 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
       confirmedContentRef.current += charsToRender;
       lastRenderTimeRef.current = now;
 
-      // 通过 ref 调用最新的 onContentUpdate，避免闭包过期
-      onContentUpdateRef.current(confirmedContentRef.current);
+      // ✨ 节流 store 更新：减少 React 重渲染频率
+      // 内部 rAF 每帧都消费字符，但只有经过 storeUpdateInterval 后才推送到 Zustand
+      if (now - lastStoreUpdateTimeRef.current >= storeUpdateInterval || pendingCharsRef.current.length === 0) {
+        lastStoreUpdateTimeRef.current = now;
+        // 通过 ref 调用最新的 onContentUpdate，避免闭包过期
+        onContentUpdateRef.current(confirmedContentRef.current);
+      }
     }
 
     // 如果队列还有字符，继续动画；否则停止
@@ -137,6 +148,7 @@ export function useImmediateStream(config: ImmediateStreamConfig) {
     pendingCharsRef.current = '';
     isAnimatingRef.current = false;
     lastRenderTimeRef.current = 0;
+    lastStoreUpdateTimeRef.current = 0;
 
     // 清理 rAF
     if (rafIdRef.current !== null) {
