@@ -1,8 +1,13 @@
 """
-聊天 API - 核心聊天流（纯 LLM 对话模式）
+聊天 API - 核心聊天流（意图感知模式）
 
-简化版：用户发消息 → LLM 直接流式回复
-无意图分类、无技能匹配、无 Agent 编排、无工具调用
+处理流程：
+1. 安全校验和计费检查
+2. 会话创建/恢复
+3. 意图分类（代码生成 / 技能匹配 / 一般问答）
+4. 根据意图选择系统提示词
+5. LLM 流式调用
+6. 持久化助手消息 + 扣费
 
 拆分说明：
 - 会话管理 API → chat_session.py
@@ -37,7 +42,8 @@ router = APIRouter()
 # 系统提示词
 # ==========================================
 
-SYSTEM_PROMPT = """你是一个专业的生物信息学AI助手，名为 Autonome。你可以帮助用户解答生物信息学相关的问题，包括数据分析方法、工具使用、实验设计等。
+# 一般问答模式：知识解答
+SYSTEM_PROMPT_CHAT = """你是一个专业的生物信息学AI助手，名为 Autonome。你可以帮助用户解答生物信息学相关的问题，包括数据分析方法、工具使用、实验设计等。
 
 核心原则：
 - 用中文回答问题
@@ -49,6 +55,28 @@ SYSTEM_PROMPT = """你是一个专业的生物信息学AI助手，名为 Autonom
 - 不要提及你的训练来源、模型身份或开发机构（如 Google、OpenAI 等）
 - 当且仅当用户明确询问"你是谁"或"你是什么"时，简洁回答"我是 Autonome 生物信息学AI助手"
 - 其他任何情况下，不要提及身份，直接回答用户的问题"""
+
+# 代码生成模式：编写可执行代码
+SYSTEM_PROMPT_CODE = """你是一个专业的生物信息学编程助手，名为 Autonome。你的核心职责是为用户编写可执行的数据分析代码。
+
+核心原则：
+- 用中文解释思路，但代码本身使用英文变量名和注释
+- 始终直接输出可执行的代码，不要只解释概念或方法
+- 优先使用 Python + scanpy/pandas/matplotlib/seaborn 等生信常用库
+- 代码必须完整可运行，包含数据读取、处理、分析、可视化和结果保存
+- 使用环境变量 TASK_OUT_DIR 获取输出目录，将结果保存到该目录
+- 如果用户没有指定输入文件，使用示例数据演示分析流程
+- 代码中不要硬编码路径，使用相对路径或环境变量
+
+输出格式：
+1. 先用简短的中文说明分析思路（2-3句话）
+2. 然后输出完整的 Python 代码块（```python ... ```）
+3. 代码中包含关键步骤的中文注释
+
+身份相关：
+- 不要提及你的训练来源、模型身份或开发机构
+- 当且仅当用户明确询问"你是谁"时，简洁回答"我是 Autonome 生物信息学AI助手"
+- 其他任何情况下，不要提及身份，直接编写代码"""
 
 
 # ==========================================
@@ -62,15 +90,16 @@ async def chat_stream(
     current_user: User = Depends(get_current_user)
 ):
     """
-    核心聊天流 - 纯 LLM SSE 流式对话
+    核心聊天流 - 意图感知 SSE 流式对话
 
     处理流程：
     1. 安全校验和计费检查
     2. 会话创建/恢复
     3. 持久化用户消息
-    4. 加载对话历史
-    5. LLM 流式调用
-    6. 持久化助手消息 + 扣费
+    4. 意图分类（代码生成 / 技能匹配 / 一般问答）
+    5. 根据意图选择系统提示词
+    6. LLM 流式调用
+    7. 持久化助手消息 + 扣费
     """
     # 1. 安全校验：越权检查
     project = session.get(Project, request.project_id)
@@ -120,22 +149,44 @@ async def chat_stream(
     model_name = llm_cfg.model_name
     is_local_model = _is_local_model(base_url)
 
-    # 6. 加载对话历史
+    # 6. 意图分类：判断用户是要求写代码还是一般问答
+    # 使用 SkillMatcher 进行快速规则匹配，区分代码生成请求和一般问题
+    intent_type = "general_question"  # 默认为一般问答
+    try:
+        from app.services.skill_matcher import SkillMatcher, IntentType
+        matcher = SkillMatcher()
+        match_result = await matcher.match(request.message, context={"project_id": request.project_id})
+        intent_type = match_result.get("intent_type", IntentType.GENERAL_QUESTION)
+        log.info(f"[Chat] 意图分类: intent={intent_type}, query='{request.message[:50]}...'")
+    except Exception as e:
+        log.warning(f"[Chat] 意图分类失败，回退到一般问答模式: {e}")
+
+    # 根据意图选择系统提示词
+    # LIVE_CODING / IMPLICIT_SKILL / EXPLICIT_SKILL → 代码生成模式
+    # GENERAL_QUESTION → 一般问答模式
+    if intent_type in (IntentType.LIVE_CODING, IntentType.IMPLICIT_SKILL, IntentType.EXPLICIT_SKILL):
+        system_prompt = SYSTEM_PROMPT_CODE
+        log.info(f"[Chat] 使用代码生成模式 (intent={intent_type})")
+    else:
+        system_prompt = SYSTEM_PROMPT_CHAT
+        log.info(f"[Chat] 使用一般问答模式 (intent={intent_type})")
+
+    # 7. 加载对话历史
     history_messages = session.exec(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id_for_ai)
         .order_by(ChatMessage.id)
     ).all()
 
-    # 构建 LangChain 消息列表
-    lc_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # 构建 LangChain 消息列表（根据意图使用不同的系统提示词）
+    lc_messages = [{"role": "system", "content": system_prompt}]
     for msg in history_messages:
         if msg.role == RoleEnum.user:
             lc_messages.append({"role": "user", "content": msg.content})
         elif msg.role == RoleEnum.assistant:
             lc_messages.append({"role": "assistant", "content": msg.content})
 
-    # 7. SSE 流式响应
+    # 8. SSE 流式响应
     async def event_generator():
         # 推送 session_id 给前端
         yield {
