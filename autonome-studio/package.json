@@ -9,12 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.53",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-virtual": "^3.13.23",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
+    "ai": "^6.0.168",
     "clsx": "^2.1.1",
     "dagre": "^0.8.5",
     "echarts": "^5.6.0",
@@ -35,6 +37,7 @@
     "sonner": "^2.0.7",
     "svg2pdf.js": "^2.7.0",
     "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
