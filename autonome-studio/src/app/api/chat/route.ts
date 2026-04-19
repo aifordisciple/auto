@@ -23,9 +23,22 @@ export async function POST(req: NextRequest) {
     const skillId = contextData?.skillId || null;
     const images = contextData?.images || [];
 
-    const lastUserMessage = messages
-      ?.filter((m: { role: string }) => m.role === 'user')
-      ?.pop()?.content || '';
+    // v5 UIMessage 使用 parts[] 而非 content 字符串
+    // 从最后一条用户消息的 parts 中提取文本
+    const lastUserMsg = messages?.filter((m: { role: string }) => m.role === 'user')?.pop();
+    let lastUserMessage = '';
+    if (lastUserMsg) {
+      if (lastUserMsg.content) {
+        // 兼容 v4 格式
+        lastUserMessage = lastUserMsg.content;
+      } else if (lastUserMsg.parts) {
+        // v5 UIMessage 格式：从 parts 中提取文本
+        lastUserMessage = lastUserMsg.parts
+          .filter((p: { type: string }) => p.type === 'text')
+          .map((p: { type: string; text: string }) => p.text)
+          .join('');
+      }
+    }
 
     const backendResponse = await fetch(`${BACKEND_URL}/api/chat/stream`, {
       method: 'POST',

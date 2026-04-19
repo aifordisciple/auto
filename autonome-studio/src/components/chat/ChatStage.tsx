@@ -14,7 +14,7 @@
  */
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ArrowDown, X, Eye, Download, Loader2, Code } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -76,6 +76,25 @@ export function ChatStage() {
   // Vercel AI SDK useChat hook
   // 核心流式通信由 useChat 管理，不再手动 SSE
   // ==========================================
+  // useMemo 确保 transport 实例稳定，避免每次渲染重建导致 useChat 状态丢失
+  const chatTransport = useMemo(() => new DefaultChatTransport({
+    api: '/api/chat',
+    // 注入 JWT 认证头，BFF 代理从 header 中提取 token 转发给后端
+    // 使用函数形式确保每次请求都获取最新 token
+    headers: () => {
+      const token = getToken();
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    },
+    // 通过 body 传递上下文信息给 BFF 代理（函数形式确保获取最新值）
+    body: () => ({
+      data: {
+        projectId: currentProjectId,
+        sessionId: currentSessionId,
+        contextFiles: pendingChatAttachments,
+      },
+    }),
+  }), [currentProjectId, currentSessionId, pendingChatAttachments]);
+
   const {
     messages: aiMessages,
     status,
@@ -83,24 +102,7 @@ export function ChatStage() {
     sendMessage,
     setMessages: setAiMessages,
   } = useChat({
-    // v5 API: 使用 transport 配置认证和请求参数
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-      // 注入 JWT 认证头，BFF 代理从 header 中提取 token 转发给后端
-      // 使用函数形式确保每次请求都获取最新 token
-      headers: () => {
-        const token = getToken();
-        return token ? { Authorization: `Bearer ${token}` } : {};
-      },
-      // 通过 body 传递上下文信息给 BFF 代理（函数形式确保获取最新值）
-      body: () => ({
-        data: {
-          projectId: currentProjectId,
-          sessionId: currentSessionId,
-          contextFiles: pendingChatAttachments,
-        },
-      }),
-    }),
+    transport: chatTransport,
   });
 
   // v5 API: status 替代 isLoading
