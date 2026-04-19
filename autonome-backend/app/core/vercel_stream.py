@@ -6,13 +6,16 @@ Vercel AI SDK UIMessage Stream Protocol 编码器 (v5)
 前端 DefaultChatTransport 通过 EventSourceParserStream 解析。
 
 UIMessage Stream Protocol 事件类型：
-  - text-start:  文本块开始  → data: {"type":"text-start","id":"msg_xxx"}
-  - text-delta:  文本增量    → data: {"type":"text-delta","id":"msg_xxx","delta":"chunk"}
-  - text-end:    文本块结束  → data: {"type":"text-end","id":"msg_xxx"}
-  - data:        自定义数据 → data: {"type":"data","data":{...}}
-  - finish:      流结束     → data: {"type":"finish","finishReason":"stop","usage":{...}}
-  - error:       错误       → data: {"type":"error","error":"message"}
-  - step-start:  步骤开始
+  - text-start:       文本块开始  → data: {"type":"text-start","id":"msg_xxx"}
+  - text-delta:       文本增量    → data: {"type":"text-delta","id":"msg_xxx","delta":"chunk"}
+  - text-end:         文本块结束  → data: {"type":"text-end","id":"msg_xxx"}
+  - data-{name}:      自定义数据 → data: {"type":"data-{name}","data":{...}}
+  - finish:           流结束     → data: {"type":"finish","finishReason":"stop","usage":{...}}
+  - error:            错误       → data: {"type":"error","error":"message"}
+  - step-start:       步骤开始
+
+⚠️ v5 要求自定义数据事件的 type 必须以 "data-" 开头（如 "data-thinking"），
+   不能使用裸 "data" 类型，否则 Zod 校验会报 invalid_union 错误。
 
 所有 JSON 输出使用 ensure_ascii=False 以保留中文字符。
 """
@@ -74,9 +77,14 @@ class VercelDataStreamEncoder:
         """错误 — error 事件"""
         return _sse_line({"type": "error", "error": message})
 
-    def data_event(self, data: dict[str, Any]) -> str:
-        """自定义数据事件 — data 事件"""
-        return _sse_line({"type": "data", "data": data})
+    def data_event(self, data: dict[str, Any], *, event_name: str = "custom") -> str:
+        """自定义数据事件 — data-{name} 事件
+
+        v5 UIMessage Stream Protocol 要求自定义数据事件的 type 必须以 "data-" 开头，
+        例如 "data-thinking"、"data-billing" 等。
+        前端通过 message.parts 中 type="data-{name}" 的项提取数据。
+        """
+        return _sse_line({"type": f"data-{event_name}", "data": data})
 
     def step_start(self) -> str:
         """步骤开始 — step-start 事件"""
@@ -85,32 +93,31 @@ class VercelDataStreamEncoder:
     # ── 便捷映射方法 ──────────────────────────────────────────
 
     def from_thinking(self, content: str) -> str:
-        """思考过程 → data 事件"""
-        return self.data_event({"type": "thinking", "content": content})
+        """思考过程 → data-thinking 事件"""
+        return self.data_event({"content": content}, event_name="thinking")
 
     def from_session_info(self, session_id: str, is_new: bool) -> str:
-        """会话信息 → data 事件"""
-        return self.data_event({"type": "session_info", "session_id": session_id, "is_new": is_new})
+        """会话信息 → data-session_info 事件"""
+        return self.data_event({"session_id": session_id, "is_new": is_new}, event_name="session_info")
 
     def from_billing(self, cost: float, balance: float) -> str:
-        """计费信息 → data 事件"""
-        return self.data_event({"type": "billing", "cost": cost, "balance": balance})
+        """计费信息 → data-billing 事件"""
+        return self.data_event({"cost": cost, "balance": balance}, event_name="billing")
 
     def from_ai_message_id(self, message_id: str) -> str:
-        """AI 消息 ID → data 事件"""
-        return self.data_event({"type": "ai_message_id", "message_id": message_id})
+        """AI 消息 ID → data-ai_message_id 事件"""
+        return self.data_event({"message_id": message_id}, event_name="ai_message_id")
 
     def from_ai_message_content(self, content: str) -> str:
-        """AI 消息完整内容 → data 事件"""
-        return self.data_event({"type": "ai_message_content", "content": content})
+        """AI 消息完整内容 → data-ai_message_content 事件"""
+        return self.data_event({"content": content}, event_name="ai_message_content")
 
     def from_queue_event(self, event_type: str, payload: dict[str, Any]) -> str:
         """队列事件 → 对应的 UIMessage 流事件"""
         if event_type == "queue_done":
             return self.finish(finish_reason="stop")
-        enriched_payload = {**payload, "queue_event": event_type}
-        return self.data_event(enriched_payload)
+        return self.data_event({**payload, "queue_event": event_type}, event_name=f"queue_{event_type}")
 
     def from_custom_event(self, event_type: str, payload: dict[str, Any]) -> str:
-        """自定义事件 → data 事件"""
-        return self.data_event({**payload, "type": event_type})
+        """自定义事件 → data-{event_type} 事件"""
+        return self.data_event(payload, event_name=event_type)

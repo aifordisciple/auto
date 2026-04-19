@@ -9,7 +9,7 @@
  *
  * v5 适配：UIMessage 使用 parts[] 而非 content 字符串，
  * 此处将 UIMessage 转换为 store 的 Message 格式（含 content: string）。
- * data channel 事件通过消息 parts 中的 data 类型传递。
+ * 自定义数据事件通过消息 parts 中 type="data-*" 的项传递。
  */
 import { useEffect, useRef } from 'react';
 import { useChatStore } from '@/store/useChatStore';
@@ -36,14 +36,18 @@ function extractTextFromParts(msg: UIMessage): string {
 }
 
 /**
- * 从 UIMessage.parts 中提取 data channel 事件
- * v5 中自定义数据通过 parts 中 type='data' 的项传递
+ * 从 UIMessage.parts 中提取 data-* 自定义事件
+ * v5 协议要求自定义数据事件的 type 以 "data-" 开头
+ * 返回 [{eventName, data}, ...] 例如 [{eventName: "thinking", data: {content: "..."}}]
  */
-function extractDataEvents(msg: UIMessage): unknown[] {
+function extractDataEvents(msg: UIMessage): { eventName: string; data: unknown }[] {
   if (!msg.parts) return [];
   return msg.parts
-    .filter(part => part.type === 'data')
-    .map(part => (part as { type: 'data'; data: unknown }).data);
+    .filter((part): part is typeof part & { type: string } => part.type.startsWith('data-'))
+    .map(part => ({
+      eventName: part.type.slice(5), // "data-thinking" → "thinking"
+      data: (part as { type: string; data: unknown }).data,
+    }));
 }
 
 /**
@@ -77,7 +81,7 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
     syncFromUseChat(storeMessages, isLoading);
   }, [messages, isLoading, syncFromUseChat]);
 
-  // 处理消息 parts 中的 data 事件（v5 替代 data channel）
+  // 处理消息 parts 中的 data-* 事件（v5 自定义数据事件）
   useEffect(() => {
     // 只处理新增的消息
     for (let i = lastProcessedMessageCount.current; i < messages.length; i++) {
@@ -85,11 +89,11 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
       if (!msg) continue;
 
       const dataEvents = extractDataEvents(msg);
-      for (const eventData of dataEvents) {
+      for (const { eventName, data: eventData } of dataEvents) {
         if (!eventData || typeof eventData !== 'object') continue;
         const event = eventData as Record<string, unknown>;
 
-        switch (event.type) {
+        switch (eventName) {
           case 'thinking':
             // 累积思考内容（后端逐 token 推送）
             {
