@@ -281,12 +281,17 @@ export function ChatStage() {
   // ==========================================
   // 渲染
   // ==========================================
+  // ⚠️ 不再用 isChatEmpty 切换视图！
+  // 原因：sendMessage 是异步的，调用后 React 还没重渲染，isChatEmpty 仍为 true，
+  // UI 卡在居中输入框视图。等 aiMessages 更新后才切换，导致首条消息无 processing 状态。
+  // 修复：始终渲染消息列表，空列表时在列表上方显示欢迎语。
   const isChatEmpty = messages.length === 0;
 
   return (
     <div className="flex flex-col h-full w-full bg-white dark:bg-[#131314]">
 
-      {isChatEmpty ? (
+      {/* 空聊天时显示居中欢迎语 + 输入框 */}
+      {isChatEmpty && !isLoading && (
         <div className="flex-1 flex flex-col items-center justify-center px-4 pb-20 animate-in fade-in duration-500">
           <h1 className="text-3xl md:text-4xl font-semibold text-gray-900 dark:text-neutral-200 mb-8 tracking-tight">
             What do you want to analyze?
@@ -306,10 +311,12 @@ export function ChatStage() {
               setIsCodeImportOpen={setIsCodeImportOpen}
               onOpenBasicAnalysis={handleOpenBasicAnalysis}
             />
-
           </div>
         </div>
-      ) : (
+      )}
+
+      {/* 有消息或正在加载时，始终渲染消息列表 */}
+      {(!isChatEmpty || isLoading) && (
         <>
           <div
             ref={scrollContainerRef}
@@ -326,37 +333,6 @@ export function ChatStage() {
               onEditResend={handleEditResend}
               scrollContainerRef={scrollContainerRef}
               messagesEndRef={messagesEndRef}
-
-              // 核心修改：无缝衔接的占位思考动画
-              footer={
-                // 触发条件：正在请求中，且最后一条是"空 assistant 消息"，倒数第二条是"用户消息"
-                // 这代表网络请求在路上，后端尚未返回有效内容，AI气泡已建立但内容为空
-                isTyping && messages.length >= 2 &&
-                messages[messages.length - 1].role === 'assistant' &&
-                messages[messages.length - 1].content === '' &&
-                messages[messages.length - 2].role === 'user' ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col group items-start max-w-4xl mx-auto w-full transition-all duration-300 mt-2"
-                  >
-                    <div className="flex items-start gap-0 md:gap-4 w-full">
-                      {/* 统一的 AI 头像（与真实消息保持完全一致） */}
-                      <div className="hidden md:flex w-8 h-8 rounded-full items-center justify-center shrink-0 overflow-hidden bg-[#1a1a1c] border border-neutral-700/60 shadow-sm">
-                        <img src="/ai-avatar.png" alt="AI Avatar" className="w-full h-full object-cover scale-[1.15]" />
-                      </div>
-
-                      {/* 占位气泡 */}
-                      <div className="flex-1 min-w-0 rounded-2xl px-3 md:px-5 py-3 md:py-4 bg-transparent">
-                        <div className="flex items-center gap-2 text-violet-500 dark:text-violet-400 text-sm bg-violet-50 dark:bg-violet-500/10 px-3 py-2 rounded-lg border border-violet-100 dark:border-violet-500/20 w-fit">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="font-medium tracking-wide">Processing...</span>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ) : null
-              }
             />
 
             <button

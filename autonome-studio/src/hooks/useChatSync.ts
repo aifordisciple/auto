@@ -71,8 +71,9 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
   // ⚠️ 同时同步 session_id 到 workspaceStore，确保 SessionSidebar 刷新
   const setWorkspaceSessionId = useWorkspaceStore(state => state.setCurrentSessionId);
 
-  // 跟踪已处理的消息数量，避免重复处理 data 事件
-  const lastProcessedMessageCount = useRef(0);
+  // 跟踪每个消息已处理的 data-* parts 数量
+  // key: message.id, value: 已处理的 data parts 数量
+  const processedDataPartsRef = useRef<Record<string, number>>({});
 
   // 同步 messages 和 isLoading 到 store 的镜像字段
   // 转换 UIMessage[] → Message[]，保持下游组件兼容
@@ -82,14 +83,22 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
   }, [messages, isLoading, syncFromUseChat]);
 
   // 处理消息 parts 中的 data-* 事件（v5 自定义数据事件）
+  // ⚠️ 关键：data-* parts 是增量添加到现有 assistant 消息中的，
+  // 所以需要跟踪每个消息已处理的 parts 数量，只处理新增的
   useEffect(() => {
-    // 只处理新增的消息
-    for (let i = lastProcessedMessageCount.current; i < messages.length; i++) {
-      const msg = messages[i];
-      if (!msg) continue;
+    for (const msg of messages) {
+      if (!msg.parts) continue;
 
-      const dataEvents = extractDataEvents(msg);
-      for (const { eventName, data: eventData } of dataEvents) {
+      const dataParts = msg.parts.filter(
+        (part): part is typeof part & { type: string } => part.type.startsWith('data-')
+      );
+
+      const alreadyProcessed = processedDataPartsRef.current[msg.id] ?? 0;
+      const newParts = dataParts.slice(alreadyProcessed);
+
+      for (const part of newParts) {
+        const eventName = part.type.slice(5); // "data-thinking" → "thinking"
+        const eventData = (part as { type: string; data: unknown }).data;
         if (!eventData || typeof eventData !== 'object') continue;
         const event = eventData as Record<string, unknown>;
 
@@ -131,9 +140,18 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
             break;
         }
       }
+
+      // 更新已处理的 parts 计数
+      processedDataPartsRef.current[msg.id] = dataParts.length;
     }
 
-    lastProcessedMessageCount.current = messages.length;
+    // 清理已删除消息的跟踪记录
+    const currentIds = new Set(messages.map(m => m.id));
+    for (const id of Object.keys(processedDataPartsRef.current)) {
+      if (!currentIds.has(id)) {
+        delete processedDataPartsRef.current[id];
+      }
+    }
   }, [messages, setThinkingContent, setIsThinking, setCurrentSessionId, setWorkspaceSessionId]);
 
   // 流结束后关闭思考状态
