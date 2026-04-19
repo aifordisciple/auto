@@ -280,6 +280,18 @@ async def chat_stream(
                                 ai_full_response += filtered_content
                                 yield encoder.text_chunk(filtered_content)
 
+                    # ✨ 工具调用拦截：Agent 调用工具时 content 为空，tool_calls 在 chunk 中
+                    # 输出进度提示，避免前端长时间无输出导致用户以为系统卡死
+                    elif hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                        for tc in chunk.tool_calls:
+                            tool_name = tc.get('name', tc.get('function', {}).get('name', 'tool')) if isinstance(tc, dict) else getattr(tc, 'name', 'tool')
+                            progress_msg = f"\n> ⚙️ 正在执行: `{tool_name}`...\n\n"
+                            start = ensure_text_started()
+                            if start:
+                                yield start
+                            ai_full_response += progress_msg
+                            yield encoder.text_chunk(progress_msg)
+
             except StopAsyncIteration:
                 raise
             except Exception as e:

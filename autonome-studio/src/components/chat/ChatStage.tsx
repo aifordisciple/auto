@@ -104,8 +104,15 @@ export function ChatStage() {
     stop,
     sendMessage,
     setMessages: setAiMessages,
+    error: chatError,
   } = useChat({
     transport: chatTransport,
+    onError: (error) => {
+      console.error('[useChat] Stream error:', error);
+    },
+    onFinish: ({ finishReason }) => {
+      console.log('[useChat] Stream finished:', finishReason);
+    },
   });
 
   // v5 API: status 替代 isLoading
