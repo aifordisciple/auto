@@ -65,12 +65,15 @@ class VercelDataStreamEncoder:
         """工具结果 — tool-result 事件"""
         return _sse_line({"type": "tool-result", "id": tool_call_id, "result": result})
 
-    def finish(self, finish_reason: str = "stop", *, prompt_tokens: int = 0, completion_tokens: int = 0, total_tokens: int = 0) -> str:
-        """流结束 + 用量统计 — finish 事件"""
+    def finish(self, finish_reason: str = "stop") -> str:
+        """流结束 — finish 事件 (v5 strictObject: only type + finishReason)
+
+        v5 Zod schema 为 strictObject，仅接受 type/finishReason/messageMetadata，
+        任何额外字段（如 usage）会导致 AI_TypeValidationError。
+        """
         return _sse_line({
             "type": "finish",
             "finishReason": finish_reason,
-            "usage": {"promptTokens": prompt_tokens, "completionTokens": completion_tokens, "totalTokens": total_tokens},
         })
 
     def error(self, message: str) -> str:
