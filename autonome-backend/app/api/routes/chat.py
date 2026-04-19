@@ -152,27 +152,44 @@ async def chat_stream(
     model_name = llm_cfg.model_name
     is_local_model = _is_local_model(base_url)
 
-    # 6. 意图分类：判断用户是要求写代码还是一般问答
-    # 使用 SkillMatcher 进行快速规则匹配，区分代码生成请求和一般问题
-    intent_type = "general_question"  # 默认为一般问答
+    # 6. 意图分类：使用 Intent Router Engine 2.0 (L0+L1+L2 漏斗式架构)
+    # 替换旧的 SkillMatcher 关键词匹配，支持规则拦截 + LLM 语义分类 + 槽位提取
+    intent_data = {}  # 意图识别引擎的完整结果
     try:
-        from app.services.skill_matcher import SkillMatcher, IntentType
-        matcher = SkillMatcher()
-        match_result = await matcher.match(request.message, context={"project_id": request.project_id})
-        intent_type = match_result.get("intent_type", IntentType.GENERAL_QUESTION)
-        log.info(f"[Chat] 意图分类: intent={intent_type}, query='{request.message[:50]}...'")
-    except Exception as e:
-        log.warning(f"[Chat] 意图分类失败，回退到一般问答模式: {e}")
+        from app.agent.router.engine import IntentRouterEngine
+        from app.agent.router.schemas import IntentType as NewIntentType
 
-    # 根据意图选择系统提示词
-    # LIVE_CODING / IMPLICIT_SKILL / EXPLICIT_SKILL → 代码生成模式
-    # GENERAL_QUESTION → 一般问答模式
-    if intent_type in (IntentType.LIVE_CODING, IntentType.IMPLICIT_SKILL, IntentType.EXPLICIT_SKILL):
-        system_prompt = SYSTEM_PROMPT_CODE
-        log.info(f"[Chat] 使用代码生成模式 (intent={intent_type})")
-    else:
+        router_engine = IntentRouterEngine(session=session, user_id=current_user.id)
+        intent_result = await router_engine.route(
+            query=request.message,
+            context={
+                "project_id": request.project_id,
+                "skill_id": request.skill_id,
+                "active_file": request.context_files[0] if request.context_files else None,
+                "context_files": request.context_files,
+            }
+        )
+        intent_data = intent_result.model_dump()
+        log.info(f"[Chat] 意图分类 2.0: intent={intent_result.intent.value}, "
+                 f"confidence={intent_result.confidence}, target={intent_result.routing_target}")
+
+        # 根据新意图类型选择系统提示词
+        # skill_forge / explicit_skill / diagnostic → 代码生成模式
+        # chat / literature / data_probe → 一般问答模式
+        if intent_result.intent in (NewIntentType.SKILL_FORGE, NewIntentType.EXPLICIT_SKILL, NewIntentType.DIAGNOSTIC):
+            system_prompt = SYSTEM_PROMPT_CODE
+            log.info(f"[Chat] 使用代码生成模式 (intent={intent_result.intent.value})")
+        else:
+            system_prompt = SYSTEM_PROMPT_CHAT
+            log.info(f"[Chat] 使用一般问答模式 (intent={intent_result.intent.value})")
+
+        # 追问拦截：意图引擎认为缺少关键参数，直接返回追问消息
+        if intent_result.requires_followup and intent_result.followup_question:
+            log.info(f"[Chat] 追问拦截: {intent_result.followup_question}")
+
+    except Exception as e:
+        log.warning(f"[Chat] 意图分类 2.0 失败，回退到一般问答模式: {e}")
         system_prompt = SYSTEM_PROMPT_CHAT
-        log.info(f"[Chat] 使用一般问答模式 (intent={intent_type})")
 
     # 7. 加载对话历史
     history_messages = session.exec(
@@ -192,95 +209,106 @@ async def chat_stream(
     # 8. Vercel Data Stream 流式响应
     async def vercel_event_generator():
         encoder = VercelDataStreamEncoder()
+        ai_full_response = ""
+        cost_credits = 1.0
 
         # 推送 session_id 给前端
         yield encoder.from_session_info(session_id_for_ai, is_new_session)
 
-        # 检查 API Key
-        if not is_local_model and not api_key:
-            yield encoder.text_chunk("⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。")
-            yield encoder.finish()
-            return
+        # 推送意图识别结果给前端（供 UI 展示意图标签等）
+        if intent_data:
+            yield encoder.from_custom_event("intent", intent_data)
 
-        # 直接 LLM 流式调用
-        from langchain_openai import ChatOpenAI
+        # 追问拦截：如果意图引擎要求追问，直接返回追问消息而不调用 LLM
+        if intent_data.get("requires_followup") and intent_data.get("followup_question"):
+            followup = intent_data["followup_question"]
+            ai_full_response = followup
+            yield encoder.text_chunk(followup)
+            # 跳过 LLM 调用，直接进入持久化
+        else:
+            # 检查 API Key
+            if not is_local_model and not api_key:
+                yield encoder.text_chunk("⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。")
+                yield encoder.finish()
+                return
 
-        ai_full_response = ""
-        cost_credits = 1.0
-        content_filter = StreamContentFilter()
+            # 直接 LLM 流式调用
+            from langchain_openai import ChatOpenAI
 
-        try:
-            direct_llm = ChatOpenAI(
-                api_key=api_key or "not-needed",
-                base_url=base_url,
-                model=model_name,
-                streaming=True,
-            )
+            cost_credits = 1.0
+            content_filter = StreamContentFilter()
 
-            async for chunk in direct_llm.astream(lc_messages):
-                content = chunk.content
-                if content:
-                    # ✨ 过滤思考标签等内容，返回 (content, type) 元组
-                    # type: "text" = 正常回复, "thinking" = 思考过程
-                    filtered_content, content_type = content_filter.filter_chunk(content)
-                    if filtered_content:
-                        if content_type == "thinking":
-                            # ✨ 思考过程通过 data 事件推送给前端
-                            yield encoder.from_thinking(filtered_content)
-                        else:
-                            ai_full_response += filtered_content
-                            yield encoder.text_chunk(filtered_content)
-
-        except StopAsyncIteration:
-            raise
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            log.error(f"❌ [Chat] LLM 调用失败: {str(e)}\n{error_details}")
-            err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
-            ai_full_response += err_msg
-            yield encoder.text_chunk(err_msg)
-
-        finally:
-            # 持久化助手消息 + 扣费
-            with Session(engine) as final_db_session:
-                cleaned_response = filter_thinking_content(ai_full_response, model_name=model_name)
-                ai_msg = ChatMessage(
-                    session_id=session_id_for_ai,
-                    role=RoleEnum.assistant,
-                    content=cleaned_response,
+            try:
+                direct_llm = ChatOpenAI(
+                    api_key=api_key or "not-needed",
+                    base_url=base_url,
+                    model=model_name,
+                    streaming=True,
                 )
-                final_db_session.add(ai_msg)
 
-                final_balance = 0
-                db_user = final_db_session.get(User, user_id)
-                if db_user:
-                    try:
-                        from app.services.billing_service import BillingService
-                        bs = BillingService(final_db_session)
-                        bs.deduct_credits(
-                            wallet_id=wallet.wallet_id,
-                            amount=cost_credits,
-                            transaction_type="consume_chat",
-                            description="聊天消息消费",
-                        )
-                        final_db_session.refresh(wallet)
-                        final_balance = wallet.credits_balance
-                    except Exception as e:
-                        log.warning(f"扣费失败: {e}")
-                        if db_user.billing:
-                            db_user.billing.credits_balance -= cost_credits
-                            if db_user.billing.credits_balance < 0:
-                                db_user.billing.credits_balance = 0
-                            final_balance = db_user.billing.credits_balance if db_user.billing else 0
+                async for chunk in direct_llm.astream(lc_messages):
+                    content = chunk.content
+                    if content:
+                        # ✨ 过滤思考标签等内容，返回 (content, type) 元组
+                        # type: "text" = 正常回复, "thinking" = 思考过程
+                        filtered_content, content_type = content_filter.filter_chunk(content)
+                        if filtered_content:
+                            if content_type == "thinking":
+                                # ✨ 思考过程通过 data 事件推送给前端
+                                yield encoder.from_thinking(filtered_content)
+                            else:
+                                ai_full_response += filtered_content
+                                yield encoder.text_chunk(filtered_content)
 
-                final_db_session.commit()
+            except StopAsyncIteration:
+                raise
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                log.error(f"❌ [Chat] LLM 调用失败: {str(e)}\n{error_details}")
+                err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
+                ai_full_response += err_msg
+                yield encoder.text_chunk(err_msg)
 
-                yield encoder.from_ai_message_id(str(ai_msg.id))
-                yield encoder.from_ai_message_content(cleaned_response)
-                yield encoder.from_billing(cost_credits, final_balance)
+        # 持久化助手消息 + 扣费（追问拦截和 LLM 调用都会到达此处）
+        with Session(engine) as final_db_session:
+            cleaned_response = filter_thinking_content(ai_full_response, model_name=model_name)
+            ai_msg = ChatMessage(
+                session_id=session_id_for_ai,
+                role=RoleEnum.assistant,
+                content=cleaned_response,
+            )
+            final_db_session.add(ai_msg)
 
-            yield encoder.finish()
+            final_balance = 0
+            db_user = final_db_session.get(User, user_id)
+            if db_user:
+                try:
+                    from app.services.billing_service import BillingService
+                    bs = BillingService(final_db_session)
+                    bs.deduct_credits(
+                        wallet_id=wallet.wallet_id,
+                        amount=cost_credits,
+                        transaction_type="consume_chat",
+                        description="聊天消息消费",
+                    )
+                    final_db_session.refresh(wallet)
+                    final_balance = wallet.credits_balance
+                except Exception as e:
+                    log.warning(f"扣费失败: {e}")
+                    if db_user.billing:
+                        db_user.billing.credits_balance -= cost_credits
+                        if db_user.billing.credits_balance < 0:
+                            db_user.billing.credits_balance = 0
+                        final_balance = db_user.billing.credits_balance if db_user.billing else 0
+
+            final_db_session.commit()
+
+            yield encoder.from_ai_message_id(str(ai_msg.id))
+            yield encoder.from_ai_message_content(cleaned_response)
+            yield encoder.from_billing(cost_credits, final_balance)
+
+        yield encoder.finish()
 
     # 防缓冲头：确保流不被 nginx/CDN 等中间代理缓冲
     # X-Accel-Buffering: no 是 nginx 专用头，告诉 nginx 禁用此响应的代理缓冲

@@ -186,3 +186,15 @@ class VercelDataStreamEncoder:
         # 其他队列事件作为自定义数据传输
         enriched_payload = {**payload, "queue_event": event_type}
         return self.data_event([enriched_payload])
+
+    def from_custom_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> str:
+        """自定义事件 → data 事件
+
+        通用方法，将任意事件类型和载荷映射为 Vercel data 事件。
+        用于意图识别结果等非标准协议数据的传输。
+        """
+        return self.data_event([{**payload, "type": event_type}])

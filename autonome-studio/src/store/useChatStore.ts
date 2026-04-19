@@ -1,5 +1,4 @@
 import { create, StoreApi, UseBoundStore } from 'zustand';
-import type { Message as AiMessage } from 'ai';
 
 export type Role = 'user' | 'assistant' | 'system';
 
@@ -97,11 +96,11 @@ export interface ChatState {
   // useChat 镜像状态（由 useChatSync 同步，供现有组件读取）
   // ==========================================
   /** useChat 的 messages 镜像（AI SDK Message 格式） */
-  mirroredMessages: AiMessage[];
+  mirroredMessages: Message[];
   /** useChat 的 isLoading 镜像 */
   mirroredIsTyping: boolean;
   /** 同步 useChat 状态到镜像字段（由 useChatSync 调用） */
-  syncFromUseChat: (messages: AiMessage[], isLoading: boolean) => void;
+  syncFromUseChat: (messages: Message[], isLoading: boolean) => void;
   /** 更新镜像中最后一条 assistant 消息的 ID（后端真实 ID 同步） */
   updateMirroredMessageId: (newId: string) => void;
   /** 当前会话 ID（从 data channel session_info 事件获取） */
@@ -196,12 +195,12 @@ const initialMessage: Message = {
   timestamp: Date.now(),
 };
 
-/** 镜像消息的初始欢迎语（AI SDK Message 格式） */
-const initialMirroredMessage: AiMessage = {
+/** 镜像消息的初始欢迎语（与 initialMessage 格式一致） */
+const initialMirroredMessage: Message = {
   id: 'init-1',
   role: 'assistant',
   content: initialMessage.content,
-  createdAt: new Date(),
+  timestamp: Date.now(),
 };
 
 export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState>((set) => ({
@@ -219,7 +218,7 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   mirroredMessages: [initialMirroredMessage],
   mirroredIsTyping: false,
   // 同步 useChat 的 messages 和 isLoading 到镜像字段
-  syncFromUseChat: (messages: AiMessage[], isLoading: boolean) =>
+  syncFromUseChat: (messages: Message[], isLoading: boolean) =>
     set({ mirroredMessages: messages, mirroredIsTyping: isLoading }),
   // 更新镜像中最后一条 assistant 消息的 ID（后端真实 ID 同步）
   // 解决问题：前端使用临时 ID，后端使用 msg_{uuid} 格式

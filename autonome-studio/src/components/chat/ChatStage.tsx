@@ -19,7 +19,7 @@ import { ArrowDown, X, Eye, Download, Loader2, Code } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 
 // ==========================================
 // 状态管理导入
@@ -77,11 +77,10 @@ export function ChatStage() {
   // ==========================================
   const {
     messages: aiMessages,
-    isLoading,
+    status,
     stop,
-    append,
+    sendMessage,
     setMessages: setAiMessages,
-    data,
   } = useChat({
     api: '/api/chat',
     // 通过 body 传递上下文信息给 BFF 代理
@@ -94,11 +93,15 @@ export function ChatStage() {
     },
   });
 
+  // v5 API: status 替代 isLoading
+  // 'submitted' | 'streaming' 表示正在请求
+  const isLoading = status === 'submitted' || status === 'streaming';
+
   // ==========================================
   // useChatSync 桥接：将 useChat 状态同步到 Zustand store
   // 现有组件继续从 useChatStore 读取状态
   // ==========================================
-  useChatSync({ messages: aiMessages, isLoading, data });
+  useChatSync({ messages: aiMessages, isLoading });
 
   // ==========================================
   // 从 store 镜像读取状态（供子组件使用）
@@ -233,17 +236,14 @@ export function ChatStage() {
     // 清理粘贴附件
     cleanupPastedAttachments();
 
-    // 调用 useChat.append 发送消息
-    append({
-      role: 'user',
-      content: messageText,
-    });
+    // 调用 sendMessage 发送消息（v5 API）
+    sendMessage({ text: messageText });
 
     // 自动滚动到底部
     if (isAtBottomRef.current && !isPausedRef.current) {
       requestAnimationFrame(() => scrollToBottom());
     }
-  }, [append, cleanupPastedAttachments, isAtBottomRef, isPausedRef, scrollToBottom]);
+  }, [sendMessage, cleanupPastedAttachments, isAtBottomRef, isPausedRef, scrollToBottom]);
 
   // ==========================================
   // 停止生成 — 调用 useChat.stop
