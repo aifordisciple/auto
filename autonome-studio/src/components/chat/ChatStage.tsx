@@ -111,15 +111,25 @@ export function ChatStage() {
 
   // ==========================================
   // useChatSync 桥接：将 useChat 状态同步到 Zustand store
-  // 现有组件继续从 useChatStore 读取状态
+  // 供其他组件（如 SessionSidebar）读取会话 ID、计费等
   // ==========================================
   useChatSync({ messages: aiMessages, isLoading });
 
   // ==========================================
-  // 从 store 镜像读取状态（供子组件使用）
+  // 直接从 useChat.messages 渲染（不经过 store 中转）
+  // UIMessage.parts → 提取文本 → 转为 store Message 格式
+  // 这样避免 mirroredMessages 同步延迟导致 UI 不更新
   // ==========================================
-  const messages = useChatStore((state: ChatState) => state.mirroredMessages);
-  const isTyping = useChatStore((state: ChatState) => state.mirroredIsTyping);
+  const messages = useMemo(() => aiMessages.map(msg => ({
+    id: msg.id,
+    role: msg.role as 'user' | 'assistant' | 'system',
+    content: (msg.parts ?? [])
+      .filter((p): p is typeof p & { type: 'text' } => p.type === 'text')
+      .map(p => (p as { type: 'text'; text: string }).text)
+      .join(''),
+    timestamp: Date.now(),
+  })), [aiMessages]);
+  const isTyping = isLoading;
 
   // ==========================================
   // Refs
