@@ -20,6 +20,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 
 // ==========================================
 // 状态管理导入
@@ -82,15 +83,24 @@ export function ChatStage() {
     sendMessage,
     setMessages: setAiMessages,
   } = useChat({
-    api: '/api/chat',
-    // 通过 body 传递上下文信息给 BFF 代理
-    body: {
-      data: {
-        projectId: currentProjectId,
-        sessionId: currentSessionId,
-        contextFiles: pendingChatAttachments,
+    // v5 API: 使用 transport 配置认证和请求参数
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+      // 注入 JWT 认证头，BFF 代理从 header 中提取 token 转发给后端
+      // 使用函数形式确保每次请求都获取最新 token
+      headers: () => {
+        const token = getToken();
+        return token ? { Authorization: `Bearer ${token}` } : {};
       },
-    },
+      // 通过 body 传递上下文信息给 BFF 代理（函数形式确保获取最新值）
+      body: () => ({
+        data: {
+          projectId: currentProjectId,
+          sessionId: currentSessionId,
+          contextFiles: pendingChatAttachments,
+        },
+      }),
+    }),
   });
 
   // v5 API: status 替代 isLoading

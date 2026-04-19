@@ -206,11 +206,13 @@ async def chat_stream(
         elif msg.role == RoleEnum.assistant:
             lc_messages.append({"role": "assistant", "content": msg.content})
 
-    # 8. Vercel Data Stream 流式响应
+    # 8. UIMessage Stream 流式响应（Vercel AI SDK v5 协议）
     async def vercel_event_generator():
         encoder = VercelDataStreamEncoder()
         ai_full_response = ""
         cost_credits = 1.0
+        # 跟踪是否已发送 text-start，确保在首个 text-delta 前发送
+        text_started = False
 
         # 推送 session_id 给前端
         yield encoder.from_session_info(session_id_for_ai, is_new_session)
@@ -219,15 +221,29 @@ async def chat_stream(
         if intent_data:
             yield encoder.from_custom_event("intent", intent_data)
 
+        # 辅助函数：确保 text-start 已发送
+        def ensure_text_started():
+            nonlocal text_started
+            if not text_started:
+                text_started = True
+                return encoder.text_start()
+            return None
+
         # 追问拦截：如果意图引擎要求追问，直接返回追问消息而不调用 LLM
         if intent_data.get("requires_followup") and intent_data.get("followup_question"):
             followup = intent_data["followup_question"]
             ai_full_response = followup
+            start = ensure_text_started()
+            if start:
+                yield start
             yield encoder.text_chunk(followup)
             # 跳过 LLM 调用，直接进入持久化
         else:
             # 检查 API Key
             if not is_local_model and not api_key:
+                start = ensure_text_started()
+                if start:
+                    yield start
                 yield encoder.text_chunk("⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。")
                 yield encoder.finish()
                 return
@@ -257,6 +273,10 @@ async def chat_stream(
                                 # ✨ 思考过程通过 data 事件推送给前端
                                 yield encoder.from_thinking(filtered_content)
                             else:
+                                # 首个文本块前发送 text-start
+                                start = ensure_text_started()
+                                if start:
+                                    yield start
                                 ai_full_response += filtered_content
                                 yield encoder.text_chunk(filtered_content)
 
@@ -268,6 +288,9 @@ async def chat_stream(
                 log.error(f"❌ [Chat] LLM 调用失败: {str(e)}\n{error_details}")
                 err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
                 ai_full_response += err_msg
+                start = ensure_text_started()
+                if start:
+                    yield start
                 yield encoder.text_chunk(err_msg)
 
         # 持久化助手消息 + 扣费（追问拦截和 LLM 调用都会到达此处）
@@ -308,6 +331,9 @@ async def chat_stream(
             yield encoder.from_ai_message_content(cleaned_response)
             yield encoder.from_billing(cost_credits, final_balance)
 
+        # 流结束：发送 text-end + finish
+        if text_started:
+            yield encoder.text_end()
         yield encoder.finish()
 
     # 防缓冲头：确保流不被 nginx/CDN 等中间代理缓冲
@@ -395,15 +421,14 @@ async def chat_stream_queue(
                         # 直接透传 Vercel 协议行
                         yield vercel_line
 
-                        # 检测 queue_done 信号（Vercel finish 事件：e: 前缀）
-                        # Celery worker 通过 encoder.from_queue_event("queue_done", {}) 发送 finish 事件
-                        if vercel_line.startswith("e:"):
-                            try:
-                                finish_payload = json.loads(vercel_line[2:])
-                                if finish_payload.get("finishReason") == "stop":
-                                    break
-                            except (json.JSONDecodeError, KeyError):
-                                pass
+                        # 检测 queue_done 信号（UIMessage Stream 的 finish 事件）
+                        # 格式：{"type":"finish","finishReason":"stop",...}
+                        try:
+                            event = json.loads(vercel_line)
+                            if event.get("type") == "finish" and event.get("finishReason") == "stop":
+                                break
+                        except (json.JSONDecodeError, KeyError):
+                            pass
 
                     except Exception as e:
                         log.warning(f"Redis 消息透传失败: {e}")
