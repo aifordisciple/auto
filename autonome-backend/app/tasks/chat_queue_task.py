@@ -163,9 +163,11 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
 
         # 检查 API Key
         if not is_local_model and not api_key:
+            chat_queue_service.publish_vercel_event(session_id, encoder.text_start())
             chat_queue_service.publish_vercel_event(session_id, encoder.text_chunk(
                 "⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。"
             ))
+            chat_queue_service.publish_vercel_event(session_id, encoder.text_end())
             chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_complete", {
                 "queue_item_id": item.id,
             }))
@@ -220,6 +222,7 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
     content_filter = StreamContentFilter()
     cost_credits = 1.0
     ai_msg_id = None
+    text_started = False  # 跟踪是否已发送 text-start
 
     try:
         direct_llm = ChatOpenAI(
@@ -241,6 +244,10 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
                         # ✨ 思考过程通过 data 事件推送给前端
                         chat_queue_service.publish_vercel_event(session_id, encoder.from_thinking(filtered_content))
                     else:
+                        # 首个文本块前发送 text-start
+                        if not text_started:
+                            text_started = True
+                            chat_queue_service.publish_vercel_event(session_id, encoder.text_start())
                         ai_full_response += filtered_content
                         # 通过 Redis pub/sub 推送 Vercel 文本块
                         chat_queue_service.publish_vercel_event(session_id, encoder.text_chunk(filtered_content))
@@ -250,6 +257,9 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
         log.error(f"LLM 调用失败: {e}\n{traceback.format_exc()}")
         err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
         ai_full_response += err_msg
+        if not text_started:
+            text_started = True
+            chat_queue_service.publish_vercel_event(session_id, encoder.text_start())
         chat_queue_service.publish_vercel_event(session_id, encoder.text_chunk(err_msg))
 
     # 持久化助手消息 + 扣费
@@ -285,6 +295,9 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
                 log.warning(f"扣费失败: {e}")
 
     # 推送完成事件
+    # 发送 text-end（如果之前有 text-start）
+    if text_started:
+        chat_queue_service.publish_vercel_event(session_id, encoder.text_end())
     chat_queue_service.publish_vercel_event(session_id, encoder.from_ai_message_id(str(ai_msg_id)))
     chat_queue_service.publish_vercel_event(session_id, encoder.from_ai_message_content(cleaned_response))
     chat_queue_service.publish_vercel_event(session_id, encoder.from_billing(cost_credits, final_balance))

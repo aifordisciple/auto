@@ -418,13 +418,17 @@ async def chat_stream_queue(
                     try:
                         vercel_line = message["data"]
 
-                        # 直接透传 Vercel 协议行
+                        # 直接透传 Vercel 协议行（SSE 格式：data: {JSON}\n\n）
                         yield vercel_line
 
                         # 检测 queue_done 信号（UIMessage Stream 的 finish 事件）
-                        # 格式：{"type":"finish","finishReason":"stop",...}
+                        # SSE 格式：data: {"type":"finish","finishReason":"stop",...}
                         try:
-                            event = json.loads(vercel_line)
+                            # 去除 SSE "data: " 前缀后解析 JSON
+                            json_str = vercel_line
+                            if json_str.startswith("data: "):
+                                json_str = json_str[6:]
+                            event = json.loads(json_str)
                             if event.get("type") == "finish" and event.get("finishReason") == "stop":
                                 break
                         except (json.JSONDecodeError, KeyError):
