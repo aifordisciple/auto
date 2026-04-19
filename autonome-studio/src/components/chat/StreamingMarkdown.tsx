@@ -2,9 +2,15 @@
  * StreamingMarkdown - 流式 Markdown 增量渲染组件
  *
  * 核心原理：
- * 1. 使用 StreamMarkdownProcessor 进行增量 DOM 更新
+ * 1. 使用 ReactMarkdown 渲染 Markdown 内容
  * 2. 流式时持续解析完整 Markdown，但只更新变化的 DOM 节点
  * 3. 避免全局 innerHTML 替换，消除闪烁和跳动
+ *
+ * Vercel AI SDK 重构后：
+ * - useChat 自动追加内容到 msg.content，无需手动管理流式内容
+ * - isStreaming 简化为布尔标志，不再需要动画光标
+ * - 保留思考框、未闭合结构处理、交互式图表占位符
+ * - 保留性能优化（纯文本路径无代码块时）
  */
 import { useRef, useEffect, useMemo, memo, useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -371,7 +377,7 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
       {/* 渲染正常的 Markdown 内容 */}
       {processedContent && (
         isStreaming ? (
-          // ✨ 流式时使用轻量级渲染，避免 ReactMarkdown 每次重解析导致卡顿
+          // 流式时使用轻量级渲染，避免 ReactMarkdown 每次重解析导致卡顿
           // 检测是否包含代码块，如果有则使用 ReactMarkdown（代码块需要语法高亮）
           // 否则直接渲染纯文本（快得多）
           processedContent.includes('```') ? (
@@ -395,13 +401,6 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
             {processedContent}
           </ReactMarkdown>
         )
-      )}
-
-      {/* ✨ 流式时显示光标，且正在思考时不显示 */}
-      {isStreaming && !isCurrentlyThinking && !isThinkingProp && (
-        <span className="streaming-cursor">
-          <span className="cursor-block" />
-        </span>
       )}
     </div>
   );

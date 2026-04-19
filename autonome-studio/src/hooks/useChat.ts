@@ -1,14 +1,16 @@
 /**
  * Chat Hooks 索引文件
  *
- * 从 ChatStage.tsx 提取的性能优化 hooks
+ * Vercel AI SDK 重构后：
+ * - 移除 useImmediateStream、useChatStream（由 useChat 替代）
+ * - 新增 useChatSync（桥接 useChat 到 Zustand store）
+ * - 新增 useChatQueue（消息队列管理）
  */
 
 export { useFilePreview } from './useFilePreview';
 export type { PreviewType, PreviewData, FilePreviewState } from './useFilePreview';
 
 export { useMessageActions } from './useMessageActions';
-export type { MessageActionsConfig } from './useMessageActions';
 
 export { usePasteUpload } from './usePasteUpload';
 export type { PastedAttachment } from './usePasteUpload';
@@ -16,9 +18,8 @@ export type { PastedAttachment } from './usePasteUpload';
 export { useChatEventListeners, useGlobalEvent } from './useChatEventListeners';
 export type { ChatEventListenersConfig } from './useChatEventListeners';
 
-export { useChatStream } from './useChatStream';
-export type { ChatStreamConfig } from './useChatStream';
-
-// 已有的 hooks
 export { useSmartScroll } from './useSmartScroll';
-export { useImmediateStream } from './useImmediateStream';
+
+export { useChatSync } from './useChatSync';
+
+export { useChatQueue } from './useChatQueue';

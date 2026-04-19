@@ -26,8 +26,6 @@ export interface VirtualizedMessageListProps {
   messages: Message[];
   /** 是否正在输入 */
   isTyping: boolean;
-  /** 流式内容 */
-  streamingContent: string;
   /** 当前项目 ID */
   currentProjectId?: string;
   /** 预览资源回调 */
@@ -55,7 +53,6 @@ export interface VirtualizedMessageListProps {
 export const VirtualizedMessageList = memo(function VirtualizedMessageList({
   messages,
   isTyping,
-  streamingContent,
   currentProjectId,
   onPreviewAsset,
   onDownloadAsset,
@@ -149,7 +146,6 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
             index={index}
             isLast={index === messagesToRender.length - 1}
             isTyping={isTyping}
-            streamingContent={streamingContent}
             currentProjectId={currentProjectId}
             onPreviewAsset={onPreviewAsset}
             onDownloadAsset={onDownloadAsset}

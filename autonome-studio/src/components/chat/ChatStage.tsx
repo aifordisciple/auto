@@ -1,10 +1,11 @@
 /**
- * ChatStage.tsx - 主聊天组件（重构版）
+ * ChatStage.tsx - 主聊天组件（Vercel AI SDK 重构版）
  *
- * 性能优化重构：
- * 1. 提取 hooks 到独立文件，减少主组件复杂度
- * 2. 使用精确的 Zustand 订阅，避免不必要的重渲染
- * 3. 组件拆分，提高代码可维护性
+ * 重构要点：
+ * 1. 使用 Vercel AI SDK useChat hook 替代手动 SSE 流管理
+ * 2. useChatSync 桥接将 useChat 状态同步到 Zustand store
+ * 3. 移除 useImmediateStream / useChatStream / streamingContent 相关逻辑
+ * 4. 消息列表直接读取 useChat.messages，isLoading 替代 isTyping
  *
  * 主要职责：
  * - 组合各种 hooks 和子组件
@@ -18,25 +19,24 @@ import { ArrowDown, X, Eye, Download, Loader2, Code } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useChat } from 'ai/react';
 
 // ==========================================
 // 状态管理导入
 // ==========================================
-import { useChatStore, ChatState, Message } from "@/store/useChatStore";
+import { useChatStore, ChatState } from "@/store/useChatStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
-import { useAuthStore } from "@/store/useAuthStore";
 import { useUIStore } from "@/store/useUIStore";
 
 // ==========================================
-// 性能优化 Hooks（从本文件提取）
+// 性能优化 Hooks
 // ==========================================
 import { useSmartScroll } from "@/hooks/useSmartScroll";
-import { useImmediateStream } from "@/hooks/useImmediateStream";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { useMessageActions } from "@/hooks/useMessageActions";
 import { usePasteUpload } from "@/hooks/usePasteUpload";
 import { useChatEventListeners } from "@/hooks/useChatEventListeners";
-import { useChatStream } from "@/hooks/useChatStream";
+import { useChatSync } from "@/hooks/useChatSync";
 
 // ==========================================
 // 子组件导入
@@ -62,21 +62,49 @@ export function ChatStage() {
   const currentSessionId = useWorkspaceStore(state => state.currentSessionId);
   const setCurrentSessionId = useWorkspaceStore(state => state.setCurrentSessionId);
   const pendingChatAttachments = useWorkspaceStore(state => state.pendingChatAttachments);
-  // ✨ 新增：引入更新附件状态的函数
+  // 新增：引入更新附件状态的函数
   const setPendingChatAttachments = useWorkspaceStore(state => state.setPendingChatAttachments);
 
-  const messages = useChatStore((state: ChatState) => state.messages);
+  // Store 状态 — 仍需 setMessages 用于历史加载
   const setMessages = useChatStore((state: ChatState) => state.setMessages);
-  const addMessage = useChatStore((state: ChatState) => state.addMessage);
-  const isTyping = useChatStore((state: ChatState) => state.isTyping);
-  const streamingContent = useChatStore((state: ChatState) => state.streamingContent);
-  const setStreamingContent = useChatStore((state: ChatState) => state.setStreamingContent);
-  const clearStreamingContent = useChatStore((state: ChatState) => state.clearStreamingContent);
-  const commitStreamingContent = useChatStore((state: ChatState) => state.commitStreamingContent);
-  const setStreamingMessageId = useChatStore((state: ChatState) => state.setStreamingMessageId);
 
   const openSkillCenter = useUIStore(state => state.openSkillCenter);
   const setSkillFilterMode = useUIStore(state => state.setSkillFilterMode);
+
+  // ==========================================
+  // Vercel AI SDK useChat hook
+  // 核心流式通信由 useChat 管理，不再手动 SSE
+  // ==========================================
+  const {
+    messages: aiMessages,
+    isLoading,
+    stop,
+    append,
+    setMessages: setAiMessages,
+    data,
+  } = useChat({
+    api: '/api/chat',
+    // 通过 body 传递上下文信息给 BFF 代理
+    body: {
+      data: {
+        projectId: currentProjectId,
+        sessionId: currentSessionId,
+        contextFiles: pendingChatAttachments,
+      },
+    },
+  });
+
+  // ==========================================
+  // useChatSync 桥接：将 useChat 状态同步到 Zustand store
+  // 现有组件继续从 useChatStore 读取状态
+  // ==========================================
+  useChatSync({ messages: aiMessages, isLoading, data });
+
+  // ==========================================
+  // 从 store 镜像读取状态（供子组件使用）
+  // ==========================================
+  const messages = useChatStore((state: ChatState) => state.mirroredMessages);
+  const isTyping = useChatStore((state: ChatState) => state.mirroredIsTyping);
 
   // ==========================================
   // Refs
@@ -99,22 +127,6 @@ export function ChatStage() {
     bottomThreshold: 150,
     smoothScroll: true,
     scrollDuration: 100,
-  });
-
-  // ==========================================
-  // 即时渲染流式输出 Hook
-  // ==========================================
-  const handleTypewriterUpdate = useCallback((content: string) => {
-    setStreamingContent(content);
-    // 使用 ref 读取最新值，避免闭包过期导致滚动失效
-    if (isAtBottomRef.current && !isPausedRef.current) {
-      requestAnimationFrame(() => scrollToBottom());
-    }
-  }, [setStreamingContent, isAtBottomRef, isPausedRef, scrollToBottom]);
-
-  const { append: appendStream, reset: resetStream, getCurrentContent } = useImmediateStream({
-    onContentUpdate: handleTypewriterUpdate,
-    minUpdateInterval: 16,
   });
 
   // ==========================================
@@ -141,49 +153,13 @@ export function ChatStage() {
   } = usePasteUpload();
 
   // ==========================================
-  // 聊天流式消息 Hook
-  // ==========================================
-  const {
-    handleSend,
-    handleStop,
-    abortControllerRef,
-    isStreamingRef,
-  } = useChatStream({
-    getCurrentContent,
-    appendStream,
-    resetStream,
-    clearStreamingContent,
-    setStreamingMessageId,
-    commitStreamingContent,
-    scrollToBottom,
-    isAtBottomRef,
-    isPausedRef,
-  });
-
-  // ==========================================
-  // 消息操作 Hook
+  // 消息操作 Hook（简化版，不再依赖 stream refs）
   // ==========================================
   const {
     handleRetry,
     handleEditResend,
     handleInterpret,
-    handleSendRef,
-  } = useMessageActions({
-    getCurrentContent,
-    resetStream,
-    clearStreamingContent,
-    setStreamingMessageId,
-    commitStreamingContent,
-    appendStream,
-    abortControllerRef,
-    isStreamingRef,
-    isInsufficientCreditsRef: useRef(false),
-  });
-
-  // 更新 handleSendRef 引用
-  useEffect(() => {
-    handleSendRef.current = handleSend;
-  }, [handleSend, handleSendRef]);
+  } = useMessageActions();
 
   // ==========================================
   // 新消息到达时自动滚动到底部
@@ -209,12 +185,12 @@ export function ChatStage() {
     const fetchMessages = async () => {
       if (!currentSessionId) {
         setMessages([]);
+        setAiMessages([]);
         return;
       }
 
-      if (isStreamingRef.current) {
-        return;
-      }
+      // 流式输出中不重新加载
+      if (isLoading) return;
 
       const token = getToken();
       try {
@@ -240,7 +216,7 @@ export function ChatStage() {
       }
     };
     fetchMessages();
-  }, [currentSessionId, setMessages, isStreamingRef]);
+  }, [currentSessionId, setMessages, setAiMessages, isLoading]);
 
   // ==========================================
   // 打开技能中心（基础分析模式）
@@ -251,11 +227,30 @@ export function ChatStage() {
   }, [setSkillFilterMode, openSkillCenter]);
 
   // ==========================================
-  // 发送消息包装函数
+  // 发送消息包装函数 — 调用 useChat.append
   // ==========================================
-  const handleSendWrapper = useCallback((messageText: string, contextFiles?: string[]) => {
-    handleSend(messageText, contextFiles, undefined, pastedAttachments, cleanupPastedAttachments);
-  }, [handleSend, pastedAttachments, cleanupPastedAttachments]);
+  const handleSendWrapper = useCallback((messageText: string, _contextFiles?: string[]) => {
+    // 清理粘贴附件
+    cleanupPastedAttachments();
+
+    // 调用 useChat.append 发送消息
+    append({
+      role: 'user',
+      content: messageText,
+    });
+
+    // 自动滚动到底部
+    if (isAtBottomRef.current && !isPausedRef.current) {
+      requestAnimationFrame(() => scrollToBottom());
+    }
+  }, [append, cleanupPastedAttachments, isAtBottomRef, isPausedRef, scrollToBottom]);
+
+  // ==========================================
+  // 停止生成 — 调用 useChat.stop
+  // ==========================================
+  const handleStop = useCallback(() => {
+    stop();
+  }, [stop]);
 
   // ==========================================
   // 渲染
@@ -297,17 +292,16 @@ export function ChatStage() {
             <VirtualizedMessageList
               messages={messages}
               isTyping={isTyping}
-              streamingContent={streamingContent}
               currentProjectId={currentProjectId ?? undefined}
               onPreviewAsset={handlePreviewAsset}
               onDownloadAsset={handleDownloadAsset}
-              onInterpret={(files, code, userMsg) => handleInterpret(files, code, userMsg, handleSend)}
+              onInterpret={(files, code, userMsg) => handleInterpret(files, code, userMsg, handleSendWrapper)}
               onRetry={handleRetry}
               onEditResend={handleEditResend}
               scrollContainerRef={scrollContainerRef}
               messagesEndRef={messagesEndRef}
 
-              // ✨ 核心修改：无缝衔接的占位思考动画
+              // 核心修改：无缝衔接的占位思考动画
               footer={
                 // 触发条件：正在请求中，且最后一条是"空 assistant 消息"，倒数第二条是"用户消息"
                 // 这代表网络请求在路上，后端尚未返回有效内容，AI气泡已建立但内容为空

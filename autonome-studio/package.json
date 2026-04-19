@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
-    "@microsoft/fetch-event-source": "^2.0.1",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-virtual": "^3.13.23",

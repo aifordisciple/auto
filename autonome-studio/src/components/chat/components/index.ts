@@ -22,3 +22,9 @@ export {
 // 共享资产树组件（从原 ExecutionResultCard 提取）
 export { getFileIcon, getFileTypeIcon, buildAssetTree, buildAssetTreeFromFiles, AssetTreeNode } from '../shared/AssetTree';
 export type { AssetNodeType, AssetTreeInputItem, AssetTreeNodeProps } from '../shared/AssetTree';
+
+// 数据预览卡片
+export { DataPreviewCard } from '../DataPreviewCard';
+
+// 技能草稿卡片
+export { SkillDraftCard } from '../SkillDraftCard';

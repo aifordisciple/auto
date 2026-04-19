@@ -157,13 +157,12 @@ interface MemoizedMessageItemProps {
   index: number;
   isLast: boolean;
   isTyping: boolean;
-  streamingContent: string;
   currentProjectId?: string;
   // 回调函数
   onPreviewAsset: (url: string, filename: string) => void;
   onDownloadAsset: (url: string, filename: string) => void;
   onInterpret: (files: string[], code: string, userMessage: string) => void;
-  // ✨ 新增：重试和编辑回调
+  // 新增：重试和编辑回调
   onRetry?: (messageId: string) => void;
   onEditResend?: (messageId: string, newContent: string, attachments?: MessageAttachments) => void;
 }
@@ -173,7 +172,6 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   index,
   isLast,
   isTyping,
-  streamingContent,
   currentProjectId,
   onPreviewAsset,
   onDownloadAsset,
@@ -192,10 +190,10 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   const thinkingContent = useChatStore((state) => state.thinkingContent);
   const isThinking = useChatStore((state) => state.isThinking);
 
-  // ✨ 流式消息优化：对于最后一条 assistant 消息，使用 streamingContent
-  const displayContent = isLast && msg.role === 'assistant' && isTyping ? streamingContent : msg.content;
+  // 流式消息优化：useChat 自动追加内容到 msg.content，无需 streamingContent
+  const displayContent = msg.content;
 
-  // ✨ 是否正在流式输出（流式时隐藏操作按钮）
+  // 是否正在流式输出（流式时隐藏操作按钮）
   const isStreaming = isLast && isTyping && msg.role === 'assistant';
 
   // ✨ 复制处理函数
@@ -297,7 +295,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     onInterpret(filePaths, interpretMeta.code, interpretMeta.userMessage);
   };
 
-  // ✨ 隐藏空的 assistant 消息（但在流式生成中或思考中保留，以显示思考框）
+  // 隐藏空的 assistant 消息（但在流式生成中或思考中保留，以显示思考框）
   if (msg.role === 'assistant' && !displayContent && !(isLast && isTyping) && !isThinking) {
     return null;
   }
