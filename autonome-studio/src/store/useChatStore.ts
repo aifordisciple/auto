@@ -1,4 +1,5 @@
 import { create, StoreApi, UseBoundStore } from 'zustand';
+import type { Message as AiMessage } from 'ai';
 
 export type Role = 'user' | 'assistant' | 'system';
 
@@ -84,21 +85,37 @@ export interface ChatQueueItem {
 }
 
 export interface ChatState {
+  // ==========================================
+  // 会话消息（从后端 API 获取，用于历史加载）
+  // ==========================================
   messages: Message[];
   setMessages: (messages: Message[]) => void;
-  addMessage: (role: Role, content: string, attachments?: MessageAttachments, queueItemId?: string) => void;
-  // 新增：用于流式拼接最后一个气泡的内容
-  appendLastMessage: (contentChunk: string) => void;
-  // 新增：更新指定消息的内容
-  updateMessage: (messageId: string, content: string) => void;
-  // ✨ 新增：更新最后一条消息的 ID（用于流式结束后同步后端真实消息 ID）
-  updateLastMessageId: (newId: string) => void;
-  // 新增：删除指定消息及其之后的所有消息（用于重试和编辑）
-  deleteMessagesAfter: (messageId: string) => void;
-  // 清空消息
+  /** 清空消息（保留初始欢迎语） */
   clearMessages: () => void;
-  isTyping: boolean;
-  setIsTyping: (status: boolean) => void;
+
+  // ==========================================
+  // useChat 镜像状态（由 useChatSync 同步，供现有组件读取）
+  // ==========================================
+  /** useChat 的 messages 镜像（AI SDK Message 格式） */
+  mirroredMessages: AiMessage[];
+  /** useChat 的 isLoading 镜像 */
+  mirroredIsTyping: boolean;
+  /** 同步 useChat 状态到镜像字段（由 useChatSync 调用） */
+  syncFromUseChat: (messages: AiMessage[], isLoading: boolean) => void;
+  /** 更新镜像中最后一条 assistant 消息的 ID（后端真实 ID 同步） */
+  updateMirroredMessageId: (newId: string) => void;
+  /** 当前会话 ID（从 data channel session_info 事件获取） */
+  currentSessionId: string | null;
+  /** 设置当前会话 ID */
+  setCurrentSessionId: (id: string | null) => void;
+
+  // ==========================================
+  // 计费状态
+  // ==========================================
+  /** 最近一次计费信息 */
+  lastBilling: { cost: number; balance: number } | null;
+  /** 设置计费信息 */
+  setLastBilling: (billing: { cost: number; balance: number } | null) => void;
 
   // ==========================================
   // ✨ 分页与懒加载状态
@@ -113,30 +130,6 @@ export interface ChatState {
   setIsLoadingMore: (loading: boolean) => void;
   /** 在消息列表头部添加历史消息（懒加载） */
   prependMessages: (messages: Message[]) => void;
-
-  // ==========================================
-  // ✨ 流式消息优化状态
-  // ==========================================
-  /** 当前正在流式传输的消息 ID */
-  streamingMessageId: string | null;
-  /** 流式消息的累积内容（用于快速渲染） */
-  streamingContent: string;
-  /** 流式内容版本号（用于防止竞态条件） */
-  streamingContentVersion: number;
-  /** 已提交内容版本号（用于防止旧内容覆盖新内容） */
-  committedContentVersion: number;
-  /** 设置流式消息 ID */
-  setStreamingMessageId: (id: string | null) => void;
-  /** 追加流式内容（直接更新，不经过消息列表） */
-  appendStreamingContent: (chunk: string) => void;
-  /** 设置流式内容（完整替换） */
-  setStreamingContent: (content: string) => void;
-  /** 提交流式内容到消息列表 */
-  commitStreamingContent: (explicitContent?: string) => void;
-  /** 清空流式状态 */
-  clearStreamingContent: () => void;
-  /** 获取当前流式内容（用于同步读取） */
-  getCurrentStreamingContent: () => string;
 
   // ==========================================
   // ✨ 思考过程状态
@@ -203,81 +196,51 @@ const initialMessage: Message = {
   timestamp: Date.now(),
 };
 
+/** 镜像消息的初始欢迎语（AI SDK Message 格式） */
+const initialMirroredMessage: AiMessage = {
+  id: 'init-1',
+  role: 'assistant',
+  content: initialMessage.content,
+  createdAt: new Date(),
+};
+
 export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState>((set) => ({
+  // ==========================================
+  // 会话消息（后端 API 获取的历史消息）
+  // ==========================================
   messages: [initialMessage],
   setMessages: (messages: Message[]) => set({ messages }),
-  // ✨ 扩展 addMessage 支持附件和队列项 ID
-  addMessage: (role, content, attachments, queueItemId) =>
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          role,
-          content,
-          timestamp: Date.now(),
-          attachments,  // ✨ 保存附件信息
-          queueItemId,  // ✨ 关联队列项 ID
-          queueStatus: queueItemId ? 'pending' : undefined,  // ✨ 有队列项 ID 时默认 pending
-        },
-      ],
-    })),
-  // 新增实现：找到最后一条消息，把新传来的字符拼接到末尾（不可变更新）
-  appendLastMessage: (contentChunk: string) =>
-    set((state) => {
-      const newMessages = [...state.messages];
-      if (newMessages.length > 0) {
-        const lastIndex = newMessages.length - 1;
-        newMessages[lastIndex] = {
-          ...newMessages[lastIndex],
-          content: newMessages[lastIndex].content + contentChunk,
-        };
-      }
-      return { messages: newMessages };
-    }),
-  // 新增实现：更新指定消息的内容
-  updateMessage: (messageId: string, content: string) =>
-    set((state) => ({
-      messages: state.messages.map(msg =>
-        msg.id === messageId ? { ...msg, content } : msg
-      ),
-    })),
-  // ✨ 新增：更新最后一条消息的 ID（用于流式结束后同步后端真实消息 ID）
-  // 解决问题：前端使用临时 ID（如 1712345678900-abc），后端使用 msg_{uuid} 格式
-  // 当用户点击执行策略卡片时，前端需要真实 ID 来调用 PATCH API 持久化 TASK_ID
-  updateLastMessageId: (newId: string) =>
-    set((state) => {
-      const newMessages = [...state.messages];
-      if (newMessages.length > 0) {
-        // 找到最后一条 assistant 消息并更新其 ID
-        const lastAssistantIndex = newMessages.map(m => m.role).lastIndexOf('assistant');
-        if (lastAssistantIndex !== -1) {
-          newMessages[lastAssistantIndex] = {
-            ...newMessages[lastAssistantIndex],
-            id: newId,
-          };
-        }
-      }
-      return { messages: newMessages };
-    }),
-  // ✨ 新增：删除指定消息及其之后的所有消息（用于重试和编辑重新发送）
-  deleteMessagesAfter: (messageId: string) =>
-    set((state) => {
-      const messageIndex = state.messages.findIndex(msg => msg.id === messageId);
-      if (messageIndex === -1) return state;
-      // 保留该消息之前的所有消息
-      return {
-        messages: state.messages.slice(0, messageIndex),
-        // 清空流式状态
-        streamingMessageId: null,
-        streamingContent: '',
-        isTyping: false,
-      };
-    }),
   // 清空消息（保留初始欢迎语）
   clearMessages: () => set({ messages: [initialMessage] }),
-  isTyping: false,
-  setIsTyping: (status: boolean) => set({ isTyping: status }),
+
+  // ==========================================
+  // useChat 镜像状态实现
+  // ==========================================
+  mirroredMessages: [initialMirroredMessage],
+  mirroredIsTyping: false,
+  // 同步 useChat 的 messages 和 isLoading 到镜像字段
+  syncFromUseChat: (messages: AiMessage[], isLoading: boolean) =>
+    set({ mirroredMessages: messages, mirroredIsTyping: isLoading }),
+  // 更新镜像中最后一条 assistant 消息的 ID（后端真实 ID 同步）
+  // 解决问题：前端使用临时 ID，后端使用 msg_{uuid} 格式
+  // 当用户点击执行策略卡片时，前端需要真实 ID 来调用 PATCH API 持久化 TASK_ID
+  updateMirroredMessageId: (newId: string) =>
+    set((state) => {
+      const newMessages = [...state.mirroredMessages];
+      const lastAssistantIndex = newMessages.map(m => m.role).lastIndexOf('assistant');
+      if (lastAssistantIndex !== -1) {
+        newMessages[lastAssistantIndex] = { ...newMessages[lastAssistantIndex], id: newId };
+      }
+      return { mirroredMessages: newMessages };
+    }),
+  currentSessionId: null,
+  setCurrentSessionId: (id: string | null) => set({ currentSessionId: id }),
+
+  // ==========================================
+  // 计费状态实现
+  // ==========================================
+  lastBilling: null,
+  setLastBilling: (billing: { cost: number; balance: number } | null) => set({ lastBilling: billing }),
 
   // ==========================================
   // ✨ 分页与懒加载状态实现
@@ -290,76 +253,6 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
     set((state) => ({
       messages: [...newMessages, ...state.messages],
     })),
-
-  // ==========================================
-  // ✨ 流式消息优化状态实现
-  // ==========================================
-  streamingMessageId: null,
-  streamingContent: '',
-  streamingContentVersion: 0,
-  committedContentVersion: 0,
-  setStreamingMessageId: (id: string | null) => set({ streamingMessageId: id }),
-  appendStreamingContent: (chunk: string) =>
-    set((state) => ({
-      streamingContent: state.streamingContent + chunk,
-      streamingContentVersion: state.streamingContentVersion + 1,
-    })),
-  setStreamingContent: (content: string) =>
-    set((state) => ({
-      streamingContent: content,
-      streamingContentVersion: state.streamingContentVersion + 1,
-    })),
-  // ✨ 修复：commitStreamingContent 接受可选的 content 参数
-  // 如果传入 content，直接使用它而不是从 state 读取（解决异步问题）
-  // 🔧 增强：添加版本号检查，防止旧内容覆盖新内容
-  commitStreamingContent: (explicitContent?: string) =>
-    set((state) => {
-      // 🔧 版本号检查：如果传入内容但版本号已过期，跳过更新
-      // 注意：只有传入 explicitContent 时才检查版本号，因为这是后端发送的修复内容
-      if (explicitContent !== undefined) {
-        // 后端发送的修复内容优先级最高，直接使用
-        const newMessages = [...state.messages];
-        if (newMessages.length > 0) {
-          const lastAssistantIndex = newMessages.map(m => m.role).lastIndexOf('assistant');
-          if (lastAssistantIndex !== -1) {
-            newMessages[lastAssistantIndex] = {
-              ...newMessages[lastAssistantIndex],
-              content: explicitContent,
-            };
-          }
-        }
-        return {
-          messages: newMessages,
-          streamingMessageId: null,
-          streamingContent: '',
-          committedContentVersion: state.streamingContentVersion + 1,
-        };
-      }
-
-      // 使用 state 中的流式内容
-      const contentToCommit = state.streamingContent;
-      const newMessages = [...state.messages];
-      if (newMessages.length > 0 && contentToCommit) {
-        const lastAssistantIndex = newMessages.map(m => m.role).lastIndexOf('assistant');
-        if (lastAssistantIndex !== -1) {
-          newMessages[lastAssistantIndex] = {
-            ...newMessages[lastAssistantIndex],
-            content: contentToCommit,
-          };
-        }
-      }
-      return {
-        messages: newMessages,
-        streamingMessageId: null,
-        streamingContent: '',
-        committedContentVersion: state.streamingContentVersion + 1,
-      };
-    }),
-  clearStreamingContent: () => set({ streamingMessageId: null, streamingContent: '' }),
-  getCurrentStreamingContent: () => {
-    const state = useChatStore.getState();
-    return state.streamingContent;
-  },
 
   // ==========================================
   // ✨ 思考过程状态实现
