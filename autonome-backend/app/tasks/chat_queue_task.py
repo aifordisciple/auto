@@ -30,6 +30,7 @@ from app.models.enums import RoleEnum
 from app.models.domain import User
 from app.services import chat_queue_service
 from app.core.content_filter import filter_thinking_content, StreamContentFilter
+from app.core.vercel_stream import VercelDataStreamEncoder
 
 
 # ==========================================
@@ -81,6 +82,9 @@ def process_chat_queue_item(self, session_id: str):
         # 更新状态为 processing
         chat_queue_service.update_item_status(item_id, QueueItemStatus.PROCESSING)
 
+        # 创建 Vercel 编码器
+        encoder = VercelDataStreamEncoder()
+
         # 推送 queue_start 事件
         pending_items = chat_queue_service.get_queue_status(session_id)
         total_count = len(pending_items)
@@ -90,15 +94,15 @@ def process_chat_queue_item(self, session_id: str):
                 processing_position = i + 1
                 break
 
-        chat_queue_service.publish_sse_event(session_id, "queue_start", {
+        chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_start", {
             "queue_item_id": item_id,
             "user_message": item.message,
-        })
-        chat_queue_service.publish_sse_event(session_id, "queue_progress", {
+        }))
+        chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_progress", {
             "queue_item_id": item_id,
             "position": processing_position,
             "total": total_count,
-        })
+        }))
 
         # 执行 LLM 流式调用
         _process_item_with_llm(session_id, item)
@@ -113,10 +117,11 @@ def process_chat_queue_item(self, session_id: str):
             chat_queue_service.update_item_status(
                 item.id, QueueItemStatus.FAILED, error=str(e)
             )
-            chat_queue_service.publish_sse_event(session_id, "queue_error", {
+            encoder = VercelDataStreamEncoder()
+            chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_error", {
                 "queue_item_id": item.id,
                 "error": str(e),
-            })
+            }))
         # 继续处理下一个
         _schedule_next(session_id)
 
@@ -133,8 +138,9 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
     """
     对单个队列项执行 LLM 流式调用
 
-    通过 Redis pub/sub 将每个 SSE 事件推送给前端
+    通过 Redis pub/sub 将 Vercel Data Stream 协议行推送给前端
     """
+    encoder = VercelDataStreamEncoder()
     with Session(engine) as db:
         # 持久化用户消息到 ChatMessage
         user_msg = ChatMessage(
@@ -157,13 +163,12 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
 
         # 检查 API Key
         if not is_local_model and not api_key:
-            chat_queue_service.publish_sse_event(session_id, "message", {
-                "type": "text",
-                "content": "⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。",
-            })
-            chat_queue_service.publish_sse_event(session_id, "queue_complete", {
+            chat_queue_service.publish_vercel_event(session_id, encoder.text_chunk(
+                "⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。"
+            ))
+            chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_complete", {
                 "queue_item_id": item.id,
-            })
+            }))
             chat_queue_service.update_item_status(
                 item.id, QueueItemStatus.FAILED, error="API Key 未配置"
             )
@@ -233,28 +238,19 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
                 filtered_content, content_type = content_filter.filter_chunk(content)
                 if filtered_content:
                     if content_type == "thinking":
-                        # ✨ 思考过程通过 thinking 事件类型推送给前端
-                        chat_queue_service.publish_sse_event(session_id, "thinking", {
-                            "type": "thinking",
-                            "content": filtered_content,
-                        })
+                        # ✨ 思考过程通过 data 事件推送给前端
+                        chat_queue_service.publish_vercel_event(session_id, encoder.from_thinking(filtered_content))
                     else:
                         ai_full_response += filtered_content
-                        # 通过 Redis pub/sub 推送 SSE 事件
-                        chat_queue_service.publish_sse_event(session_id, "message", {
-                            "type": "text",
-                            "content": filtered_content,
-                        })
+                        # 通过 Redis pub/sub 推送 Vercel 文本块
+                        chat_queue_service.publish_vercel_event(session_id, encoder.text_chunk(filtered_content))
 
     except Exception as e:
         import traceback
         log.error(f"LLM 调用失败: {e}\n{traceback.format_exc()}")
         err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
         ai_full_response += err_msg
-        chat_queue_service.publish_sse_event(session_id, "message", {
-            "type": "text",
-            "content": err_msg,
-        })
+        chat_queue_service.publish_vercel_event(session_id, encoder.text_chunk(err_msg))
 
     # 持久化助手消息 + 扣费
     with Session(engine) as final_db:
@@ -289,20 +285,13 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
                 log.warning(f"扣费失败: {e}")
 
     # 推送完成事件
-    chat_queue_service.publish_sse_event(session_id, "ai_message_id", {
-        "message_id": ai_msg_id,
-    })
-    chat_queue_service.publish_sse_event(session_id, "ai_message_content", {
-        "content": cleaned_response,
-    })
-    chat_queue_service.publish_sse_event(session_id, "billing", {
-        "cost": cost_credits,
-        "balance": final_balance,
-    })
-    chat_queue_service.publish_sse_event(session_id, "queue_complete", {
+    chat_queue_service.publish_vercel_event(session_id, encoder.from_ai_message_id(str(ai_msg_id)))
+    chat_queue_service.publish_vercel_event(session_id, encoder.from_ai_message_content(cleaned_response))
+    chat_queue_service.publish_vercel_event(session_id, encoder.from_billing(cost_credits, final_balance))
+    chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_complete", {
         "queue_item_id": item.id,
         "result_message_id": ai_msg_id,
-    })
+    }))
 
     # 更新队列项状态
     chat_queue_service.update_item_status(
@@ -329,6 +318,7 @@ def _schedule_next(session_id: str):
         )
         log.info(f"调度下一个队列项: session_id={session_id}, next_item_id={next_item.id}")
     else:
-        # 队列为空，推送 queue_done 事件
-        chat_queue_service.publish_sse_event(session_id, "queue_done", {})
+        # 队列为空，推送 queue_done 事件（Vercel finish 信号）
+        encoder = VercelDataStreamEncoder()
+        chat_queue_service.publish_vercel_event(session_id, encoder.from_queue_event("queue_done", {}))
         log.info(f"队列处理完毕: session_id={session_id}")

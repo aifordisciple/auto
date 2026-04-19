@@ -252,10 +252,12 @@ def delete_queue_item(item_id: str, user_id: int) -> bool:
             db.add(item)
             db.commit()
             # 通知 SSE 连接中断当前处理
-            publish_sse_event(item.session_id, "queue_error", {
+            from app.core.vercel_stream import VercelDataStreamEncoder
+            encoder = VercelDataStreamEncoder()
+            publish_vercel_event(item.session_id, encoder.from_queue_event("queue_error", {
                 "queue_item_id": item_id,
                 "error": "用户取消了此消息的处理",
-            })
+            }))
             log.info(f"队列项已取消: item_id={item_id}")
             return True
 
@@ -411,6 +413,19 @@ def publish_sse_event(session_id: str, event_type: str, data: Dict[str, Any]):
     }
     r.publish(stream_key(session_id), json.dumps(event, ensure_ascii=False))
     log.debug(f"SSE 事件已推送: session_id={session_id}, event={event_type}")
+
+
+def publish_vercel_event(session_id: str, vercel_line: str):
+    """
+    通过 Redis pub/sub 推送 Vercel Data Stream 协议行
+
+    与 publish_sse_event 不同，此方法直接推送 Vercel 协议格式字符串
+    （如 0:"chunk"\\n 或 data:[{"type":"thinking",...}]\\n），
+    而非 SSE 事件字典。queue_event_generator 直接透传这些行。
+    """
+    r = get_redis()
+    r.publish(stream_key(session_id), vercel_line)
+    log.debug(f"Vercel 事件已推送: session_id={session_id}, line_prefix={vercel_line[:50]}")
 
 
 # ==========================================
