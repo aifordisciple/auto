@@ -59,7 +59,8 @@ export async function POST(req: NextRequest) {
     if (!backendResponse.ok) {
       if (backendResponse.status === 402) {
         const errorText = await backendResponse.text();
-        return new Response(`3:${JSON.stringify(errorText)}\n`, {
+        // v5 UIMessage Stream Protocol: 返回 SSE 格式的 error 事件
+        return new Response(`data: {"type":"error","error":${JSON.stringify(errorText)}}\n\n`, {
           status: 200,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         });

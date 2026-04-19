@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useChatStore } from '@/store/useChatStore';
+import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { Message } from '@/store/useChatStore';
 import type { UIMessage } from '@ai-sdk/react';
 
@@ -63,6 +64,8 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
   const setThinkingContent = useChatStore(state => state.setThinkingContent);
   const setIsThinking = useChatStore(state => state.setIsThinking);
   const setCurrentSessionId = useChatStore(state => state.setCurrentSessionId);
+  // ⚠️ 同时同步 session_id 到 workspaceStore，确保 SessionSidebar 刷新
+  const setWorkspaceSessionId = useWorkspaceStore(state => state.setCurrentSessionId);
 
   // 跟踪已处理的消息数量，避免重复处理 data 事件
   const lastProcessedMessageCount = useRef(0);
@@ -97,6 +100,11 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
             break;
           case 'session_info':
             setCurrentSessionId(event.session_id as string);
+            // ⚠️ 同步到 workspaceStore，确保 SessionSidebar 和 ChatStage 的 currentSessionId 一致
+            // 只有新会话（is_new=true）时才更新，避免切换历史会话时覆盖
+            if (event.is_new) {
+              setWorkspaceSessionId(event.session_id as string);
+            }
             break;
           case 'billing':
             useChatStore.getState().setLastBilling({
@@ -122,7 +130,7 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
     }
 
     lastProcessedMessageCount.current = messages.length;
-  }, [messages, setThinkingContent, setIsThinking, setCurrentSessionId]);
+  }, [messages, setThinkingContent, setIsThinking, setCurrentSessionId, setWorkspaceSessionId]);
 
   // 流结束后关闭思考状态
   useEffect(() => {

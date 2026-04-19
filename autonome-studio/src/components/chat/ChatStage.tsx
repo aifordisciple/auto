@@ -61,7 +61,6 @@ export function ChatStage() {
   // ==========================================
   const currentProjectId = useWorkspaceStore(state => state.currentProjectId);
   const currentSessionId = useWorkspaceStore(state => state.currentSessionId);
-  const setCurrentSessionId = useWorkspaceStore(state => state.setCurrentSessionId);
   const pendingChatAttachments = useWorkspaceStore(state => state.pendingChatAttachments);
   // 新增：引入更新附件状态的函数
   const setPendingChatAttachments = useWorkspaceStore(state => state.setPendingChatAttachments);
@@ -77,6 +76,10 @@ export function ChatStage() {
   // 核心流式通信由 useChat 管理，不再手动 SSE
   // ==========================================
   // useMemo 确保 transport 实例稳定，避免每次渲染重建导致 useChat 状态丢失
+  // ⚠️ 关键：不将 currentSessionId / pendingChatAttachments 放入依赖数组！
+  // 原因：headers/body 使用函数形式，每次请求时自动读取最新值。
+  // 如果放入依赖，后端返回 session_info → currentSessionId 变化 → transport 重建
+  // → useChat 内部状态丢失 → 消息被清空 → UI 重置为初始状态
   const chatTransport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
     // 注入 JWT 认证头，BFF 代理从 header 中提取 token 转发给后端
@@ -88,12 +91,12 @@ export function ChatStage() {
     // 通过 body 传递上下文信息给 BFF 代理（函数形式确保获取最新值）
     body: () => ({
       data: {
-        projectId: currentProjectId,
-        sessionId: currentSessionId,
-        contextFiles: pendingChatAttachments,
+        projectId: useWorkspaceStore.getState().currentProjectId,
+        sessionId: useWorkspaceStore.getState().currentSessionId,
+        contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
       },
     }),
-  }), [currentProjectId, currentSessionId, pendingChatAttachments]);
+  }), []);
 
   const {
     messages: aiMessages,
@@ -205,6 +208,7 @@ export function ChatStage() {
 
   // ==========================================
   // Fetch messages when session changes
+  // ⚠️ 关键保护：流式输出中不重新加载，避免清空正在接收的消息
   // ==========================================
   useEffect(() => {
     const fetchMessages = async () => {
@@ -214,7 +218,7 @@ export function ChatStage() {
         return;
       }
 
-      // 流式输出中不重新加载
+      // 流式输出中不重新加载（这是"发送后重置"bug 的另一个原因）
       if (isLoading) return;
 
       const token = getToken();
