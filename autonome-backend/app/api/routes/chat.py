@@ -24,7 +24,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from sse_starlette.sse import EventSourceResponse
+from fastapi.responses import StreamingResponse
 
 from app.core.database import get_session, engine
 from app.models.domain import (
@@ -33,6 +33,7 @@ from app.models.domain import (
 from app.core.logger import log
 from app.api.deps import get_current_user
 from app.core.content_filter import filter_thinking_content, StreamContentFilter
+from app.core.vercel_stream import VercelDataStreamEncoder
 
 from app.schemas.chat import ChatRequest
 
@@ -188,21 +189,17 @@ async def chat_stream(
         elif msg.role == RoleEnum.assistant:
             lc_messages.append({"role": "assistant", "content": msg.content})
 
-    # 8. SSE 流式响应
-    async def event_generator():
+    # 8. Vercel Data Stream 流式响应
+    async def vercel_event_generator():
+        encoder = VercelDataStreamEncoder()
+
         # 推送 session_id 给前端
-        yield {
-            "event": "session_info",
-            "data": json.dumps({"session_id": session_id_for_ai, "is_new": is_new_session})
-        }
+        yield encoder.from_session_info(session_id_for_ai, is_new_session)
 
         # 检查 API Key
         if not is_local_model and not api_key:
-            yield {
-                "event": "message",
-                "data": json.dumps({"type": "text", "content": "⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。"})
-            }
-            yield {"event": "done", "data": "[DONE]"}
+            yield encoder.text_chunk("⚠️ 您尚未配置大模型 API Key。请在左侧设置中心配置。")
+            yield encoder.finish()
             return
 
         # 直接 LLM 流式调用
@@ -228,17 +225,11 @@ async def chat_stream(
                     filtered_content, content_type = content_filter.filter_chunk(content)
                     if filtered_content:
                         if content_type == "thinking":
-                            # ✨ 思考过程通过 thinking 事件类型推送给前端
-                            yield {
-                                "event": "thinking",
-                                "data": json.dumps({"type": "thinking", "content": filtered_content})
-                            }
+                            # ✨ 思考过程通过 data 事件推送给前端
+                            yield encoder.from_thinking(filtered_content)
                         else:
                             ai_full_response += filtered_content
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({"type": "text", "content": filtered_content})
-                            }
+                            yield encoder.text_chunk(filtered_content)
 
         except StopAsyncIteration:
             raise
@@ -248,7 +239,7 @@ async def chat_stream(
             log.error(f"❌ [Chat] LLM 调用失败: {str(e)}\n{error_details}")
             err_msg = f"\n\n❌ **AI 引擎异常**: {str(e)}\n请查看后台日志。"
             ai_full_response += err_msg
-            yield {"event": "message", "data": json.dumps({"type": "text", "content": err_msg})}
+            yield encoder.text_chunk(err_msg)
 
         finally:
             # 持久化助手消息 + 扣费
@@ -285,17 +276,17 @@ async def chat_stream(
 
                 final_db_session.commit()
 
-                yield {"event": "ai_message_id", "data": json.dumps({"message_id": ai_msg.id})}
-                yield {"event": "ai_message_content", "data": json.dumps({"content": cleaned_response})}
-                yield {"event": "billing", "data": json.dumps({"cost": cost_credits, "balance": final_balance})}
+                yield encoder.from_ai_message_id(str(ai_msg.id))
+                yield encoder.from_ai_message_content(cleaned_response)
+                yield encoder.from_billing(cost_credits, final_balance)
 
-            yield {"event": "done", "data": "[DONE]"}
+            yield encoder.finish()
 
-    # 防缓冲头：确保 SSE 流不被 nginx/CDN 等中间代理缓冲
+    # 防缓冲头：确保流不被 nginx/CDN 等中间代理缓冲
     # X-Accel-Buffering: no 是 nginx 专用头，告诉 nginx 禁用此响应的代理缓冲
-    return EventSourceResponse(
-        event_generator(),
-        ping=15,
+    return StreamingResponse(
+        vercel_event_generator(),
+        media_type="text/plain; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
@@ -337,20 +328,19 @@ async def chat_stream_queue(
 
     session_id = request.session_id
 
-    async def queue_event_generator():
+    async def vercel_queue_event_generator():
         """
-        订阅 Redis pub/sub channel，转发 Celery worker 的 SSE 事件给前端
+        订阅 Redis pub/sub channel，直接透传 Celery worker 的 Vercel Data Stream 行给前端
 
         流程：
         1. 推送 session_info 确认连接
         2. 订阅 chat_stream:{session_id} channel
-        3. 转发所有事件直到收到 queue_done
+        3. 透传所有 Vercel 协议行直到收到 queue_done
         """
+        encoder = VercelDataStreamEncoder()
+
         # 确认连接
-        yield {
-            "event": "session_info",
-            "data": json.dumps({"session_id": session_id, "is_new": False})
-        }
+        yield encoder.from_session_info(session_id, False)
 
         # 订阅 Redis pub/sub
         import redis.asyncio as aioredis
@@ -364,7 +354,7 @@ async def chat_stream_queue(
             await pubsub.subscribe(channel)
             log.info(f"队列 SSE 订阅已建立: session_id={session_id}")
 
-            # 监听事件
+            # 监听事件 — 直接透传 Vercel 协议行
             while True:
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
@@ -372,23 +362,23 @@ async def chat_stream_queue(
                 )
                 if message and message["type"] == "message":
                     try:
-                        event_data = json.loads(message["data"])
-                        event_type = event_data.get("event", "message")
-                        event_payload = event_data.get("data", {})
+                        vercel_line = message["data"]
 
-                        # 转发 SSE 事件
-                        yield {
-                            "event": event_type,
-                            "data": json.dumps(event_payload, ensure_ascii=False),
-                        }
+                        # 直接透传 Vercel 协议行
+                        yield vercel_line
 
-                        # queue_done 表示所有队列项处理完毕，关闭连接
-                        if event_type == "queue_done":
-                            yield {"event": "done", "data": "[DONE]"}
-                            break
+                        # 检测 queue_done 信号（Vercel finish 事件：e: 前缀）
+                        # Celery worker 通过 encoder.from_queue_event("queue_done", {}) 发送 finish 事件
+                        if vercel_line.startswith("e:"):
+                            try:
+                                finish_payload = json.loads(vercel_line[2:])
+                                if finish_payload.get("finishReason") == "stop":
+                                    break
+                            except (json.JSONDecodeError, KeyError):
+                                pass
 
-                    except json.JSONDecodeError as e:
-                        log.warning(f"Redis 消息解析失败: {e}")
+                    except Exception as e:
+                        log.warning(f"Redis 消息透传失败: {e}")
                         continue
 
         except asyncio.CancelledError:
@@ -401,9 +391,9 @@ async def chat_stream_queue(
             log.info(f"队列 SSE 订阅已关闭: session_id={session_id}")
 
     # 防缓冲头
-    return EventSourceResponse(
-        queue_event_generator(),
-        ping=15,
+    return StreamingResponse(
+        vercel_queue_event_generator(),
+        media_type="text/plain; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
