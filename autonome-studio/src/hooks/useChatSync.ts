@@ -54,7 +54,7 @@ function convertToStoreMessages(aiMessages: UIMessage[]): Message[] {
     id: msg.id,
     role: msg.role as 'user' | 'assistant' | 'system',
     content: extractTextFromParts(msg),
-    timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : Date.now(),
+    timestamp: Date.now(),
   }));
 }
 
