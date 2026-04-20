@@ -120,6 +120,18 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
       const storeMessages = convertToStoreMessages(messages);
       syncFromUseChat(storeMessages, false);
     }
+
+    // ✨ 流式期间：检测到助手消息有实际文本内容时，关闭思考状态
+    // 这样"思考中..."框会在 AI 开始输出文本后自动消失
+    if (isLoading && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg.role === 'assistant') {
+        const textContent = extractTextFromParts(lastMsg);
+        if (textContent.length > 0) {
+          useChatStore.getState().setIsThinking(false);
+        }
+      }
+    }
   }, [messages, isLoading, syncFromUseChat]);
 
   // ==========================================

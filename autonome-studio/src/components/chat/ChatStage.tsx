@@ -280,10 +280,16 @@ export function ChatStage() {
 
           // ⚠️ 核心修复：同步给 Vercel AI SDK 的 aiMessages
           // 这样后续 sendMessage 才会把完整历史传给后端
+          // ✨ 修复上下文投毒：构造完整的 UIMessage 格式，
+          // 包含 parts 字段（text part 从 content 重建），
+          // 避免 Vercel AI SDK 因缺少 parts 导致内部状态不一致
           setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string }) => ({
             id: m.id,
             role: m.role,
             content: m.content,
+            // ✨ 从 content 重建 parts，确保 UIMessage 结构完整
+            // Vercel AI SDK v5 依赖 parts 进行消息渲染和上下文传递
+            parts: m.content ? [{ type: 'text' as const, text: m.content }] : [],
           })));
         } else {
           setMessages([]);
