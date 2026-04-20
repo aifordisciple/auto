@@ -233,21 +233,32 @@ export function ChatStage() {
 
   // ==========================================
   // Fetch messages when session changes
-  // ⚠️ 关键保护：流式输出中不重新加载，避免清空正在接收的消息
+  // ✨ 核心修复：使用 isLoadingRef 为历史拉取加锁
+  // 当新消息发送导致新 Session ID 产生时，当前一定正在流式响应，
+  // 此时绝对不能去服务端拉历史，否则空历史会清空掉用户的消息和正在打字的屏幕。
   // ⚠️ 修复：历史消息必须同时同步给 setAiMessages，
   // 否则后续 append/sendMessage 只传当前页面的消息给后端，
   // 导致上下文断层（问单细胞却回答 PCA）
   // ==========================================
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
   useEffect(() => {
     const fetchMessages = async () => {
       if (!currentSessionId) {
-        setMessages([]);
-        setAiMessages([]);
+        // ✨ 只有在非流式状态时才清空屏幕
+        if (!isLoadingRef.current) {
+          setMessages([]);
+          setAiMessages([]);
+        }
         return;
       }
 
-      // 流式输出中不重新加载（这是"发送后重置"bug 的另一个原因）
-      if (isLoading) return;
+      // ✨ 核心修复：如果是新发起的对话刚拿到了服务端返回的 ID，当前一定正在流式响应！
+      // 此时绝对不能去服务端拉历史，否则空历史会直接清空掉用户的消息和正在打字的屏幕。
+      if (isLoadingRef.current) return;
 
       const token = getToken();
       try {

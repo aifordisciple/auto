@@ -10,6 +10,10 @@
  * v5 适配：UIMessage 使用 parts[] 而非 content 字符串，
  * 此处将 UIMessage 转换为 store 的 Message 格式（含 content: string）。
  * 自定义数据事件通过消息 parts 中 type="data-*" 的项传递。
+ *
+ * ✨ 修复：兼容 Vercel AI SDK 的 annotations 和 parts 两种格式，
+ * 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级的情况），
+ * 彻底修复思考框不显示和 session_id 丢失的问题。
  */
 import { useEffect, useRef } from 'react';
 import { useChatStore } from '@/store/useChatStore';
@@ -39,21 +43,6 @@ function extractTextFromParts(msg: UIMessage): string {
     }
   }
   return content;
-}
-
-/**
- * 从 UIMessage.parts 中提取 data-* 自定义事件
- * v5 协议要求自定义数据事件的 type 以 "data-" 开头
- * 返回 [{eventName, data}, ...] 例如 [{eventName: "thinking", data: {content: "..."}}]
- */
-function extractDataEvents(msg: UIMessage): { eventName: string; data: unknown }[] {
-  if (!msg.parts) return [];
-  return msg.parts
-    .filter((part): part is typeof part & { type: string } => part.type.startsWith('data-'))
-    .map(part => ({
-      eventName: part.type.slice(5), // "data-thinking" → "thinking"
-      data: (part as { type: string; data: unknown }).data,
-    }));
 }
 
 /**
@@ -114,49 +103,80 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
     // 流式期间（isLoading && wasLoading）：跳过，不触发任何 Zustand 写入
   }, [messages, isLoading, syncFromUseChat]);
 
-  // 处理消息 parts 中的 data-* 事件（v5 自定义数据事件）
-  // ⚠️ 关键：data-* parts 是增量添加到现有 assistant 消息中的，
-  // 所以需要跟踪每个消息已处理的 parts 数量，只处理新增的
+  // ==========================================
+  // ✨ 处理消息中的 data-* 自定义事件
+  // 兼容 Vercel AI SDK 的 parts 和 annotations 两种格式
+  // 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级的情况）
+  // ==========================================
   useEffect(() => {
     for (const msg of messages) {
-      if (!msg.parts) continue;
+      // ✨ 兼容 Vercel AI SDK: 事件可能在 parts 也可能在 annotations (v5 注解协议)
+      let dataParts: any[] = [];
 
-      const dataParts = msg.parts.filter(
-        (part): part is typeof part & { type: string } => part.type.startsWith('data-')
-      );
+      if (msg.parts && msg.parts.length > 0) {
+        const parts = msg.parts.filter((p: any) => p.type && p.type.startsWith('data-'));
+        dataParts = [...dataParts, ...parts];
+      }
+
+      if (msg.annotations && msg.annotations.length > 0) {
+        const annotations = msg.annotations.filter((a: any) => a && a.type && a.type.startsWith('data-'));
+        dataParts = [...dataParts, ...annotations];
+      }
+
+      if (dataParts.length === 0) continue;
 
       const alreadyProcessed = processedDataPartsRef.current[msg.id] ?? 0;
       const newParts = dataParts.slice(alreadyProcessed);
 
       for (const part of newParts) {
         const eventName = part.type.slice(5); // "data-thinking" → "thinking"
-        const eventData = (part as { type: string; data: unknown }).data;
-        if (!eventData || typeof eventData !== 'object') continue;
-        const event = eventData as Record<string, unknown>;
+
+        // ✨ 鲁棒解析：兼容存在或不存在嵌套 .data 层级的情况
+        // Vercel AI SDK v5 中，data-* part 的数据可能在 part.data 中，
+        // 也可能直接在 part 本身（作为 annotations 时）
+        let event: Record<string, unknown>;
+        if (part.data && typeof part.data === 'object') {
+          event = part.data as Record<string, unknown>;
+        } else {
+          // 没有 .data 包装，直接使用 part 本身（去掉 type 字段）
+          const { type, ...rest } = part;
+          event = rest;
+        }
 
         switch (eventName) {
           case 'thinking':
             // 累积思考内容（后端逐 token 推送）
             {
               const thinkingContent = useChatStore.getState().thinkingContent;
-              setThinkingContent(thinkingContent + (event.content as string));
+              // ✨ 兼容：思考内容可能在 content 或 text 字段
+              const newContent = (event.content || event.text || '') as string;
+              setThinkingContent(thinkingContent + newContent);
               setIsThinking(true);
             }
             break;
           case 'session_info':
-            setCurrentSessionId(event.session_id as string);
-            // ⚠️ 修复：无论 is_new 是什么，都强制同步给 workspace，
-            // 防止 fetch 历史后 currentSessionId 不一致导致上下文丢失
-            setWorkspaceSessionId(event.session_id as string);
+            {
+              const sessionId = event.session_id as string;
+              if (sessionId) {
+                setCurrentSessionId(sessionId);
+                // ⚠️ 修复：无论 is_new 是什么，都强制同步给 workspace，
+                // 防止 fetch 历史后 currentSessionId 不一致导致上下文丢失
+                setWorkspaceSessionId(sessionId);
+              }
+            }
             break;
           case 'billing':
-            useChatStore.getState().setLastBilling({
-              cost: event.cost as number,
-              balance: event.balance as number,
-            });
+            if (event.cost !== undefined && event.balance !== undefined) {
+              useChatStore.getState().setLastBilling({
+                cost: Number(event.cost),
+                balance: Number(event.balance),
+              });
+            }
             break;
           case 'ai_message_id':
-            useChatStore.getState().updateMirroredMessageId(event.message_id as string);
+            if (event.message_id) {
+              useChatStore.getState().updateMirroredMessageId(event.message_id as string);
+            }
             break;
           case 'ai_message_content':
             // 内容已通过 useChat.messages 自动同步，无需额外处理
