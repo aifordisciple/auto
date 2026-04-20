@@ -385,8 +385,8 @@ const ChatInputBox = memo(function ChatInputBox({
         <div className="flex items-center gap-1">
           {/* ✨ 深度思考开关 - 发送按钮左侧，持久化状态 */}
           <DeepThinkToggle />
-          {/* ✨ 停止按钮 - 流式输出时显示 */}
-          {isTyping && (
+          {/* ✨ AI 回复中：只显示停止按钮，隐藏发送按钮 */}
+          {isTyping ? (
             <button
               onClick={onStop}
               className="p-2 md:p-2 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
@@ -394,16 +394,17 @@ const ChatInputBox = memo(function ChatInputBox({
             >
               <Square size={18} fill="currentColor" />
             </button>
+          ) : (
+            /* 发送按钮 - AI 回复完成后显示 */
+            <button
+              onClick={handleInternalSend}
+              disabled={!canSend}
+              className="p-2 md:p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
+              title="发送"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
           )}
-          {/* 发送按钮 - AI 回复期间禁用（防并发） */}
-          <button
-            onClick={handleInternalSend}
-            disabled={!canSend}
-            className="p-2 md:p-2 bg-blue-600 hover:bg-blue-700 dark:bg-white dark:text-black dark:hover:bg-neutral-200 disabled:bg-gray-300 dark:disabled:bg-neutral-800 disabled:text-neutral-500 dark:disabled:text-neutral-500 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
-            title={isTyping ? "请等待 AI 回复完成" : "发送"}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          </button>
         </div>
       </div>
     </div>
