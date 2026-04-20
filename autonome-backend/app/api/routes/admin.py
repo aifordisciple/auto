@@ -192,7 +192,7 @@ async def adjust_user_credits(
         billing_service.recharge(
             wallet_id=wallet.wallet_id,
             amount=payload.amount,
-            transaction_type="admin_recharge",
+            transaction_type="recharge_admin",
             description=f"管理员 {admin_user.email} 充值。原因: {payload.reason}"
         )
     else:
