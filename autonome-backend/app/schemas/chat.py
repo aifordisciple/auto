@@ -23,6 +23,7 @@ class ChatRequest(BaseModel):
     skill_id: Optional[str] = None  # 用户预选技能ID
     images: list[str] = []  # 粘贴上传的图片路径列表
     task_mode: Optional[str] = None  # 任务模式：'complex' 强制蓝图，None 自动判断
+    enable_think: bool = False  # ✨ 深度思考模式开关（用户手动切换，默认关闭）
 
 
 # ==========================================

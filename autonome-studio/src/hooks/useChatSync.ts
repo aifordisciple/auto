@@ -21,6 +21,7 @@ import { useEffect, useRef } from 'react';
 import { useChatStore } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { useUIStore } from '@/store/useUIStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import type { Message } from '@/store/useChatStore';
 import type { UIMessage } from '@ai-sdk/react';
 
@@ -197,10 +198,14 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
             break;
           case 'billing':
             if (event.cost !== undefined && event.balance !== undefined) {
+              const newBalance = Number(event.balance);
               useChatStore.getState().setLastBilling({
                 cost: Number(event.cost),
-                balance: Number(event.balance),
+                balance: newBalance,
               });
+              // ⚠️ 修复：同步更新 authStore 的 credits_balance，
+              // 否则 TopHeader/Sidebar 余额不会实时刷新
+              useAuthStore.getState().setCreditsBalance(newBalance);
             }
             break;
           case 'ai_message_id':

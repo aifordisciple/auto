@@ -249,48 +249,101 @@ async def chat_stream(
                 return
 
             # 直接 LLM 流式调用
-            from langchain_openai import ChatOpenAI
-
             cost_credits = 1.0
             content_filter = StreamContentFilter()
 
-            try:
-                direct_llm = ChatOpenAI(
-                    api_key=api_key or "not-needed",
-                    base_url=base_url,
-                    model=model_name,
-                    streaming=True,
-                )
+            # ✨ 深度思考模式：本地 Ollama 使用原生客户端，第三方 API 使用 extra_body
+            enable_think = request.enable_think
+            use_native_ollama = is_local_model and enable_think
 
-                async for chunk in direct_llm.astream(lc_messages):
-                    content = chunk.content
-                    if content:
-                        # ✨ 过滤思考标签等内容，返回 (content, type) 元组
-                        # type: "text" = 正常回复, "thinking" = 思考过程
-                        filtered_content, content_type = content_filter.filter_chunk(content)
-                        if filtered_content:
-                            if content_type == "thinking":
-                                # ✨ 思考过程通过 data 事件推送给前端
-                                yield encoder.from_thinking(filtered_content)
-                            else:
-                                # 首个文本块前发送 text-start
+            try:
+                if use_native_ollama:
+                    # ✨ 本地 Ollama + 深度思考：使用 ollama.AsyncClient 原生流式
+                    # LangChain ChatOpenAI 依赖 /v1 端点，不支持 think 参数
+                    import ollama as ollama_sdk
+
+                    host = base_url
+                    if host and host.endswith('/v1'):
+                        host = host[:-3]
+                    if not host:
+                        host = "http://localhost:11434"
+
+                    client = ollama_sdk.AsyncClient(host=host)
+                    ollama_messages = []
+                    for msg in lc_messages:
+                        ollama_messages.append({'role': msg['role'], 'content': msg['content']})
+
+                    async for part in await client.chat(
+                        model=model_name,
+                        messages=ollama_messages,
+                        think=True,
+                        stream=True,
+                    ):
+                        # Ollama think 模式：part.message.content 为思考内容，part.message.thinking 为思考过程
+                        if part.message and part.message.content:
+                            # 正常文本内容
+                            filtered_content, content_type = content_filter.filter_chunk(part.message.content)
+                            if filtered_content:
+                                if content_type == "thinking":
+                                    yield encoder.from_thinking(filtered_content)
+                                else:
+                                    start = ensure_text_started()
+                                    if start:
+                                        yield start
+                                    ai_full_response += filtered_content
+                                    yield encoder.text_chunk(filtered_content)
+                        # ✨ Ollama think 模式：思考过程在 message.thinking 字段
+                        if part.message and hasattr(part.message, 'thinking') and part.message.thinking:
+                            yield encoder.from_thinking(part.message.thinking)
+
+                else:
+                    # 第三方 API 或本地 Ollama 无深度思考：使用 LangChain ChatOpenAI
+                    from langchain_openai import ChatOpenAI
+
+                    llm_kwargs = dict(
+                        api_key=api_key or "not-needed",
+                        base_url=base_url,
+                        model=model_name,
+                        streaming=True,
+                    )
+
+                    # ✨ 第三方 API + 深度思考：注入 thinking 配置（Claude 等模型支持）
+                    if enable_think and not is_local_model:
+                        llm_kwargs['extra_body'] = {
+                            'thinking': {'type': 'enabled', 'budget_tokens': 10000}
+                        }
+
+                    direct_llm = ChatOpenAI(**llm_kwargs)
+
+                    async for chunk in direct_llm.astream(lc_messages):
+                        content = chunk.content
+                        if content:
+                            # ✨ 过滤思考标签等内容，返回 (content, type) 元组
+                            # type: "text" = 正常回复, "thinking" = 思考过程
+                            filtered_content, content_type = content_filter.filter_chunk(content)
+                            if filtered_content:
+                                if content_type == "thinking":
+                                    # ✨ 思考过程通过 data 事件推送给前端
+                                    yield encoder.from_thinking(filtered_content)
+                                else:
+                                    # 首个文本块前发送 text-start
+                                    start = ensure_text_started()
+                                    if start:
+                                        yield start
+                                    ai_full_response += filtered_content
+                                    yield encoder.text_chunk(filtered_content)
+
+                        # ✨ 工具调用拦截：Agent 调用工具时 content 为空，tool_calls 在 chunk 中
+                        # 输出进度提示，避免前端长时间无输出导致用户以为系统卡死
+                        elif hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                            for tc in chunk.tool_calls:
+                                tool_name = tc.get('name', tc.get('function', {}).get('name', 'tool')) if isinstance(tc, dict) else getattr(tc, 'name', 'tool')
+                                progress_msg = f"\n> ⚙️ 正在执行: `{tool_name}`...\n\n"
                                 start = ensure_text_started()
                                 if start:
                                     yield start
-                                ai_full_response += filtered_content
-                                yield encoder.text_chunk(filtered_content)
-
-                    # ✨ 工具调用拦截：Agent 调用工具时 content 为空，tool_calls 在 chunk 中
-                    # 输出进度提示，避免前端长时间无输出导致用户以为系统卡死
-                    elif hasattr(chunk, 'tool_calls') and chunk.tool_calls:
-                        for tc in chunk.tool_calls:
-                            tool_name = tc.get('name', tc.get('function', {}).get('name', 'tool')) if isinstance(tc, dict) else getattr(tc, 'name', 'tool')
-                            progress_msg = f"\n> ⚙️ 正在执行: `{tool_name}`...\n\n"
-                            start = ensure_text_started()
-                            if start:
-                                yield start
-                            ai_full_response += progress_msg
-                            yield encoder.text_chunk(progress_msg)
+                                ai_full_response += progress_msg
+                                yield encoder.text_chunk(progress_msg)
 
             except StopAsyncIteration:
                 raise

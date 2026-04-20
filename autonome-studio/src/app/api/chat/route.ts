@@ -22,6 +22,8 @@ export async function POST(req: NextRequest) {
     const contextFiles = contextData?.contextFiles || [];
     const skillId = contextData?.skillId || null;
     const images = contextData?.images || [];
+    // ✨ 深度思考开关：从 transport body 读取并转发给后端
+    const enableThink = contextData?.enableThink || false;
 
     // v5 UIMessage 使用 parts[] 而非 content 字符串
     // 从最后一条用户消息的 parts 中提取文本
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
         session_id: sessionId,
         skill_id: skillId,
         images,
+        enable_think: enableThink,
       }),
     });
 

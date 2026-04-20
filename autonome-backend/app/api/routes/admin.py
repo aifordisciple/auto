@@ -167,30 +167,54 @@ async def adjust_user_credits(
 ):
     """
     管理员视角：手动为某个用户增加或扣除算力点
+
+    ⚠️ 修复：同时更新 BillingAccount（旧表）和 Wallet（新表），
+    确保用户中心、聊天扣费、余额检查都读到一致的余额。
     """
     target_user = session.get(User, target_user_id)
     if not target_user or not target_user.billing:
         raise HTTPException(status_code=404, detail="未找到该用户或其计费账户异常")
 
-    # 执行算力划拨
+    # 1. 更新旧 BillingAccount 表（保持兼容）
     old_balance = target_user.billing.credits_balance
     target_user.billing.credits_balance += payload.amount
-    
-    # 防止扣成负数
     if target_user.billing.credits_balance < 0:
-         target_user.billing.credits_balance = 0
-         
+        target_user.billing.credits_balance = 0
     session.add(target_user.billing)
+
+    # 2. 同步更新新 Wallet 表（实际扣费和用户中心读取的表）
+    from app.services.billing_service import BillingService
+    billing_service = BillingService(session)
+    wallet = billing_service.get_user_wallet(target_user_id, create_if_not_exists=True)
+
+    if payload.amount >= 0:
+        # 充值：使用 recharge 记录交易流水
+        billing_service.recharge(
+            wallet_id=wallet.wallet_id,
+            amount=payload.amount,
+            transaction_type="admin_recharge",
+            description=f"管理员 {admin_user.email} 充值。原因: {payload.reason}"
+        )
+    else:
+        # 扣款：直接调整余额（不走 deduct_credits，因为可能余额不足）
+        wallet.credits_balance += payload.amount
+        if wallet.credits_balance < 0:
+            wallet.credits_balance = 0
+        session.add(wallet)
+
     session.commit()
-    
-    log.info(f"💰 财务调控：管理员 {admin_user.email} 为用户 {target_user.email} 修改了算力 ({payload.amount})。原因: {payload.reason}")
-    
+    session.refresh(wallet)
+
+    log.info(f"💰 财务调控：管理员 {admin_user.email} 为用户 {target_user.email} 修改了算力 ({payload.amount})。"
+             f"BillingAccount: {old_balance}→{target_user.billing.credits_balance}, "
+             f"Wallet: {wallet.credits_balance}")
+
     return {
-        "status": "success", 
+        "status": "success",
         "message": "算力划拨成功",
         "data": {
             "old_balance": old_balance,
-            "new_balance": target_user.billing.credits_balance
+            "new_balance": wallet.credits_balance
         }
     }
 

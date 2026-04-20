@@ -14,6 +14,8 @@ interface AuthState {
   setToken: (token: string) => void;
   setUser: (user: any) => void;
   updateCredits: (balance: number) => void;
+  /** 直接设置 credits_balance（供 billing SSE 事件实时更新） */
+  setCreditsBalance: (balance: number) => void;
   logout: () => void;
   fetchProfile: () => Promise<void>;
 }
@@ -25,8 +27,12 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       setToken: (token) => set({ token }),
       setUser: (user) => set({ user }),
-      updateCredits: (balance) => set((state) => ({ 
-        user: state.user ? { ...state.user, credits_balance: balance } : null 
+      updateCredits: (balance) => set((state) => ({
+        user: state.user ? { ...state.user, credits_balance: balance } : null
+      })),
+      // 直接设置 credits_balance（供 billing SSE 事件实时更新，无需全量刷新 profile）
+      setCreditsBalance: (balance) => set((state) => ({
+        user: state.user ? { ...state.user, credits_balance: balance } : null
       })),
       logout: () => set({ token: null, user: null }),
       fetchProfile: async () => {

@@ -1,11 +1,12 @@
 "use client";
 
 import { memo, useState, useCallback, useRef, useEffect } from "react";
-import { Folder, FileText, X, Loader2, Paperclip, Box, Code, Square, Wrench, FlaskConical, MessageSquare } from "lucide-react";
+import { Folder, FileText, X, Loader2, Paperclip, Box, Code, Square, Wrench, FlaskConical, MessageSquare, Brain } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useUIStore } from "@/store/useUIStore";
+import { useChatStore } from "@/store/useChatStore";
 
 // ==========================================
 // ✨ ChatInputBox - 独立的输入组件（memo）
@@ -14,8 +15,8 @@ import { useUIStore } from "@/store/useUIStore";
 // ==========================================
 
 interface ChatInputBoxProps {
-  // ✨ 核心：onSend 接收消息文本参数，由组件内部传递
-  onSend: (messageText: string) => void;
+  // ✨ 核心：onSend 接收消息文本和深度思考开关，由组件内部传递
+  onSend: (messageText: string, enableThink?: boolean) => void;
   onStop: () => void;
   onPaste: (e: React.ClipboardEvent) => void;
   isTyping: boolean;
@@ -29,6 +30,28 @@ interface ChatInputBoxProps {
   // ✨ Tools 按钮回调：打开技能中心（基础分析模式）
   onOpenBasicAnalysis?: () => void;
 }
+
+// ==========================================
+// ✨ 深度思考开关组件 - 持久化到 useChatStore
+// ==========================================
+const DeepThinkToggle = memo(function DeepThinkToggle() {
+  const enableThink = useChatStore(state => state.enableThink);
+  const setEnableThink = useChatStore(state => state.setEnableThink);
+
+  return (
+    <button
+      onClick={() => setEnableThink(!enableThink)}
+      className={`p-2 rounded-full transition-all ${
+        enableThink
+          ? 'text-violet-500 bg-violet-500/10'
+          : 'text-neutral-500 hover:text-violet-500 hover:bg-violet-500/10'
+      }`}
+      title={enableThink ? '深度思考已开启' : '开启深度思考'}
+    >
+      <Brain size={18} />
+    </button>
+  );
+});
 
 const ChatInputBox = memo(function ChatInputBox({
   onSend,
@@ -92,7 +115,8 @@ const ChatInputBox = memo(function ChatInputBox({
     const canSend = (inputValue.trim() || pendingChatAttachments.length > 0 || pastedAttachments.length > 0);
     if (hasUploading || !canSend) return;
 
-    onSend(inputValue);
+    // ✨ 传递深度思考开关状态（从 store 读取，持久化）
+    onSend(inputValue, useChatStore.getState().enableThink);
     setInputValue(""); // 发送后清空
     // 发送后保持焦点，让用户可以继续输入
     document.getElementById("chat-input-box")?.focus();
@@ -357,8 +381,10 @@ const ChatInputBox = memo(function ChatInputBox({
         {/* 弹性空间，让 Tools 按钮和发送按钮分开 */}
         <div className="flex-1" />
 
-        {/* 右侧: 发送按钮 + 停止按钮（队列模式下可同时存在） */}
+        {/* 右侧: 深度思考开关 + 发送按钮 + 停止按钮 */}
         <div className="flex items-center gap-1">
+          {/* ✨ 深度思考开关 - 发送按钮左侧，持久化状态 */}
+          <DeepThinkToggle />
           {/* ✨ 停止按钮 - 流式输出时显示 */}
           {isTyping && (
             <button

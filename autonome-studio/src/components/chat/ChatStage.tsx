@@ -95,6 +95,8 @@ export function ChatStage() {
         projectId: useWorkspaceStore.getState().currentProjectId,
         sessionId: useWorkspaceStore.getState().currentSessionId,
         contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
+        // ✨ 深度思考开关：从 chatStore 读取（持久化状态）
+        enableThink: useChatStore.getState().enableThink,
       },
     }),
   }), []);
@@ -326,8 +328,9 @@ export function ChatStage() {
 
   // ==========================================
   // 发送消息包装函数 — 调用 useChat.append
+  // ✨ 扩展：接收 enableThink 参数，写入 transport body
   // ==========================================
-  const handleSendWrapper = useCallback((messageText: string, _contextFiles?: string[]) => {
+  const handleSendWrapper = useCallback((messageText: string, _enableThink?: boolean) => {
     // 清理粘贴附件
     cleanupPastedAttachments();
 

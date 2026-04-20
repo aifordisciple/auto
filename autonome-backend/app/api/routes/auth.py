@@ -64,12 +64,26 @@ async def login_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")
-async def read_users_me(current_user: User = Depends(get_current_user)):
-    """获取当前登录用户信息及算力余额"""
+async def read_users_me(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    获取当前登录用户信息及算力余额
+
+    ⚠️ 修复：余额从 Wallet 表读取（实际扣费使用的表），
+    而非旧的 BillingAccount 表，确保与用户中心、聊天扣费一致。
+    """
+    # 从 Wallet 表读取真实余额
+    from app.services.billing_service import BillingService
+    billing_service = BillingService(session)
+    wallet = billing_service.get_user_wallet(current_user.id, create_if_not_exists=True)
+    credits_balance = wallet.credits_balance if wallet else 0.0
+
     return {
         "id": current_user.id,
         "email": current_user.email,
         "full_name": current_user.full_name,
         "is_superuser": current_user.is_superuser,
-        "credits_balance": current_user.billing.credits_balance if current_user.billing else 0
+        "credits_balance": credits_balance
     }

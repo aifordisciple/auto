@@ -143,6 +143,10 @@ export interface ChatState {
   setThinkingContent: (content: string) => void;
   /** 设置是否正在思考 */
   setIsThinking: (thinking: boolean) => void;
+  /** ✨ 深度思考模式开关（持久化，用户手动切换） */
+  enableThink: boolean;
+  /** 设置深度思考模式开关 */
+  setEnableThink: (enable: boolean) => void;
 
   // ==========================================
   // ✨ 消息队列状态
@@ -265,6 +269,9 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   isThinking: false,
   setThinkingContent: (content: string) => set({ thinkingContent: content }),
   setIsThinking: (thinking: boolean) => set({ isThinking: thinking }),
+  // ✨ 深度思考模式开关（持久化）
+  enableThink: false,
+  setEnableThink: (enable: boolean) => set({ enableThink: enable }),
 
   // ==========================================
   // ✨ 消息队列状态实现
