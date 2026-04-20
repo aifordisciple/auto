@@ -11,13 +11,16 @@
  * 此处将 UIMessage 转换为 store 的 Message 格式（含 content: string）。
  * 自定义数据事件通过消息 parts 中 type="data-*" 的项传递。
  *
- * ✨ 修复：兼容 Vercel AI SDK 的 annotations 和 parts 两种格式，
- * 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级的情况），
- * 彻底修复思考框不显示和 session_id 丢失的问题。
+ * ✨ 修复：
+ * - 兼容 Vercel AI SDK 的 annotations 和 parts 两种格式
+ * - 放宽事件过滤：兼容 data- 前缀和无前缀的标准标注（thinking, session_info 等）
+ * - 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级）
+ * - 处理 intent 意图事件，避免知识类问题"没有回复"
  */
 import { useEffect, useRef } from 'react';
 import { useChatStore } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+import { useUIStore } from '@/store/useUIStore';
 import type { Message } from '@/store/useChatStore';
 import type { UIMessage } from '@ai-sdk/react';
 
@@ -32,17 +35,17 @@ interface UseChatSyncOptions {
  *
  * ⚠️ 修复：Vercel AI SDK 的 user 消息往往只有 content 没有 parts，
  * 原代码仅从 parts 提取，导致 user 消息内容为空字符串，UI 不显示用户消息。
- * 修复策略：优先使用 content，仅在 parts 有文本时覆盖（parts 更完整）。
+ * 修复策略：优先从 parts 提取（更完整），安全回退到 content。
  */
 function extractTextFromParts(msg: UIMessage): string {
-  let content = msg.content || '';
   if (msg.parts && msg.parts.length > 0) {
     const textParts = msg.parts.filter((part): part is typeof part & { type: 'text' } => part.type === 'text');
     if (textParts.length > 0) {
-      content = textParts.map(part => (part as { type: 'text'; text: string }).text).join('');
+      return textParts.map(part => (part as { type: 'text'; text: string }).text).join('');
     }
   }
-  return content;
+  // ✨ 安全回退：parts 无文本时使用 content（user 消息通常只有 content）
+  return msg.content || '';
 }
 
 /**
@@ -56,6 +59,22 @@ function convertToStoreMessages(aiMessages: UIMessage[]): Message[] {
     content: extractTextFromParts(msg),
     timestamp: Date.now(),
   }));
+}
+
+/**
+ * ✨ 判断是否为有效的自定义事件类型
+ * 兼容 Vercel AI SDK v5 的 data- 前缀格式和无前缀的标准标注
+ */
+const KNOWN_EVENT_NAMES = new Set([
+  'thinking', 'session_info', 'billing', 'ai_message_id', 'ai_message_content',
+  'intent', 'action',
+  'queue_start', 'queue_progress', 'queue_complete', 'queue_error', 'queue_done',
+]);
+
+function isValidEventType(type: string): boolean {
+  if (!type) return false;
+  if (type.startsWith('data-')) return true;
+  return KNOWN_EVENT_NAMES.has(type);
 }
 
 export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
@@ -90,23 +109,24 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
 
     if (isLoading && !wasLoading) {
       // 流刚开始：同步 typing 状态，同时清空上一轮的思考内容
-      // ⚠️ 修复：不清空 thinkingContent 会导致思考框卡死或内容堆叠
       useChatStore.getState().syncLoadingState(true);
       useChatStore.getState().setThinkingContent('');
-      useChatStore.getState().setIsThinking(false);
+      // ✨ 修复：流开始时立即设置 isThinking=true
+      // 这样即使模型不输出 <think> 标签（如 Ollama），也会显示"思考中..."框
+      // 当第一个文本内容到达或流结束时，isThinking 会被设为 false
+      useChatStore.getState().setIsThinking(true);
     } else if (!isLoading) {
       // 非流式状态（流结束或空闲）：提交完整消息到 Zustand
-      // 这也覆盖了首次挂载和会话切换后的初始化同步
       const storeMessages = convertToStoreMessages(messages);
       syncFromUseChat(storeMessages, false);
     }
-    // 流式期间（isLoading && wasLoading）：跳过，不触发任何 Zustand 写入
   }, [messages, isLoading, syncFromUseChat]);
 
   // ==========================================
-  // ✨ 处理消息中的 data-* 自定义事件
+  // ✨ 处理消息中的自定义事件
   // 兼容 Vercel AI SDK 的 parts 和 annotations 两种格式
-  // 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级的情况）
+  // 放宽过滤条件：兼容 data- 前缀和无前缀的标准标注
+  // 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级）
   // ==========================================
   useEffect(() => {
     for (const msg of messages) {
@@ -114,12 +134,12 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
       let dataParts: any[] = [];
 
       if (msg.parts && msg.parts.length > 0) {
-        const parts = msg.parts.filter((p: any) => p.type && p.type.startsWith('data-'));
+        const parts = msg.parts.filter((p: any) => isValidEventType(p.type));
         dataParts = [...dataParts, ...parts];
       }
 
       if (msg.annotations && msg.annotations.length > 0) {
-        const annotations = msg.annotations.filter((a: any) => a && a.type && a.type.startsWith('data-'));
+        const annotations = msg.annotations.filter((a: any) => a && isValidEventType(a.type));
         dataParts = [...dataParts, ...annotations];
       }
 
@@ -129,11 +149,11 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
       const newParts = dataParts.slice(alreadyProcessed);
 
       for (const part of newParts) {
-        const eventName = part.type.slice(5); // "data-thinking" → "thinking"
+        // ✨ 抹平命名差异：data-thinking → thinking, thinking → thinking
+        let eventName = part.type;
+        if (eventName.startsWith('data-')) eventName = eventName.slice(5);
 
         // ✨ 鲁棒解析：兼容存在或不存在嵌套 .data 层级的情况
-        // Vercel AI SDK v5 中，data-* part 的数据可能在 part.data 中，
-        // 也可能直接在 part 本身（作为 annotations 时）
         let event: Record<string, unknown>;
         if (part.data && typeof part.data === 'object') {
           event = part.data as Record<string, unknown>;
@@ -159,8 +179,6 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
               const sessionId = event.session_id as string;
               if (sessionId) {
                 setCurrentSessionId(sessionId);
-                // ⚠️ 修复：无论 is_new 是什么，都强制同步给 workspace，
-                // 防止 fetch 历史后 currentSessionId 不一致导致上下文丢失
                 setWorkspaceSessionId(sessionId);
               }
             }
@@ -180,6 +198,17 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
             break;
           case 'ai_message_content':
             // 内容已通过 useChat.messages 自动同步，无需额外处理
+            break;
+          case 'intent':
+            // ✨ 处理意图识别结果事件
+            // 当意图为知识类/技能分发时，可触发技能中心打开
+            {
+              const intent = event.intent as string;
+              if (intent === 'knowledge' || intent === 'basic_analysis') {
+                useUIStore.getState().setSkillFilterMode('basic');
+                // 不自动打开技能中心，仅在用户明确请求时打开
+              }
+            }
             break;
           case 'queue_start':
           case 'queue_progress':

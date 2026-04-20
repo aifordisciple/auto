@@ -140,21 +140,31 @@ class L1Classifier:
 
         Ollama 等本地模型不一定支持 function calling，
         使用 JSON mode 强制输出 JSON，然后手动解析为 IntentExtraction。
+
+        ⚠️ 修复：
+        1. ChatPromptTemplate 会将花括号视为模板变量，JSON 示例中的花括号
+           必须转义（{ → {{, } → }}），否则报 "Nested replacement fields" 错误。
+        2. 本地 Ollama Qwen3 模型默认开启 think 模式，/v1 端点不支持 think 参数，
+           通过在 prompt 开头注入 /no_think 标签禁用思考链输出。
         """
+        # Qwen3 专用：/no_think 标签禁用思考链（Ollama /v1 端点不支持 think 参数）
+        no_think_prefix = "/no_think\n" if self.is_local else ""
+
         # 在提示词中追加 JSON 格式要求（v2: 包含 slots 和 missing_slots）
+        # ⚠️ 花括号必须双写转义，否则 LangChain ChatPromptTemplate 报错
         json_instruction = (
             "\n\n请严格按照以下 JSON 格式输出，不要输出任何其他内容：\n"
-            '{"intent": "chat|skill_forge|explicit_skill|diagnostic|literature|data_probe", '
+            '{{"intent": "chat|skill_forge|explicit_skill|diagnostic|literature|data_probe", '
             '"confidence": 0.0-1.0, '
-            '"entities": {"key": "value"}, '
+            '"entities": {{"key": "value"}}, '
             '"skill_id": null, '
             '"requires_followup": false, '
             '"followup_question": null, '
-            '"slots": {"key": "value"}, '
-            '"missing_slots": []}'
+            '"slots": {{"key": "value"}}, '
+            '"missing_slots": []}}'
         )
         prompt = ChatPromptTemplate.from_messages([
-            ("system", INTENT_CLASSIFICATION_PROMPT + json_instruction),
+            ("system", no_think_prefix + INTENT_CLASSIFICATION_PROMPT + json_instruction),
             ("human", "Context (Workspace State): {context}\n\nUser Query: {query}")
         ])
 
