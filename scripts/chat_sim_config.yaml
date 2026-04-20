@@ -1,0 +1,40 @@
+# 模拟对话测试配置
+
+# API 配置
+api:
+  base_url: "http://localhost:8000"
+  auth_token: ""  # 留空则使用测试账号登录获取
+
+# 测试账号
+test_account:
+  email: "test@autonome.ai"
+  password: "test123456"
+
+# 问题生成配置
+questions:
+  total: 50
+  categories:
+    knowledge_base: 10
+    general_qa: 10
+    small_talk: 8
+    task: 8
+    content_filter: 6
+    edge_case: 8
+
+# 评判配置
+judge:
+  model: "qwen3.6-ultra:latest"
+  provider: "ollama"
+  base_url: "http://localhost:11434"
+  pass_threshold: 3  # 评分 >= 3 视为通过
+
+# 超时配置（秒）
+timeout:
+  easy: 30
+  medium: 45
+  hard: 60
+
+# 日志配置
+logging:
+  level: "INFO"
+  save_path: "scripts/test_data/logs/"

@@ -53,7 +53,12 @@ SYSTEM_PROMPT_CHAT = """你是一个专业的生物信息学AI助手，名为 Au
 - 回答要准确、专业
 - 如果不确定，请诚实说明
 - 对于用户的提问，始终直接给出专业、详细的回答，这是最重要的规则
-- 不要在每次回答开头重复自己的身份（如"我是 Autonome AI助手"），直接进入正题回答问题
+
+【严禁事项 - 最高优先级】：
+- 绝对不要在回答开头重复自己的身份（如"我是 Autonome AI助手"、"我是 Autonome"等）
+- 绝对不要在回答开头做自我介绍
+- 绝对不要说"你好！我是..."之类的话
+- 直接回答用户的问题，不要任何前缀或寒暄
 
 身份相关：
 - 不要提及你的训练来源、模型身份或开发机构（如 Google、OpenAI 等）
@@ -206,7 +211,28 @@ async def chat_stream(
         if msg.role == RoleEnum.user:
             lc_messages.append({"role": "user", "content": msg.content})
         elif msg.role == RoleEnum.assistant:
+            # ✨ 修复：跳过空内容的助手消息
+            # 空助手消息会导致对话历史中出现连续的 user 消息，
+            # 违反 LLM API 的 user/assistant 交替要求，使后续回复混乱
+            if not msg.content or not msg.content.strip():
+                log.warning(f"[Chat] 跳过空助手消息 (id={msg.id}, session_id={session_id_for_ai})")
+                continue
             lc_messages.append({"role": "assistant", "content": msg.content})
+
+    # ✨ 修复：确保 LLM 消息列表中没有连续的 user 消息
+    # 跳过空助手消息后可能出现 user→user 序列，
+    # 大多数 LLM API 要求 user/assistant 交替，连续 user 会导致 API 报错或回复混乱
+    sanitized_messages = [lc_messages[0]]  # 保留 system 消息
+    for msg in lc_messages[1:]:
+        if (msg["role"] == "user" and
+            sanitized_messages and
+            sanitized_messages[-1]["role"] == "user"):
+            # 连续 user 消息：合并到前一条 user 消息
+            log.warning(f"[Chat] 合并连续 user 消息: {msg['content'][:50]}...")
+            sanitized_messages[-1]["content"] += "\n" + msg["content"]
+        else:
+            sanitized_messages.append(msg)
+    lc_messages = sanitized_messages
 
     # ✨ 调试日志：打印提交给 LLM 的完整提示词
     log.info(f"[Chat] 提交给 LLM 的完整提示词 (共 {len(lc_messages)} 条消息):")
@@ -396,6 +422,18 @@ async def chat_stream(
         # 持久化助手消息 + 扣费（追问拦截和 LLM 调用都会到达此处）
         with Session(engine) as final_db_session:
             cleaned_response = filter_thinking_content(ai_full_response, model_name=model_name)
+
+            # ✨ 修复：跳过空助手消息的持久化
+            # 当 LLM 返回空内容或所有内容被 content_filter 过滤后，
+            # ai_full_response 为空，如果仍然持久化 content='' 的消息，
+            # 会导致对话历史中出现 user→user 序列（中间夹着空 assistant 消息），
+            # 污染 LLM 上下文窗口，使后续回复越来越混乱
+            if not cleaned_response or not cleaned_response.strip():
+                log.warning(f"[Chat] AI 回复为空，跳过持久化 (session_id={session_id_for_ai})")
+                # 即使跳过持久化，仍需发送 finish 事件让前端正常结束流
+                yield encoder.finish()
+                return
+
             ai_msg = ChatMessage(
                 session_id=session_id_for_ai,
                 role=RoleEnum.assistant,
