@@ -248,9 +248,8 @@ const ChatInputBox = memo(function ChatInputBox({
         onChange={(e) => setInputValue(e.target.value)}
         onPaste={onPaste}
         onKeyDown={handleKeyDown}
-        disabled={isTyping}
-        placeholder={isTyping ? "AI 正在回复中，请等待..." : "Ask anything... (支持 Ctrl+V 粘贴图片或文件)"}
-        className="w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        placeholder="Ask anything... (支持 Ctrl+V 粘贴图片或文件)"
+        className="w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500 resize-none outline-none max-h-48 min-h-[60px] p-3 text-sm"
       />
 
       {/* 底部操作栏：左侧附件按钮，右侧发送按钮 */}
