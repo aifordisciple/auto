@@ -20,6 +20,7 @@
 import json
 import os
 import asyncio
+from pathlib import Path
 from http import HTTPStatus
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -219,9 +220,9 @@ async def chat_stream(
             log.info(f"[Chat] 使用代码生成模式 (intent={intent_result.intent.value})")
         elif intent_result.intent == NewIntentType.DATA_PROBE:
             # ✨ 注入当前项目的工作区路径，确保 scan_workspace 只扫描当前项目
+            # 项目目录格式：UPLOAD_DIR/project_{project_id}（如 /workspace/project_proj_xxx）
             from app.core.config import settings
-            workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
-            project_workspace = f"{workspace_base}/{request.project_id}"
+            project_workspace = str(Path(settings.UPLOAD_DIR) / f"project_{request.project_id}")
             system_prompt = SYSTEM_PROMPT_DATA_PROBE_TEMPLATE.format(workspace_path=project_workspace)
             log.info(f"[Chat] 使用数据探查模式 (intent={intent_result.intent.value}, workspace={project_workspace})")
         else:
@@ -383,8 +384,14 @@ async def chat_stream(
             use_native_ollama = is_local_model
 
             try:
-                # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）
-                is_data_probe = intent_data.get("intent") == "data_probe"
+            # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）
+            is_data_probe = intent_data.get("intent") == "data_probe"
+            # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
+            data_probe_project_dir = ""
+            if is_data_probe:
+                from app.core.config import settings as app_settings
+                data_probe_project_dir = str(Path(app_settings.UPLOAD_DIR) / f"project_{request.project_id}")
+                log.info(f"[Chat] data_probe 项目目录: {data_probe_project_dir}")
 
                 if use_native_ollama:
                     # ✨ 本地 Ollama：使用 ollama.AsyncClient 原生流式
@@ -492,6 +499,15 @@ async def chat_stream(
                                 yield encoder.text_chunk(progress_msg)
 
                                 # 执行工具
+                                # ✨ 路径安全修正：强制限定在当前项目目录内
+                                if data_probe_project_dir and tool_name in ("scan_workspace", "peek_tabular_data"):
+                                    path_key = "directory_path" if tool_name == "scan_workspace" else "file_path"
+                                    if path_key in tool_args:
+                                        requested_path = tool_args[path_key]
+                                        # 如果请求路径不在项目目录下，强制替换
+                                        if not requested_path.startswith(data_probe_project_dir):
+                                            log.warning(f"[Chat] data_probe 路径修正: {requested_path} → {data_probe_project_dir}")
+                                            tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
                                     for t in probe_tools_list:
@@ -641,6 +657,14 @@ async def chat_stream(
                                 yield encoder.text_chunk(progress_msg)
 
                                 # 执行工具
+                                # ✨ 路径安全修正：强制限定在当前项目目录内
+                                if data_probe_project_dir and tool_name in ("scan_workspace", "peek_tabular_data"):
+                                    path_key = "directory_path" if tool_name == "scan_workspace" else "file_path"
+                                    if path_key in tool_args:
+                                        requested_path = tool_args[path_key]
+                                        if not requested_path.startswith(data_probe_project_dir):
+                                            log.warning(f"[Chat] data_probe 路径修正: {requested_path} → {data_probe_project_dir}")
+                                            tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
                                     for t in probe_tools_list:
