@@ -232,6 +232,7 @@ export function ChatStage() {
     handleRetry,
     handleEditResend,
     handleInterpret,
+    handleSendRef,
   } = useMessageActions();
 
   // ==========================================
@@ -360,6 +361,12 @@ export function ChatStage() {
       requestAnimationFrame(() => scrollToBottom());
     }
   }, [sendMessage, cleanupPastedAttachments, isAtBottomRef, isPausedRef, scrollToBottom]);
+
+  // ✨ 将 handleSendWrapper 连接到 useMessageActions 的 handleSendRef
+  // 这样 handleRetry / handleEditResend 可以通过 ref 调用发送
+  useEffect(() => {
+    handleSendRef.current = handleSendWrapper;
+  }, [handleSendWrapper, handleSendRef]);
 
   // ==========================================
   // 停止生成 — 调用 useChat.stop

@@ -41,18 +41,43 @@ export function useMessageActions(_options?: UseMessageActionsOptions) {
 
   // ==========================================
   // 消息重试：重新发送指定消息
+  // ✨ 修复：支持点击 assistant 消息的重试按钮
+  // 如果点击的是 assistant 消息，找到它前面的 user 消息重新发送
   // ==========================================
   const handleRetry = useCallback(async (messageId: string) => {
     const message = messages.find(m => m.id === messageId);
-    if (!message || message.role !== 'user') return;
+    if (!message) return;
 
-    // 移除该消息之后的所有消息（包括 assistant 回复）
-    const messageIndex = messages.findIndex(m => m.id === messageId);
-    const trimmedMessages = messages.slice(0, messageIndex);
+    let userMessage: Message | undefined;
+    let trimIndex: number;
+
+    if (message.role === 'user') {
+      // 点击的是 user 消息：直接重试
+      userMessage = message;
+      trimIndex = messages.findIndex(m => m.id === messageId);
+    } else if (message.role === 'assistant') {
+      // ✨ 点击的是 assistant 消息：找到它前面的 user 消息
+      const assistantIndex = messages.findIndex(m => m.id === messageId);
+      // 从 assistant 消息往前找最近的 user 消息
+      for (let i = assistantIndex - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          userMessage = messages[i];
+          break;
+        }
+      }
+      if (!userMessage) return;
+      // 截断到 user 消息之前（不含 user 消息本身，因为重新发送会重新创建）
+      trimIndex = messages.findIndex(m => m.id === userMessage!.id);
+    } else {
+      return;
+    }
+
+    // 移除该 user 消息及之后的所有消息
+    const trimmedMessages = messages.slice(0, trimIndex);
     setMessages(trimmedMessages);
 
-    // 重新发送该消息
-    handleSendRef.current(message.content);
+    // 重新发送该 user 消息
+    handleSendRef.current(userMessage.content);
   }, [messages, setMessages]);
 
   // ==========================================
