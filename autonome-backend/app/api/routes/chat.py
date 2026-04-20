@@ -321,14 +321,17 @@ async def chat_stream(
                 try:
                     from app.services.billing_service import BillingService
                     bs = BillingService(final_db_session)
+                    # ✨ 修复：在 final_db_session 中重新获取 wallet，
+                    # 避免 "not bound to a Session" 刷新错误
+                    final_wallet = bs.get_user_wallet(user_id)
                     bs.deduct_credits(
-                        wallet_id=wallet.wallet_id,
+                        wallet_id=final_wallet.wallet_id,
                         amount=cost_credits,
                         transaction_type="consume_chat",
                         description="聊天消息消费",
                     )
-                    final_db_session.refresh(wallet)
-                    final_balance = wallet.credits_balance
+                    final_db_session.refresh(final_wallet)
+                    final_balance = final_wallet.credits_balance
                 except Exception as e:
                     log.warning(f"扣费失败: {e}")
                     if db_user.billing:
