@@ -256,12 +256,19 @@ async def chat_stream(
 
             # ✨ 深度思考模式：本地 Ollama 使用原生客户端，第三方 API 使用 extra_body
             enable_think = request.enable_think
-            use_native_ollama = is_local_model and enable_think
+            # ✨ 修复：Ollama 本地模型始终使用原生客户端
+            # Qwen3 等模型默认自带思考模式，即使用户未开启深度思考，
+            # 模型也会输出 <think> 标签，导致：(1) 思考占用大量时间；
+            # (2) 思考标签后的正常文本被 StreamContentFilter 误吞。
+            # 使用原生客户端 + think=False 可显式关闭模型内置思考。
+            use_native_ollama = is_local_model
 
             try:
                 if use_native_ollama:
-                    # ✨ 本地 Ollama + 深度思考：使用 ollama.AsyncClient 原生流式
+                    # ✨ 本地 Ollama：使用 ollama.AsyncClient 原生流式
                     # LangChain ChatOpenAI 依赖 /v1 端点，不支持 think 参数
+                    # think=enable_think：用户开启深度思考时启用，否则显式关闭
+                    # （Qwen3 等模型默认自带思考，think=False 可关闭）
                     import ollama as ollama_sdk
 
                     host = base_url
@@ -278,7 +285,7 @@ async def chat_stream(
                     async for part in await client.chat(
                         model=model_name,
                         messages=ollama_messages,
-                        think=True,
+                        think=enable_think,
                         stream=True,
                     ):
                         # Ollama think 模式：part.message.content 为思考内容，part.message.thinking 为思考过程
