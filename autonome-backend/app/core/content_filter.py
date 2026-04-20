@@ -369,6 +369,13 @@ class StreamContentFilter:
 
         ✨ 思考内容不再被丢弃，而是以 "thinking" 类型透传给前端，
         前端可以在可折叠的思考框中展示。
+
+        ⚠️ 修复：原实现在 _in_thinking=True 且未找到 end marker 时，
+        先将 _thinking_buffer 追加到 thinking_output，再将 _buffer 赋给 _thinking_buffer，
+        导致：(1) 思考内容被重复输出；(2) 后续正常文本永远留在 _thinking_buffer 中，
+        因为 end marker 永远匹配不到（它已经被前面的输出消耗了）。
+        修复策略：思考模式下，新内容只追加到 _thinking_buffer，不立即输出；
+        只有在确认 end marker 位置后，才将 end marker 之前的思考内容输出。
         """
         if not chunk:
             return ("", "")
@@ -391,11 +398,10 @@ class StreamContentFilter:
                     self._buffer = self._buffer[end_pos:]
                     self._in_thinking = False
                 else:
-                    # ✨ 思考标签未结束：将新内容加入思考缓冲
-                    thinking_output += self._thinking_buffer
-                    self._thinking_buffer = ""
-                    # 当前 buffer 全部是思考内容
-                    self._thinking_buffer = self._buffer
+                    # ✨ 修复：思考标签未结束，新内容追加到 _thinking_buffer
+                    # 不立即输出，等待 end marker 确认后再输出
+                    # 这样避免了重复输出和正常文本被吞的问题
+                    self._thinking_buffer += self._buffer
                     self._buffer = ""
                     break
             else:

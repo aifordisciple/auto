@@ -53,6 +53,7 @@ SYSTEM_PROMPT_CHAT = """你是一个专业的生物信息学AI助手，名为 Au
 - 回答要准确、专业
 - 如果不确定，请诚实说明
 - 对于用户的提问，始终直接给出专业、详细的回答，这是最重要的规则
+- 不要在每次回答开头重复自己的身份（如"我是 Autonome AI助手"），直接进入正题回答问题
 
 身份相关：
 - 不要提及你的训练来源、模型身份或开发机构（如 Google、OpenAI 等）
@@ -70,6 +71,7 @@ SYSTEM_PROMPT_CODE = """你是一个专业的生物信息学编程助手，名�
 - 使用环境变量 TASK_OUT_DIR 获取输出目录，将结果保存到该目录
 - 如果用户没有指定输入文件，使用示例数据演示分析流程
 - 代码中不要硬编码路径，使用相对路径或环境变量
+- 不要在每次回答开头重复自己的身份，直接进入正题
 
 输出格式：
 1. 先用简短的中文说明分析思路（2-3句话）
@@ -357,6 +359,20 @@ async def chat_stream(
                 if start:
                     yield start
                 yield encoder.text_chunk(err_msg)
+
+            # ✨ 修复：流结束后调用 flush()，输出 content_filter 中残留的内容
+            # 当思考结束标签被截断在最后一个 chunk 时，end marker 之后的正常文本
+            # 仍然残留在 filter 的 buffer 中，必须 flush 才能输出
+            remaining_content, remaining_type = content_filter.flush()
+            if remaining_content:
+                if remaining_type == "thinking":
+                    yield encoder.from_thinking(remaining_content)
+                else:
+                    start = ensure_text_started()
+                    if start:
+                        yield start
+                    ai_full_response += remaining_content
+                    yield encoder.text_chunk(remaining_content)
 
         # 持久化助手消息 + 扣费（追问拦截和 LLM 调用都会到达此处）
         with Session(engine) as final_db_session:
