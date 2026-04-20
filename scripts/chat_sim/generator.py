@@ -168,7 +168,7 @@ async def generate_questions(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.8,
-        "max_tokens": 4096,
+        "max_tokens": 8192,
     }
 
     logger.info(f"问题生成器 | 开始生成 {total} 条测试问题...")
@@ -241,9 +241,14 @@ def load_questions(path: str) -> list[SimQuestion]:
 
 
 def _extract_json(text: str) -> str:
-    """从可能包含 markdown 代码块的文本中提取 JSON"""
-    # 尝试提取 ```json ... ``` 块
+    """从可能包含思考标签和 markdown 代码块的文本中提取 JSON"""
     import re
+
+    # 去除 <think>...</think> 标签（部分模型如 MiniMax 会输出思考过程）
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    # 去除 开头到第一个 [ 或 { 的非 JSON 内容（如思考过程文本）
+    # 先尝试提取 ```json ... ``` 块
     match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -251,6 +256,12 @@ def _extract_json(text: str) -> str:
     # 尝试直接找 JSON 数组
     start = text.find("[")
     end = text.rfind("]")
+    if start != -1 and end != -1:
+        return text[start:end + 1]
+
+    # 尝试找 JSON 对象
+    start = text.find("{")
+    end = text.rfind("}")
     if start != -1 and end != -1:
         return text[start:end + 1]
 

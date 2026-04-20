@@ -228,8 +228,28 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   mirroredMessages: [initialMirroredMessage],
   mirroredIsTyping: false,
   // 同步 useChat 的 messages 和 isLoading 到镜像字段
+  // ✨ 保留已有消息的 thinkingContent，不被新消息覆盖
+  // （saveThinkingToLastAssistant 先保存 thinkingContent，syncFromUseChat 后刷新消息列表，
+  //   如果不保留，thinkingContent 会被 convertToStoreMessages 生成的新消息覆盖掉）
   syncFromUseChat: (messages: Message[], isLoading: boolean) =>
-    set({ mirroredMessages: messages, mirroredIsTyping: isLoading }),
+    set((state) => {
+      // 构建已有 thinkingContent 的索引：key=message.id
+      const thinkingMap = new Map<string, string>();
+      for (const msg of state.mirroredMessages) {
+        if (msg.thinkingContent) {
+          thinkingMap.set(msg.id, msg.thinkingContent);
+        }
+      }
+      // 合并：新消息优先，但保留已有的 thinkingContent
+      const merged = messages.map(msg => {
+        const existingThinking = thinkingMap.get(msg.id);
+        if (existingThinking && !msg.thinkingContent) {
+          return { ...msg, thinkingContent: existingThinking };
+        }
+        return msg;
+      });
+      return { mirroredMessages: merged, mirroredIsTyping: isLoading };
+    }),
   // 仅同步 isLoading，流式期间不替换 mirroredMessages（避免高频 text-delta 触发无效重渲染）
   syncLoadingState: (isLoading: boolean) =>
     set({ mirroredIsTyping: isLoading }),

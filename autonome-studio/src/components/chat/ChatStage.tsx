@@ -143,22 +143,40 @@ export function ChatStage() {
   //
   // ⚠️ 修复：user 消息往往只有 content 没有 parts，
   // 必须兼容 content 字段，否则用户消息显示为空
+  //
+  // ✨ 修复：合并 mirroredMessages 上的 thinkingContent
+  // thinkingContent 在流结束时由 useChatSync 保存到 mirroredMessages，
+  // aiMessages (useChat) 本身没有这个字段，需要从 mirroredMessages 合并
   // ==========================================
-  const messages = useMemo(() => aiMessages.map(msg => {
-    let content = msg.content || '';
-    if (msg.parts && msg.parts.length > 0) {
-      const textParts = msg.parts.filter((p): p is typeof p & { type: 'text' } => p.type === 'text');
-      if (textParts.length > 0) {
-        content = textParts.map(p => (p as { type: 'text'; text: string }).text).join('');
+  const mirroredMessages = useChatStore(state => state.mirroredMessages);
+
+  const messages = useMemo(() => {
+    // 构建 thinkingContent 索引：key=message.id
+    const thinkingMap = new Map<string, string>();
+    for (const msg of mirroredMessages) {
+      if (msg.thinkingContent) {
+        thinkingMap.set(msg.id, msg.thinkingContent);
       }
     }
-    return {
-      id: msg.id,
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content,
-      timestamp: Date.now(),
-    };
-  }), [aiMessages]);
+
+    return aiMessages.map(msg => {
+      let content = msg.content || '';
+      if (msg.parts && msg.parts.length > 0) {
+        const textParts = msg.parts.filter((p): p is typeof p & { type: 'text' } => p.type === 'text');
+        if (textParts.length > 0) {
+          content = textParts.map(p => (p as { type: 'text'; text: string }).text).join('');
+        }
+      }
+      return {
+        id: msg.id,
+        role: msg.role as 'user' | 'assistant' | 'system',
+        content,
+        timestamp: Date.now(),
+        // ✨ 合并 mirroredMessages 上的 thinkingContent
+        thinkingContent: thinkingMap.get(msg.id),
+      };
+    });
+  }, [aiMessages, mirroredMessages]);
   const isTyping = isLoading;
 
   // ==========================================

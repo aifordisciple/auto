@@ -116,8 +116,25 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
       // 这样即使模型不输出 <think> 标签（如 Ollama），也会显示"思考中..."框
       // 当第一个文本内容到达或流结束时，isThinking 会被设为 false
       useChatStore.getState().setIsThinking(true);
+    } else if (!isLoading && wasLoading) {
+      // ✨ 流刚结束：提交完整消息到 Zustand
+      // 同时将全局 thinkingContent 保存到最后一条 assistant 消息上
+      // 必须在 syncFromUseChat 之前保存，否则 thinkingContent 会被覆盖掉
+      const storeMessages = convertToStoreMessages(messages);
+      const currentThinking = useChatStore.getState().thinkingContent;
+      if (currentThinking) {
+        // 找到最后一条 assistant 消息，附上 thinkingContent
+        const lastAssistantIdx = storeMessages.map(m => m.role).lastIndexOf('assistant');
+        if (lastAssistantIdx !== -1) {
+          storeMessages[lastAssistantIdx] = {
+            ...storeMessages[lastAssistantIdx],
+            thinkingContent: currentThinking,
+          };
+        }
+      }
+      syncFromUseChat(storeMessages, false);
     } else if (!isLoading) {
-      // 非流式状态（流结束或空闲）：提交完整消息到 Zustand
+      // 空闲状态：提交完整消息到 Zustand（保留已有 thinkingContent）
       const storeMessages = convertToStoreMessages(messages);
       syncFromUseChat(storeMessages, false);
     }
@@ -250,12 +267,9 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
     }
   }, [messages, setThinkingContent, setIsThinking, setCurrentSessionId, setWorkspaceSessionId]);
 
-  // 流结束后：保存思考内容到消息 + 关闭思考状态
+  // 流结束后关闭思考状态
   useEffect(() => {
     if (!isLoading) {
-      // ✨ 先将全局 thinkingContent 保存到最后一条 assistant 消息上
-      // 这样思考卡片在流结束后仍然保留，用户可以随时展开查看
-      useChatStore.getState().saveThinkingToLastAssistant();
       setIsThinking(false);
     }
   }, [isLoading, setIsThinking]);
