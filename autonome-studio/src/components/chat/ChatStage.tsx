@@ -233,30 +233,45 @@ export function ChatStage() {
 
   // ==========================================
   // Fetch messages when session changes
-  // ✨ 核心修复：使用 isLoadingRef 为历史拉取加锁
+  //
+  // ⚠️ 关键设计决策：此 effect 仅在 currentSessionId 变化时触发，
+  // 用于加载历史会话的消息。对于同一会话内的后续消息，
+  // useChat 的 aiMessages 会自然累积，无需重新拉取。
+  //
+  // ⚠️ 核心修复：使用 isLoadingRef 为历史拉取加锁
   // 当新消息发送导致新 Session ID 产生时，当前一定正在流式响应，
   // 此时绝对不能去服务端拉历史，否则空历史会清空掉用户的消息和正在打字的屏幕。
-  // ⚠️ 修复：历史消息必须同时同步给 setAiMessages，
-  // 否则后续 append/sendMessage 只传当前页面的消息给后端，
-  // 导致上下文断层（问单细胞却回答 PCA）
+  //
+  // ⚠️ 流式完成后不重新拉取：流式完成后 currentSessionId 不变，
+  // effect 不会重新触发。aiMessages 由 useChat 自然维护，包含完整历史。
+  // 如果流式完成后重新拉取并 setAiMessages，会替换 SDK 内部状态，
+  // 可能导致消息 ID 冲突、重复消息、或丢失正在流式输出的内容。
   // ==========================================
   const isLoadingRef = useRef(isLoading);
   useEffect(() => {
     isLoadingRef.current = isLoading;
   }, [isLoading]);
 
+  // 跟踪上一次拉取历史的 sessionId，避免重复拉取
+  const lastFetchedSessionIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const fetchMessages = async () => {
       if (!currentSessionId) {
-        // ✨ 只有在非流式状态时才清空屏幕
+        // 只有在非流式状态时才清空屏幕
         if (!isLoadingRef.current) {
           setMessages([]);
           setAiMessages([]);
+          lastFetchedSessionIdRef.current = null;
         }
         return;
       }
 
-      // ✨ 核心修复：如果是新发起的对话刚拿到了服务端返回的 ID，当前一定正在流式响应！
+      // 如果已经为当前 session 拉取过历史，跳过
+      // 这防止流式完成后 currentSessionId 不变但 effect 因其他原因重新触发时重复拉取
+      if (lastFetchedSessionIdRef.current === currentSessionId) return;
+
+      // 核心修复：如果是新发起的对话刚拿到了服务端返回的 ID，当前一定正在流式响应！
       // 此时绝对不能去服务端拉历史，否则空历史会直接清空掉用户的消息和正在打字的屏幕。
       if (isLoadingRef.current) return;
 
@@ -278,19 +293,18 @@ export function ChatStage() {
           // 同步给 Zustand store（供 SessionSidebar 等读取）
           setMessages(formattedMessages);
 
-          // ⚠️ 核心修复：同步给 Vercel AI SDK 的 aiMessages
-          // 这样后续 sendMessage 才会把完整历史传给后端
-          // ✨ 修复上下文投毒：构造完整的 UIMessage 格式，
-          // 包含 parts 字段（text part 从 content 重建），
+          // 同步给 Vercel AI SDK 的 aiMessages
+          // 构造完整的 UIMessage 格式，包含 parts 字段（text part 从 content 重建），
           // 避免 Vercel AI SDK 因缺少 parts 导致内部状态不一致
           setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string }) => ({
             id: m.id,
             role: m.role,
             content: m.content,
-            // ✨ 从 content 重建 parts，确保 UIMessage 结构完整
-            // Vercel AI SDK v5 依赖 parts 进行消息渲染和上下文传递
             parts: m.content ? [{ type: 'text' as const, text: m.content }] : [],
           })));
+
+          // 标记已拉取，避免重复
+          lastFetchedSessionIdRef.current = currentSessionId;
         } else {
           setMessages([]);
         }
@@ -300,7 +314,6 @@ export function ChatStage() {
       }
     };
     fetchMessages();
-  // ⚠️ 依赖项剥离 isLoading 避免流式期间无限重触发
   }, [currentSessionId, setMessages, setAiMessages]);
 
   // ==========================================
