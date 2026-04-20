@@ -199,13 +199,20 @@ async def chat_stream(
         system_prompt = SYSTEM_PROMPT_CHAT
 
     # 7. 加载对话历史
+    # ✨ 修复：只加载当前用户消息之前的历史，避免重复包含当前消息
+    # 当前用户消息已在步骤 4 持久化（id=user_msg.id），
+    # 如果不过滤，历史中会包含当前消息，导致 LLM 上下文中出现重复
     history_messages = session.exec(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id_for_ai)
+        .where(ChatMessage.id < user_msg.id)
         .order_by(ChatMessage.id)
     ).all()
 
     # 构建 LangChain 消息列表（根据意图使用不同的系统提示词）
+    # ✨ 修复：历史消息 + 当前用户消息，确保顺序正确
+    # 历史：之前所有完整的 user/assistant 对话轮次
+    # 当前：本次用户消息（单独追加，确保在历史之后）
     lc_messages = [{"role": "system", "content": system_prompt}]
     for msg in history_messages:
         if msg.role == RoleEnum.user:
@@ -219,6 +226,9 @@ async def chat_stream(
                 continue
             lc_messages.append({"role": "assistant", "content": msg.content})
 
+    # ✨ 追加当前用户消息（在历史之后，确保顺序正确）
+    lc_messages.append({"role": "user", "content": request.message})
+
     # ✨ 修复：确保 LLM 消息列表中没有连续的 user 消息
     # 跳过空助手消息后可能出现 user→user 序列，
     # 大多数 LLM API 要求 user/assistant 交替，连续 user 会导致 API 报错或回复混乱
@@ -227,9 +237,11 @@ async def chat_stream(
         if (msg["role"] == "user" and
             sanitized_messages and
             sanitized_messages[-1]["role"] == "user"):
-            # 连续 user 消息：合并到前一条 user 消息
-            log.warning(f"[Chat] 合并连续 user 消息: {msg['content'][:50]}...")
-            sanitized_messages[-1]["content"] += "\n" + msg["content"]
+            # 连续 user 消息：丢弃前一条（更旧的），保留最新的
+            # 原因：空 assistant 回复对应的 user 问题已经没有有效回答，
+            # 保留它只会让 LLM 困惑，不如只保留最新的 user 问题
+            log.warning(f"[Chat] 丢弃无回复的旧 user 消息: {sanitized_messages[-1]['content'][:50]}...")
+            sanitized_messages[-1] = msg
         else:
             sanitized_messages.append(msg)
     lc_messages = sanitized_messages
