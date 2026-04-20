@@ -26,14 +26,14 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个生物信息学 IDE (Autonome Stud
 1. 'diagnostic': 用户遇到代码报错，或者请求修复 bug、环境配置问题。
 2. 'literature': 用户提供文献/DOI，或请求复现某篇论文的方法论和图表。
 3. 'data_probe': 用户请求查看、预览、统计当前的数据集特征（如 h5ad 结构、fastq 质量）。
-4. 'skill_forge': 用户要求生成、编写、修改或执行生信分析代码/Pipeline，或者生成特定的分析图表。
+4. 'skill_forge': 用户要求在 IDE 中真正执行/运行生信分析或 Pipeline，需要系统调度代码执行环境。关键标志：用户明确要求"跑/运行/执行/做"分析，且期望得到实际运行结果。
 5. 'explicit_skill': 用户直接指定了某个技能的名称或 ID 来执行。
-6. 'chat': 通用的闲聊、基础概念解释，不涉及直接的代码生成或系统操作。
+6. 'chat': 通用的闲聊、基础概念解释、代码示例展示。⚠️ 重要：仅请求代码/脚本/示例但不要求执行的情况（如"写一个PCA脚本"、"给我一个Seurat流程"、"怎么用Scanpy做聚类"）属于 chat，不是 skill_forge。
 
 分析规则：
 - 结合用户提供的 Context（当前选中的文件、UI 状态）进行综合判断。
 - 提取明确提及的生信实体（基因名、算法包、阈值参数）。
-- 如果用户要求执行分析（skill_forge），但明显缺失关键输入数据或必要参数，将 requires_followup 设为 true，并提供 followup_question。
+- ⚠️ 追问条件收紧：仅当用户明确要求"执行/运行"分析（skill_forge），且同时缺失输入数据文件路径时，才将 requires_followup 设为 true。仅请求代码示例或理论解释时，即使未提及输入文件，也不追问。
 - 保持客观和科学严谨，禁止主观臆测。
 - confidence 反映你对意图判断的确信程度，0.0 表示完全不确定，1.0 表示绝对确定。
 
