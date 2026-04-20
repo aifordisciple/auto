@@ -90,15 +90,28 @@ export function ChatStage() {
       return token ? { Authorization: `Bearer ${token}` } : {};
     },
     // 通过 body 传递上下文信息给 BFF 代理（函数形式确保获取最新值）
-    body: () => ({
-      data: {
-        projectId: useWorkspaceStore.getState().currentProjectId,
-        sessionId: useWorkspaceStore.getState().currentSessionId,
-        contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
-        // ✨ 深度思考开关：从 chatStore 读取（持久化状态）
-        enableThink: useChatStore.getState().enableThink,
-      },
-    }),
+    body: () => {
+      const { pastedAttachments } = useWorkspaceStore.getState();
+      // 从粘贴附件中提取已上传完成的图片路径和文件路径
+      const imagePaths = pastedAttachments
+        .filter(att => att.type === 'image' && att.serverPath && !att.isUploading)
+        .map(att => att.serverPath);
+      const filePaths = pastedAttachments
+        .filter(att => att.type === 'file' && att.serverPath && !att.isUploading)
+        .map(att => att.serverPath);
+      return {
+        data: {
+          projectId: useWorkspaceStore.getState().currentProjectId,
+          sessionId: useWorkspaceStore.getState().currentSessionId,
+          contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
+          // ✨ 深度思考开关：从 chatStore 读取（持久化状态）
+          enableThink: useChatStore.getState().enableThink,
+          // ✨ 粘贴上传的图片和文件路径
+          images: imagePaths,
+          pastedFiles: filePaths,
+        },
+      };
+    },
   }), []);
 
   const {
@@ -350,11 +363,15 @@ export function ChatStage() {
   // ✨ 扩展：接收 enableThink 参数，写入 transport body
   // ==========================================
   const handleSendWrapper = useCallback((messageText: string, _enableThink?: boolean) => {
-    // 清理粘贴附件
-    cleanupPastedAttachments();
+    // ✨ 修复：先发送消息（transport body 会读取 pastedAttachments），再清理
+    // 之前 cleanupPastedAttachments() 在 sendMessage 之前调用，
+    // 导致 transport body 中的 images/pastedFiles 始终为空
 
     // 调用 sendMessage 发送消息（v5 API）
     sendMessage({ text: messageText });
+
+    // 发送后清理粘贴附件
+    cleanupPastedAttachments();
 
     // 自动滚动到底部
     if (isAtBottomRef.current && !isPausedRef.current) {

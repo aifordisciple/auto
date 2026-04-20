@@ -18,6 +18,7 @@
 """
 
 import json
+import os
 import asyncio
 from http import HTTPStatus
 from typing import Optional
@@ -88,6 +89,22 @@ SYSTEM_PROMPT_CODE = """你是一个专业的生物信息学编程助手，名�
 - 当且仅当用户明确询问"你是谁"时，简洁回答"我是 Autonome 生物信息学AI助手"
 - 其他任何情况下，不要提及身份，直接编写代码"""
 
+# 数据探查模式：使用探针工具感知数据环境
+SYSTEM_PROMPT_DATA_PROBE = """你是一个专业的生物信息学数据探查助手，名为 Autonome。你的核心职责是帮助用户了解数据环境和文件结构。
+
+核心原则：
+- 用中文回答问题
+- 你拥有探针工具（scan_workspace, peek_tabular_data, inspect_h5ad, inspect_fastq, inspect_bam），必须主动调用这些工具来获取信息，而不是凭猜测回答
+- 当用户询问"有哪些文件"、"目录结构"时，调用 scan_workspace 扫描工作区
+- 当用户询问数据结构、预览数据时，调用对应的探针工具
+- 工具调用后，用中文整理和解读结果，提供专业建议
+- 不要在回答开头重复自己的身份，直接进入正题
+
+身份相关：
+- 不要提及你的训练来源、模型身份或开发机构
+- 当且仅当用户明确询问"你是谁"时，简洁回答"我是 Autonome 生物信息学AI助手"
+- 其他任何情况下，不要提及身份，直接使用工具回答用户的问题"""
+
 
 # ==========================================
 # 核心聊天流 API
@@ -141,10 +158,19 @@ async def chat_stream(
         is_new_session = True
 
     # 4. 持久化用户消息
+    # ✨ 保存附件信息（图片路径、粘贴文件路径），用于历史消息重建
+    user_attachments = None
+    if request.images or request.pasted_files:
+        user_attachments = {}
+        if request.images:
+            user_attachments["images"] = request.images
+        if request.pasted_files:
+            user_attachments["pastedFiles"] = request.pasted_files
     user_msg = ChatMessage(
         session_id=chat_session.id,
         role=RoleEnum.user,
         content=request.message,
+        attachments=user_attachments,
     )
     session.add(user_msg)
     session.commit()
@@ -182,10 +208,14 @@ async def chat_stream(
 
         # 根据新意图类型选择系统提示词
         # skill_forge / explicit_skill / diagnostic → 代码生成模式
-        # chat / literature / data_probe → 一般问答模式
+        # data_probe → 数据探查模式（绑定探针工具）
+        # chat / literature → 一般问答模式
         if intent_result.intent in (NewIntentType.SKILL_FORGE, NewIntentType.EXPLICIT_SKILL, NewIntentType.DIAGNOSTIC):
             system_prompt = SYSTEM_PROMPT_CODE
             log.info(f"[Chat] 使用代码生成模式 (intent={intent_result.intent.value})")
+        elif intent_result.intent == NewIntentType.DATA_PROBE:
+            system_prompt = SYSTEM_PROMPT_DATA_PROBE
+            log.info(f"[Chat] 使用数据探查模式 (intent={intent_result.intent.value})")
         else:
             system_prompt = SYSTEM_PROMPT_CHAT
             log.info(f"[Chat] 使用一般问答模式 (intent={intent_result.intent.value})")
@@ -227,7 +257,38 @@ async def chat_stream(
             lc_messages.append({"role": "assistant", "content": msg.content})
 
     # ✨ 追加当前用户消息（在历史之后，确保顺序正确）
-    lc_messages.append({"role": "user", "content": request.message})
+    # ✨ 支持多模态：图片消息包含 images 字段（Ollama）或 image_url blocks（LangChain）
+    current_user_msg = {"role": "user", "content": request.message}
+    # 图片路径列表（服务器路径，如 raw_data/.pasted/image.png）
+    # 这些路径会在 Ollama 消息构建时转为 images 字段
+    current_image_paths = request.images or []
+    lc_messages.append(current_user_msg)
+
+    # ✨ PDF 内容注入：提取粘贴的 PDF 文件文本，追加到用户消息后
+    pdf_context_text = ""
+    if request.pasted_files:
+        try:
+            from app.services.pdf_processor import extract_pdf_content, build_pdf_context_message
+            pdf_results = []
+            for pdf_path in request.pasted_files:
+                # 将相对路径转为绝对路径（项目工作区路径）
+                abs_path = pdf_path
+                if not os.path.isabs(pdf_path):
+                    # 尝试在项目工作区中查找
+                    from app.core.config import settings
+                    workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
+                    project_dir = f"{workspace_base}/{request.project_id}"
+                    abs_path = f"{project_dir}/{pdf_path}"
+                result = extract_pdf_content(abs_path)
+                pdf_results.append(result)
+                log.info(f"[Chat] PDF 提取完成: {abs_path}, {result['char_count']} 字符")
+            pdf_context_text = build_pdf_context_message(pdf_results)
+        except Exception as e:
+            log.warning(f"[Chat] PDF 内容提取失败: {e}")
+    # 如果有 PDF 上下文，作为额外的 user 消息注入
+    if pdf_context_text:
+        lc_messages.append({"role": "user", "content": pdf_context_text})
+        lc_messages.append({"role": "assistant", "content": "好的，我已经阅读了您上传的PDF文档内容，请继续提问。"})
 
     # ✨ 修复：确保 LLM 消息列表中没有连续的 user 消息
     # 跳过空助手消息后可能出现 user→user 序列，
@@ -314,6 +375,9 @@ async def chat_stream(
             use_native_ollama = is_local_model
 
             try:
+                # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）
+                is_data_probe = intent_data.get("intent") == "data_probe"
+
                 if use_native_ollama:
                     # ✨ 本地 Ollama：使用 ollama.AsyncClient 原生流式
                     # LangChain ChatOpenAI 依赖 /v1 端点，不支持 think 参数
@@ -329,35 +393,187 @@ async def chat_stream(
 
                     client = ollama_sdk.AsyncClient(host=host)
                     ollama_messages = []
-                    for msg in lc_messages:
-                        ollama_messages.append({'role': msg['role'], 'content': msg['content']})
-
-                    async for part in await client.chat(
-                        model=model_name,
-                        messages=ollama_messages,
-                        think=enable_think,
-                        stream=True,
-                    ):
-                        # Ollama think 模式：part.message.content 为思考内容，part.message.thinking 为思考过程
-                        if part.message and part.message.content:
-                            # 正常文本内容
-                            filtered_content, content_type = content_filter.filter_chunk(part.message.content)
-                            if filtered_content:
-                                if content_type == "thinking":
-                                    yield encoder.from_thinking(filtered_content)
+                    for i, msg in enumerate(lc_messages):
+                        ollama_msg = {'role': msg['role'], 'content': msg['content']}
+                        # ✨ 图片消息：为当前用户消息添加 images 字段
+                        # Ollama SDK 支持在消息中传递图片路径，自动 base64 编码
+                        if msg['role'] == 'user' and i == len(lc_messages) - 1 and current_image_paths:
+                            # 将服务器相对路径转为绝对路径
+                            abs_image_paths = []
+                            for img_path in current_image_paths:
+                                if os.path.isabs(img_path):
+                                    abs_image_paths.append(img_path)
                                 else:
-                                    start = ensure_text_started()
-                                    if start:
-                                        yield start
-                                    ai_full_response += filtered_content
-                                    yield encoder.text_chunk(filtered_content)
-                        # ✨ Ollama think 模式：思考过程在 message.thinking 字段
-                        if part.message and hasattr(part.message, 'thinking') and part.message.thinking:
-                            yield encoder.from_thinking(part.message.thinking)
+                                    from app.core.config import settings
+                                    workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
+                                    abs_image_paths.append(f"{workspace_base}/{request.project_id}/{img_path}")
+                            ollama_msg['images'] = abs_image_paths
+                            log.info(f"[Chat] Ollama 消息包含 {len(abs_image_paths)} 张图片")
+                        ollama_messages.append(ollama_msg)
+
+                    # ✨ data_probe 意图：绑定探针工具
+                    if is_data_probe:
+                        from app.tools.probe_tools import probe_tools_list
+                        # Ollama 原生客户端支持 tools 参数
+                        # 将 LangChain @tool 装饰器定义的工具转为 Ollama 格式
+                        ollama_tools = []
+                        for t in probe_tools_list:
+                            tool_schema = {
+                                "type": "function",
+                                "function": {
+                                    "name": t.name,
+                                    "description": t.description,
+                                    "parameters": t.args_schema.schema() if hasattr(t, 'args_schema') and t.args_schema else {},
+                                }
+                            }
+                            ollama_tools.append(tool_schema)
+                        log.info(f"[Chat] data_probe: 绑定 {len(ollama_tools)} 个探针工具")
+
+                        # ✨ Ollama 工具调用循环：LLM 可能多次调用工具
+                        # 每次工具调用后，将结果追加到消息列表，继续调用 LLM
+                        max_tool_rounds = 5  # 最多 5 轮工具调用
+                        for round_idx in range(max_tool_rounds):
+                            stream_response = await client.chat(
+                                model=model_name,
+                                messages=ollama_messages,
+                                tools=ollama_tools,
+                                think=enable_think,
+                                stream=True,
+                            )
+                            has_tool_call = False
+                            tool_calls_in_round = []
+
+                            async for part in stream_response:
+                                # 处理文本内容
+                                if part.message and part.message.content:
+                                    filtered_content, content_type = content_filter.filter_chunk(part.message.content)
+                                    if filtered_content:
+                                        if content_type == "thinking":
+                                            yield encoder.from_thinking(filtered_content)
+                                        else:
+                                            start = ensure_text_started()
+                                            if start:
+                                                yield start
+                                            ai_full_response += filtered_content
+                                            yield encoder.text_chunk(filtered_content)
+                                # 处理思考内容
+                                if part.message and hasattr(part.message, 'thinking') and part.message.thinking:
+                                    yield encoder.from_thinking(part.message.thinking)
+                                # ✨ 收集工具调用
+                                if part.message and hasattr(part.message, 'tool_calls') and part.message.tool_calls:
+                                    for tc in part.message.tool_calls:
+                                        tool_calls_in_round.append(tc)
+                                        has_tool_call = True
+
+                            # 如果没有工具调用，退出循环
+                            if not has_tool_call:
+                                break
+
+                            # 执行工具调用并将结果追加到消息列表
+                            for tc in tool_calls_in_round:
+                                tool_name = tc.function.name
+                                tool_args = tc.function.arguments if isinstance(tc.function.arguments, dict) else json.loads(tc.function.arguments or '{}')
+                                log.info(f"[Chat] data_probe 工具调用: {tool_name}({tool_args})")
+
+                                # 输出工具调用进度
+                                progress_msg = f"\n> ⚙️ 正在执行: `{tool_name}`...\n\n"
+                                start = ensure_text_started()
+                                if start:
+                                    yield start
+                                ai_full_response += progress_msg
+                                yield encoder.text_chunk(progress_msg)
+
+                                # 执行工具
+                                tool_result = ""
+                                try:
+                                    for t in probe_tools_list:
+                                        if t.name == tool_name:
+                                            tool_result = t.invoke(tool_args)
+                                            break
+                                except Exception as te:
+                                    tool_result = f"工具执行失败: {str(te)}"
+                                    log.error(f"[Chat] 工具执行失败: {tool_name}, error={te}")
+
+                                # 输出工具结果
+                                start = ensure_text_started()
+                                if start:
+                                    yield start
+                                ai_full_response += tool_result
+                                yield encoder.text_chunk(tool_result)
+
+                                # 将工具调用和结果追加到消息列表
+                                ollama_messages.append({
+                                    'role': 'assistant',
+                                    'content': '',
+                                    'tool_calls': [{'function': {'name': tool_name, 'arguments': tool_args}}],
+                                })
+                                ollama_messages.append({
+                                    'role': 'tool',
+                                    'content': tool_result,
+                                })
+
+                        log.info(f"[Chat] data_probe 工具调用完成，共 {round_idx + 1} 轮")
+
+                    else:
+                        # 普通聊天（无工具绑定）
+                        async for part in await client.chat(
+                            model=model_name,
+                            messages=ollama_messages,
+                            think=enable_think,
+                            stream=True,
+                        ):
+                            # Ollama think 模式：part.message.content 为思考内容，part.message.thinking 为思考过程
+                            if part.message and part.message.content:
+                                # 正常文本内容
+                                filtered_content, content_type = content_filter.filter_chunk(part.message.content)
+                                if filtered_content:
+                                    if content_type == "thinking":
+                                        yield encoder.from_thinking(filtered_content)
+                                    else:
+                                        start = ensure_text_started()
+                                        if start:
+                                            yield start
+                                        ai_full_response += filtered_content
+                                        yield encoder.text_chunk(filtered_content)
+                            # ✨ Ollama think 模式：思考过程在 message.thinking 字段
+                            if part.message and hasattr(part.message, 'thinking') and part.message.thinking:
+                                yield encoder.from_thinking(part.message.thinking)
 
                 else:
                     # 第三方 API 或本地 Ollama 无深度思考：使用 LangChain ChatOpenAI
                     from langchain_openai import ChatOpenAI
+
+                    # ✨ 图片消息：构建多模态 content（image_url blocks）
+                    # OpenAI/Claude 等模型支持 content 为列表，包含 text 和 image_url
+                    if current_image_paths:
+                        # 将图片注入到当前用户消息中
+                        # 找到 lc_messages 中最后一个 user 消息，替换为多模态格式
+                        for i in range(len(lc_messages) - 1, -1, -1):
+                            if lc_messages[i]["role"] == "user":
+                                multimodal_content = [{"type": "text", "text": lc_messages[i]["content"]}]
+                                for img_path in current_image_paths:
+                                    abs_img = img_path
+                                    if not os.path.isabs(img_path):
+                                        from app.core.config import settings
+                                        workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
+                                        abs_img = f"{workspace_base}/{request.project_id}/{img_path}"
+                                    # 读取图片并 base64 编码
+                                    try:
+                                        import base64
+                                        with open(abs_img, 'rb') as f:
+                                            img_data = base64.b64encode(f.read()).decode('utf-8')
+                                        ext = os.path.splitext(abs_img)[1].lower()
+                                        mime_map = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp'}
+                                        mime_type = mime_map.get(ext, 'image/png')
+                                        multimodal_content.append({
+                                            "type": "image_url",
+                                            "image_url": {"url": f"data:{mime_type};base64,{img_data}"}
+                                        })
+                                    except Exception as img_err:
+                                        log.warning(f"[Chat] 图片读取失败: {abs_img}, error={img_err}")
+                                lc_messages[i] = {"role": "user", "content": multimodal_content}
+                                log.info(f"[Chat] LangChain 消息包含 {len(current_image_paths)} 张图片")
+                                break
 
                     llm_kwargs = dict(
                         api_key=api_key or "not-needed",
@@ -374,35 +590,110 @@ async def chat_stream(
 
                     direct_llm = ChatOpenAI(**llm_kwargs)
 
-                    async for chunk in direct_llm.astream(lc_messages):
-                        content = chunk.content
-                        if content:
-                            # ✨ 过滤思考标签等内容，返回 (content, type) 元组
-                            # type: "text" = 正常回复, "thinking" = 思考过程
-                            filtered_content, content_type = content_filter.filter_chunk(content)
-                            if filtered_content:
-                                if content_type == "thinking":
-                                    # ✨ 思考过程通过 data 事件推送给前端
-                                    yield encoder.from_thinking(filtered_content)
-                                else:
-                                    # 首个文本块前发送 text-start
+                    # ✨ data_probe 意图：绑定探针工具并执行工具调用循环
+                    if is_data_probe:
+                        from app.tools.probe_tools import probe_tools_list
+                        llm_with_tools = direct_llm.bind_tools(probe_tools_list)
+                        log.info(f"[Chat] data_probe: 绑定 {len(probe_tools_list)} 个探针工具到 LangChain LLM")
+
+                        # 工具调用循环：LLM 可能多次调用工具
+                        max_tool_rounds = 5
+                        current_messages = list(lc_messages)  # 复制消息列表
+
+                        for round_idx in range(max_tool_rounds):
+                            # 非流式调用以获取完整的 tool_calls
+                            response = await llm_with_tools.ainvoke(current_messages)
+
+                            # 如果有文本内容，流式输出
+                            if response.content:
+                                filtered_content, content_type = content_filter.filter_chunk(response.content)
+                                if filtered_content:
                                     start = ensure_text_started()
                                     if start:
                                         yield start
                                     ai_full_response += filtered_content
                                     yield encoder.text_chunk(filtered_content)
 
-                        # ✨ 工具调用拦截：Agent 调用工具时 content 为空，tool_calls 在 chunk 中
-                        # 输出进度提示，避免前端长时间无输出导致用户以为系统卡死
-                        elif hasattr(chunk, 'tool_calls') and chunk.tool_calls:
-                            for tc in chunk.tool_calls:
-                                tool_name = tc.get('name', tc.get('function', {}).get('name', 'tool')) if isinstance(tc, dict) else getattr(tc, 'name', 'tool')
+                            # 如果没有工具调用，退出循环
+                            if not hasattr(response, 'tool_calls') or not response.tool_calls:
+                                break
+
+                            # 执行每个工具调用
+                            for tc in response.tool_calls:
+                                tool_name = tc['name']
+                                tool_args = tc.get('args', {})
+                                log.info(f"[Chat] data_probe 工具调用: {tool_name}({tool_args})")
+
+                                # 输出工具调用进度
                                 progress_msg = f"\n> ⚙️ 正在执行: `{tool_name}`...\n\n"
                                 start = ensure_text_started()
                                 if start:
                                     yield start
                                 ai_full_response += progress_msg
                                 yield encoder.text_chunk(progress_msg)
+
+                                # 执行工具
+                                tool_result = ""
+                                try:
+                                    for t in probe_tools_list:
+                                        if t.name == tool_name:
+                                            tool_result = t.invoke(tool_args)
+                                            break
+                                except Exception as te:
+                                    tool_result = f"工具执行失败: {str(te)}"
+                                    log.error(f"[Chat] 工具执行失败: {tool_name}, error={te}")
+
+                                # 输出工具结果
+                                start = ensure_text_started()
+                                if start:
+                                    yield start
+                                ai_full_response += tool_result
+                                yield encoder.text_chunk(tool_result)
+
+                                # 追加工具调用和结果到消息列表
+                                from langchain_core.messages import AIMessage, ToolMessage
+                                current_messages.append(AIMessage(
+                                    content="",
+                                    tool_calls=[{"id": tc.get('id', ''), "name": tool_name, "args": tool_args}]
+                                ))
+                                current_messages.append(ToolMessage(
+                                    content=tool_result,
+                                    tool_call_id=tc.get('id', ''),
+                                ))
+
+                        log.info(f"[Chat] data_probe 工具调用完成，共 {round_idx + 1} 轮")
+
+                    else:
+                        # 普通聊天（无工具绑定）
+                        async for chunk in direct_llm.astream(lc_messages):
+                            content = chunk.content
+                            if content:
+                                # ✨ 过滤思考标签等内容，返回 (content, type) 元组
+                                # type: "text" = 正常回复, "thinking" = 思考过程
+                                filtered_content, content_type = content_filter.filter_chunk(content)
+                                if filtered_content:
+                                    if content_type == "thinking":
+                                        # ✨ 思考过程通过 data 事件推送给前端
+                                        yield encoder.from_thinking(filtered_content)
+                                    else:
+                                        # 首个文本块前发送 text-start
+                                        start = ensure_text_started()
+                                        if start:
+                                            yield start
+                                        ai_full_response += filtered_content
+                                        yield encoder.text_chunk(filtered_content)
+
+                            # ✨ 工具调用拦截：Agent 调用工具时 content 为空，tool_calls 在 chunk 中
+                            # 输出进度提示，避免前端长时间无输出导致用户以为系统卡死
+                            elif hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                                for tc in chunk.tool_calls:
+                                    tool_name = tc.get('name', tc.get('function', {}).get('name', 'tool')) if isinstance(tc, dict) else getattr(tc, 'name', 'tool')
+                                    progress_msg = f"\n> ⚙️ 正在执行: `{tool_name}`...\n\n"
+                                    start = ensure_text_started()
+                                    if start:
+                                        yield start
+                                    ai_full_response += progress_msg
+                                    yield encoder.text_chunk(progress_msg)
 
             except StopAsyncIteration:
                 raise

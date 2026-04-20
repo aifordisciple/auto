@@ -28,7 +28,7 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个生物信息学 IDE (Autonome Stud
 可选的意图分类：
 1. 'diagnostic': 用户遇到代码报错，或者请求修复 bug、环境配置问题。
 2. 'literature': 用户提供文献/DOI，或请求复现某篇论文的方法论和图表。
-3. 'data_probe': 用户请求查看、预览、统计当前的数据集特征（如 h5ad 结构、fastq 质量）。
+3. 'data_probe': 用户请求查看、预览、统计当前的数据集特征（如 h5ad 结构、fastq 质量），或者探索工作区的文件结构（如"有哪些文件"、"目录结构"、"文件列表"）。
 4. 'skill_forge': 用户要求在 IDE 中真正执行/运行生信分析或 Pipeline，需要系统调度代码执行环境。关键标志：用户明确要求"跑/运行/执行/做"分析，且期望得到实际运行结果。
 5. 'explicit_skill': 用户直接指定了某个技能的名称或 ID 来执行。
 6. 'chat': 通用的闲聊、基础概念解释、代码示例展示。⚠️ 重要：仅请求代码/脚本/示例但不要求执行的情况（如"写一个PCA脚本"、"给我一个Seurat流程"、"怎么用Scanpy做聚类"）属于 chat，不是 skill_forge。
@@ -43,7 +43,7 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个生物信息学 IDE (Autonome Stud
 槽位提取规则（仅当意图为 skill_forge/explicit_skill/data_probe 时执行）：
 - skill_forge: 提取 analysis_type(分析类型如DEG/clustering/trajectory), input_file(输入数据路径), tool(分析工具如Seurat/Scanpy), species(物种如human/mouse)
 - explicit_skill: 提取技能执行所需的参数键值对
-- data_probe: 提取 file_path(数据文件路径), probe_type(探查类型如structure/quality/statistics), file_format(文件格式如h5ad/fastq/bam)
+- data_probe: 提取 file_path(数据文件路径), probe_type(探查类型如structure/quality/statistics/workspace_scan), file_format(文件格式如h5ad/fastq/bam)。当用户询问工作区文件结构时，probe_type 为 workspace_scan
 - 未提及的必需参数加入 missing_slots
 - chat/diagnostic/literature 意图时 slots 和 missing_slots 留空"""
 

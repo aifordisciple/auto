@@ -21,7 +21,8 @@ class ChatRequest(BaseModel):
     context_files: list[str] = []
     session_id: Optional[str] = None
     skill_id: Optional[str] = None  # 用户预选技能ID
-    images: list[str] = []  # 粘贴上传的图片路径列表
+    images: list[str] = []  # 粘贴上传的图片路径列表（服务器路径，如 raw_data/.pasted/image.png）
+    pasted_files: list[str] = []  # 粘贴上传的非图片文件路径列表（如 PDF）
     task_mode: Optional[str] = None  # 任务模式：'complex' 强制蓝图，None 自动判断
     enable_think: bool = False  # ✨ 深度思考模式开关（用户手动切换，默认关闭）
 

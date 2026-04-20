@@ -168,26 +168,51 @@ class ProbePatternRule(Rule):
     """
     优先级 6: 数据探查模式拦截。
 
-    检测"查看/预览/结构"等探查关键词，且上下文中存在活跃文件时路由到 data_probe。
-    仅在有文件上下文时触发，避免将纯概念问题误判为数据探查。
+    检测"查看/预览/结构"等探查关键词，路由到 data_probe。
+    支持两种场景：
+    1. 有文件上下文时的数据集探查（查看 h5ad 结构、预览 CSV 等）
+    2. 无文件上下文时的文件系统探索（有哪些文件、目录结构、文件列表等）
     """
 
+    # 数据集探查关键词（需要文件上下文）
     PROBE_KEYWORDS = re.compile(
-        r'(查看|预览|看看|结构|统计|inspect|preview|peek|scan|查看数据|数据结构)',
+        r'(查看|预览|看看|结构|统计|inspect|preview|peek|查看数据|数据结构)',
+        re.IGNORECASE
+    )
+
+    # 文件系统探索关键词（无需文件上下文，查询工作区文件结构）
+    FILE_EXPLORATION_KEYWORDS = re.compile(
+        r'(有哪些文件|文件列表|目录结构|什么文件|哪些文件|文件树|目录树|'
+        r'扫描目录|扫描文件|列出文件|查看文件|浏览文件|'
+        r'list\s*files|file\s*list|directory\s*tree|file\s*tree|'
+        r'scan\s*dir|show\s*files|what\s*files)',
         re.IGNORECASE
     )
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
         has_file_context = bool(context.get("active_file") or context.get("context_files"))
+
+        # 场景 1: 有文件上下文 + 探查关键词 → 数据集探查
         if self.PROBE_KEYWORDS.search(query) and has_file_context:
             active_file = context.get("active_file", "")
-            log.debug(f"[L0] ProbePatternRule 命中: active_file={active_file}")
+            log.debug(f"[L0] ProbePatternRule 命中(数据集探查): active_file={active_file}")
             return IntentExtraction(
                 intent=IntentType.DATA_PROBE,
                 confidence=0.85,
                 entities={"input_file": active_file} if active_file else {},
                 requires_followup=False
             )
+
+        # 场景 2: 文件系统探索关键词（无需文件上下文）→ 工作区扫描
+        if self.FILE_EXPLORATION_KEYWORDS.search(query):
+            log.debug("[L0] ProbePatternRule 命中(文件系统探索)")
+            return IntentExtraction(
+                intent=IntentType.DATA_PROBE,
+                confidence=0.85,
+                entities={"probe_type": "workspace_scan"},
+                requires_followup=False
+            )
+
         return None
 
 

@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     const contextFiles = contextData?.contextFiles || [];
     const skillId = contextData?.skillId || null;
     const images = contextData?.images || [];
+    const pastedFiles = contextData?.pastedFiles || [];  // ✨ 粘贴上传的文件路径（如PDF）
     // ✨ 深度思考开关：从 transport body 读取并转发给后端
     const enableThink = contextData?.enableThink || false;
 
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
         session_id: sessionId,
         skill_id: skillId,
         images,
+        pasted_files: pastedFiles,  // ✨ 粘贴上传的文件路径（如PDF）
         enable_think: enableThink,
       }),
     });
