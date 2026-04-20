@@ -57,16 +57,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (!backendResponse.ok) {
-      if (backendResponse.status === 402) {
-        const errorText = await backendResponse.text();
-        // v5 UIMessage Stream Protocol: 返回 SSE 格式的 error 事件
-        return new Response(`data: {"type":"error","error":${JSON.stringify(errorText)}}\n\n`, {
-          status: 200,
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-      }
+      // 402 余额不足：恢复标准 HTTP 语义，让前端 onError 正确捕获
+      // 不再将业务错误伪装为 200 SSE 事件，避免监控系统盲区和静默失败
       const errorText = await backendResponse.text();
-      return new Response(JSON.stringify({ error: errorText }), {
+      return new Response(errorText, {
         status: backendResponse.status,
         headers: { 'Content-Type': 'application/json' },
       });

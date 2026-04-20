@@ -21,6 +21,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
+import { toast } from 'sonner';
 
 // ==========================================
 // 状态管理导入
@@ -109,6 +110,14 @@ export function ChatStage() {
     transport: chatTransport,
     onError: (error) => {
       console.error('[useChat] Stream error:', error);
+      // 根据错误类型提供用户友好提示
+      const msg = error.message || '';
+      if (msg.includes('402') || msg.toLowerCase().includes('insufficient') || msg.includes('余额')) {
+        toast.error('余额不足，请充值后继续使用');
+        useUIStore.getState().openOverlay('userCenter');
+      } else {
+        toast.error('对话出错，请稍后重试');
+      }
     },
     onFinish: ({ finishReason }) => {
       console.log('[useChat] Stream finished:', finishReason);
