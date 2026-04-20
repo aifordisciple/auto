@@ -283,10 +283,9 @@ async def chat_stream(
                 # 将相对路径转为绝对路径（项目工作区路径）
                 abs_path = pdf_path
                 if not os.path.isabs(pdf_path):
-                    # 尝试在项目工作区中查找
-                    from app.core.config import settings
-                    workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
-                    project_dir = f"{workspace_base}/{request.project_id}"
+                    # 项目目录格式：UPLOAD_DIR/project_{project_id}
+                    from app.core.config import settings as pdf_settings
+                    project_dir = str(Path(pdf_settings.UPLOAD_DIR) / f"project_{request.project_id}")
                     abs_path = f"{project_dir}/{pdf_path}"
                 result = extract_pdf_content(abs_path)
                 pdf_results.append(result)
@@ -414,16 +413,17 @@ async def chat_stream(
                         # Ollama SDK 支持在消息中传递图片路径，自动 base64 编码
                         if msg['role'] == 'user' and i == len(lc_messages) - 1 and current_image_paths:
                             # 将服务器相对路径转为绝对路径
+                            # 项目目录格式：UPLOAD_DIR/project_{project_id}
+                            from app.core.config import settings as img_settings
                             abs_image_paths = []
                             for img_path in current_image_paths:
                                 if os.path.isabs(img_path):
                                     abs_image_paths.append(img_path)
                                 else:
-                                    from app.core.config import settings
-                                    workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
-                                    abs_image_paths.append(f"{workspace_base}/{request.project_id}/{img_path}")
+                                    project_dir = str(Path(img_settings.UPLOAD_DIR) / f"project_{request.project_id}")
+                                    abs_image_paths.append(f"{project_dir}/{img_path}")
                             ollama_msg['images'] = abs_image_paths
-                            log.info(f"[Chat] Ollama 消息包含 {len(abs_image_paths)} 张图片")
+                            log.info(f"[Chat] Ollama 消息包含 {len(abs_image_paths)} 张图片: {abs_image_paths}")
                         ollama_messages.append(ollama_msg)
 
                     # ✨ data_probe 意图：绑定探针工具
@@ -578,9 +578,9 @@ async def chat_stream(
                                 for img_path in current_image_paths:
                                     abs_img = img_path
                                     if not os.path.isabs(img_path):
-                                        from app.core.config import settings
-                                        workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
-                                        abs_img = f"{workspace_base}/{request.project_id}/{img_path}"
+                                        from app.core.config import settings as lc_img_settings
+                                        project_dir = str(Path(lc_img_settings.UPLOAD_DIR) / f"project_{request.project_id}")
+                                        abs_img = f"{project_dir}/{img_path}"
                                     # 读取图片并 base64 编码
                                     try:
                                         import base64

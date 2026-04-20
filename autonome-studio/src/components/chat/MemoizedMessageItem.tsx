@@ -393,13 +393,31 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                         </div>
                       ))}
 
-                      {/* 图片标记 - 绿色 */}
-                      {msg.attachments.images?.map((path, idx) => (
-                        <div key={idx} className="flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-300 dark:border-emerald-700/50 rounded text-xs text-emerald-700 dark:text-emerald-300">
-                          <ImageIcon size={10} />
-                          <span className="truncate max-w-[120px]">{path.split('/').pop()}</span>
-                        </div>
-                      ))}
+                      {/* 图片标记 - 显示缩略图 */}
+                      {msg.attachments.images?.map((path, idx) => {
+                        // 构建图片预览 URL
+                        const projectId = currentProjectId || '';
+                        const previewUrl = `${BASE_URL}/api/projects/${projectId}/files/${path}/view`;
+                        return (
+                          <div key={idx} className="mt-1">
+                            <img
+                              src={previewUrl}
+                              alt={path.split('/').pop() || '图片'}
+                              className="max-w-[200px] max-h-[150px] rounded-lg border border-slate-300/50 dark:border-slate-600/50 object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => window.open(previewUrl, '_blank')}
+                              onError={(e) => {
+                                // 图片加载失败时显示文件名标签
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const fallback = document.createElement('div');
+                                fallback.className = 'flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-300 dark:border-emerald-700/50 rounded text-xs text-emerald-700 dark:text-emerald-300';
+                                fallback.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> ${path.split('/').pop()}`;
+                                target.parentNode?.appendChild(fallback);
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
 
                       {/* 粘贴文件标记 - 橙色 */}
                       {msg.attachments.pastedFiles?.map((path, idx) => (

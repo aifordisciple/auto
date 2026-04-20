@@ -17,18 +17,20 @@
  * - 鲁棒解析数据层级（兼容存在或不存在嵌套 .data 层级）
  * - 处理 intent 意图事件，避免知识类问题"没有回复"
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { useChatStore } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import type { Message } from '@/store/useChatStore';
+import type { Message, MessageAttachments } from '@/store/useChatStore';
 import type { UIMessage } from '@ai-sdk/react';
 
 /** useChat 返回的子集，方便测试和组合 */
 interface UseChatSyncOptions {
   messages: UIMessage[];
   isLoading: boolean;
+  /** ✨ 待关联到最新用户消息的 attachments（图片/文件路径） */
+  pendingAttachmentsRef?: RefObject<MessageAttachments | null>;
 }
 
 /**
@@ -78,7 +80,7 @@ function isValidEventType(type: string): boolean {
   return KNOWN_EVENT_NAMES.has(type);
 }
 
-export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
+export function useChatSync({ messages, isLoading, pendingAttachmentsRef }: UseChatSyncOptions) {
   const syncFromUseChat = useChatStore(state => state.syncFromUseChat);
   const setThinkingContent = useChatStore(state => state.setThinkingContent);
   const setIsThinking = useChatStore(state => state.setIsThinking);
@@ -132,10 +134,32 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
           };
         }
       }
+      // ✨ 将 pendingAttachments 附加到最后一条用户消息
+      if (pendingAttachmentsRef?.current) {
+        const lastUserIdx = storeMessages.map(m => m.role).lastIndexOf('user');
+        if (lastUserIdx !== -1) {
+          storeMessages[lastUserIdx] = {
+            ...storeMessages[lastUserIdx],
+            attachments: pendingAttachmentsRef.current,
+          };
+        }
+        pendingAttachmentsRef.current = null;
+      }
       syncFromUseChat(storeMessages, false);
     } else if (!isLoading) {
       // 空闲状态：提交完整消息到 Zustand（保留已有 thinkingContent）
       const storeMessages = convertToStoreMessages(messages);
+      // ✨ 将 pendingAttachments 附加到最后一条用户消息
+      if (pendingAttachmentsRef?.current) {
+        const lastUserIdx = storeMessages.map(m => m.role).lastIndexOf('user');
+        if (lastUserIdx !== -1) {
+          storeMessages[lastUserIdx] = {
+            ...storeMessages[lastUserIdx],
+            attachments: pendingAttachmentsRef.current,
+          };
+        }
+        pendingAttachmentsRef.current = null;
+      }
       syncFromUseChat(storeMessages, false);
     }
 

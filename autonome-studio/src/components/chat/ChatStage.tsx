@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 // ==========================================
 // 状态管理导入
 // ==========================================
-import { useChatStore, ChatState } from "@/store/useChatStore";
+import { useChatStore, ChatState, MessageAttachments } from "@/store/useChatStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useUIStore } from "@/store/useUIStore";
 
@@ -75,6 +75,15 @@ export function ChatStage() {
   // ==========================================
   // Vercel AI SDK useChat hook
   // 核心流式通信由 useChat 管理，不再手动 SSE
+  // ✨ 待发送的图片/文件路径缓冲区
+  // 解决时序问题：sendMessage 是异步的，body() 在 fetch 发起时才读取，
+  // 但 cleanupPastedAttachments() 可能在 body() 读取前就清空了 store。
+  // 使用 ref 缓冲：handleSendWrapper 提取路径存入 ref → body() 从 ref 读取 → 发送后清空 ref
+  const pendingImagesRef = useRef<string[]>([]);
+  const pendingFilesRef = useRef<string[]>([]);
+  // ✨ 待关联到用户消息的 attachments（发送后通过 useChatSync 关联）
+  const pendingAttachmentsRef = useRef<MessageAttachments | null>(null);
+
   // ==========================================
   // useMemo 确保 transport 实例稳定，避免每次渲染重建导致 useChat 状态丢失
   // ⚠️ 关键：不将 currentSessionId / pendingChatAttachments 放入依赖数组！
@@ -90,28 +99,18 @@ export function ChatStage() {
       return token ? { Authorization: `Bearer ${token}` } : {};
     },
     // 通过 body 传递上下文信息给 BFF 代理（函数形式确保获取最新值）
-    body: () => {
-      const { pastedAttachments } = useWorkspaceStore.getState();
-      // 从粘贴附件中提取已上传完成的图片路径和文件路径
-      const imagePaths = pastedAttachments
-        .filter(att => att.type === 'image' && att.serverPath && !att.isUploading)
-        .map(att => att.serverPath);
-      const filePaths = pastedAttachments
-        .filter(att => att.type === 'file' && att.serverPath && !att.isUploading)
-        .map(att => att.serverPath);
-      return {
-        data: {
-          projectId: useWorkspaceStore.getState().currentProjectId,
-          sessionId: useWorkspaceStore.getState().currentSessionId,
-          contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
-          // ✨ 深度思考开关：从 chatStore 读取（持久化状态）
-          enableThink: useChatStore.getState().enableThink,
-          // ✨ 粘贴上传的图片和文件路径
-          images: imagePaths,
-          pastedFiles: filePaths,
-        },
-      };
-    },
+    body: () => ({
+      data: {
+        projectId: useWorkspaceStore.getState().currentProjectId,
+        sessionId: useWorkspaceStore.getState().currentSessionId,
+        contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
+        // ✨ 深度思考开关：从 chatStore 读取（持久化状态）
+        enableThink: useChatStore.getState().enableThink,
+        // ✨ 粘贴上传的图片和文件路径（从 ref 缓冲区读取，确保时序正确）
+        images: pendingImagesRef.current,
+        pastedFiles: pendingFilesRef.current,
+      },
+    }),
   }), []);
 
   const {
@@ -147,7 +146,7 @@ export function ChatStage() {
   // useChatSync 桥接：将 useChat 状态同步到 Zustand store
   // 供其他组件（如 SessionSidebar）读取会话 ID、计费等
   // ==========================================
-  useChatSync({ messages: aiMessages, isLoading });
+  useChatSync({ messages: aiMessages, isLoading, pendingAttachmentsRef });
 
   // ==========================================
   // 直接从 useChat.messages 渲染（不经过 store 中转）
@@ -363,15 +362,41 @@ export function ChatStage() {
   // ✨ 扩展：接收 enableThink 参数，写入 transport body
   // ==========================================
   const handleSendWrapper = useCallback((messageText: string, _enableThink?: boolean) => {
-    // ✨ 修复：先发送消息（transport body 会读取 pastedAttachments），再清理
-    // 之前 cleanupPastedAttachments() 在 sendMessage 之前调用，
-    // 导致 transport body 中的 images/pastedFiles 始终为空
+    // ✨ 修复图片传递时序问题：
+    // 1. 先从 store 提取图片/文件路径，存入 ref 缓冲区
+    // 2. 然后调用 sendMessage（body() 会从 ref 读取）
+    // 3. 最后清理粘贴附件和 ref
+    const { pastedAttachments } = useWorkspaceStore.getState();
+    const imagePaths = pastedAttachments
+      .filter(att => att.type === 'image' && att.serverPath && !att.isUploading)
+      .map(att => att.serverPath);
+    const filePaths = pastedAttachments
+      .filter(att => att.type === 'file' && att.serverPath && !att.isUploading)
+      .map(att => att.serverPath);
+
+    pendingImagesRef.current = imagePaths;
+    pendingFilesRef.current = filePaths;
+
+    // ✨ 设置待关联的 attachments（发送后 useChatSync 会将其附加到最新用户消息）
+    if (imagePaths.length > 0 || filePaths.length > 0) {
+      const attachments: MessageAttachments = {};
+      if (imagePaths.length > 0) attachments.images = imagePaths;
+      if (filePaths.length > 0) attachments.pastedFiles = filePaths;
+      pendingAttachmentsRef.current = attachments;
+    } else {
+      pendingAttachmentsRef.current = null;
+    }
 
     // 调用 sendMessage 发送消息（v5 API）
     sendMessage({ text: messageText });
 
-    // 发送后清理粘贴附件
+    // 发送后清理粘贴附件和 ref 缓冲区
     cleanupPastedAttachments();
+    // 延迟清空 ref，确保 body() 已经读取
+    setTimeout(() => {
+      pendingImagesRef.current = [];
+      pendingFilesRef.current = [];
+    }, 100);
 
     // 自动滚动到底部
     if (isAtBottomRef.current && !isPausedRef.current) {
