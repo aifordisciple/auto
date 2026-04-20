@@ -5,10 +5,13 @@ L1 LLM 分类层 - 大模型结构化意图分类。
 以结构化输出方式完成意图分类和初步实体提取。
 
 双模式：
-- 本地模型（Ollama）: JSON mode + 手动解析
+- 本地模型（Ollama）: 采用原生异步客户端 (AsyncClient)，支持 think 模式控制和强制 JSON 输出。
 - 第三方 API: with_structured_output (function calling)
 """
 from typing import Any, Dict
+import json
+import ollama
+from json_repair import repair_json
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -49,12 +52,16 @@ class L1Classifier:
     """
     L1 LLM 结构化意图分类器。
 
-    从用户中心配置解析 LLM，支持本地模型和第三方 API 双模式。
+    从用户中心配置解析 LLM，支持本地原生模型和第三方 API 双模式。
     """
 
     def __init__(self, session, user_id: str):
         """
         初始化分类器。
+
+        程序说明：
+        根据用户配置初始化分类器参数，构建针对第三方 API 的 ChatOpenAI 实例。
+        本地模式的客户端将在具体调用时动态生成。
 
         Args:
             session: 数据库会话（用于 get_llm_config 解析用户配置）
@@ -64,7 +71,7 @@ class L1Classifier:
         self.is_local = _is_local_model(self.llm_config.base_url)
         self.confidence_threshold = 0.7
 
-        # 构建 LLM 实例
+        # 构建第三方 API 使用的 LLM 实例
         api_key = self.llm_config.api_key or "not-needed"
         self.primary_llm = ChatOpenAI(
             api_key=api_key,
@@ -73,7 +80,7 @@ class L1Classifier:
             temperature=0.0
         )
 
-        # 构建提示词模板
+        # 构建提示词模板 (仅供第三方 API 模式使用)
         self.prompt_template = ChatPromptTemplate.from_messages([
             ("system", INTENT_CLASSIFICATION_PROMPT),
             ("human", "Context (Workspace State): {context}\n\nUser Query: {query}")
@@ -85,13 +92,25 @@ class L1Classifier:
             f"source={self.llm_config.source}"
         )
 
-    async def classify(self, query: str, context: Dict[str, Any]) -> IntentExtraction:
+    async def classify(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        enable_think: bool = False,
+        temperature: float = 0.0
+    ) -> IntentExtraction:
         """
         执行意图分类。
 
+        程序说明：
+        作为分类任务的主入口，根据配置的 LLM 环境自动路由到对应的处理引擎。
+        包含参数系统，支持向下透传推理模式开关及采样温度设定。
+
         Args:
-            query: 用户自然语言输入
-            context: 工作区上下文
+            query (str): 用户自然语言输入。
+            context (Dict[str, Any]): 工作区上下文。
+            enable_think (bool): 是否开启大模型的推理思考模式。默认值为 False。
+            temperature (float): 采样温度，控制输出稳定性。默认值为 0.0。
 
         Returns:
             IntentExtraction: 结构化意图提取结果
@@ -100,7 +119,12 @@ class L1Classifier:
 
         try:
             if self.is_local:
-                result = await self._classify_with_json_mode(query, context)
+                result = await self._classify_with_json_mode(
+                    query=query,
+                    context=context,
+                    enable_think=enable_think,
+                    temperature=temperature
+                )
             else:
                 result = await self._classify_with_structured_output(query, context)
 
@@ -123,7 +147,9 @@ class L1Classifier:
     async def _classify_with_structured_output(
         self, query: str, context: Dict[str, Any]
     ) -> IntentExtraction:
-        """第三方 API 模式：使用 with_structured_output (function calling)"""
+        """
+        第三方 API 模式：使用 with_structured_output (function calling)。
+        """
         llm_with_schema = self.primary_llm.with_structured_output(IntentExtraction)
         chain = self.prompt_template | llm_with_schema
         result = await chain.ainvoke({
@@ -133,58 +159,82 @@ class L1Classifier:
         return result
 
     async def _classify_with_json_mode(
-        self, query: str, context: Dict[str, Any]
+        self,
+        query: str,
+        context: Dict[str, Any],
+        enable_think: bool = False,
+        temperature: float = 0.0
     ) -> IntentExtraction:
         """
-        本地模型模式：JSON mode + 手动解析。
+        本地模型模式：原生 Ollama API + JSON mode + 手动解析。
 
-        Ollama 等本地模型不一定支持 function calling，
-        使用 JSON mode 强制输出 JSON，然后手动解析为 IntentExtraction。
+        程序说明：
+        由于 Langchain 的 ChatOpenAI 依赖于兼容 /v1 端点，无法原生支持 think 参数控制，
+        此方法改用 ollama.AsyncClient 直接发起请求，确保异步性能。
+        通过参数系统传入的 enable_think，在 API 层面直接关闭深度推理模型 (如 Qwen3) 的思考过程。
+        利用原生 format='json' 约束，确保输出结构稳定性。
 
-        ⚠️ 修复：
-        1. ChatPromptTemplate 会将花括号视为模板变量，JSON 示例中的花括号
-           必须转义（{ → {{, } → }}），否则报 "Nested replacement fields" 错误。
-        2. 本地 Ollama Qwen3 模型默认开启 think 模式，/v1 端点不支持 think 参数，
-           通过在 prompt 开头注入 /no_think 标签禁用思考链输出。
+        Args:
+            query (str): 用户查询。
+            context (Dict[str, Any]): 上下文。
+            enable_think (bool): 控制思考模式的参数。
+            temperature (float): 采样温度参数。
         """
-        # Qwen3 专用：/no_think 标签禁用思考链（Ollama /v1 端点不支持 think 参数）
-        no_think_prefix = "/no_think\n" if self.is_local else ""
+        # 提取 Ollama 服务的基础 URL，移除可能存在的 /v1 兼容后缀
+        host = self.llm_config.base_url
+        if host and host.endswith('/v1'):
+            host = host[:-3]
+        if not host:
+            host = "http://localhost:11434"
 
-        # 在提示词中追加 JSON 格式要求（v2: 包含 slots 和 missing_slots）
-        # ⚠️ 花括号必须双写转义，否则 LangChain ChatPromptTemplate 报错
+        # 构建原生异步客户端
+        client = ollama.AsyncClient(host=host)
+
+        # 在提示词中追加严格的 JSON 格式要求
+        # 注意：使用原生客户端时，不再需要处理 LangChain ChatPromptTemplate 的双括号转义问题
         json_instruction = (
             "\n\n请严格按照以下 JSON 格式输出，不要输出任何其他内容：\n"
-            '{{"intent": "chat|skill_forge|explicit_skill|diagnostic|literature|data_probe", '
+            '{"intent": "chat|skill_forge|explicit_skill|diagnostic|literature|data_probe", '
             '"confidence": 0.0-1.0, '
-            '"entities": {{"key": "value"}}, '
+            '"entities": {"key": "value"}, '
             '"skill_id": null, '
             '"requires_followup": false, '
             '"followup_question": null, '
-            '"slots": {{"key": "value"}}, '
-            '"missing_slots": []}}'
+            '"slots": {"key": "value"}, '
+            '"missing_slots": []}'
         )
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", no_think_prefix + INTENT_CLASSIFICATION_PROMPT + json_instruction),
-            ("human", "Context (Workspace State): {context}\n\nUser Query: {query}")
-        ])
 
-        chain = prompt | self.primary_llm
-        raw_response = await chain.ainvoke({
-            "context": str(context),
-            "query": query
-        })
+        system_msg = INTENT_CLASSIFICATION_PROMPT + json_instruction
+        user_msg = f"Context (Workspace State): {str(context)}\n\nUser Query: {query}"
 
-        # 手动解析 JSON 响应为 IntentExtraction
+        messages = [
+            {'role': 'system', 'content': system_msg},
+            {'role': 'user', 'content': user_msg}
+        ]
+
+        raw_content = ""
         try:
-            import json
-            from json_repair import repair_json
+            # 发送 API 请求：利用原生参数控制思考模式与 JSON 格式
+            response: Dict[str, Any] = await client.chat(
+                model=self.llm_config.model_name,
+                messages=messages,
+                think=enable_think,
+                format='json',
+                options={
+                    'temperature': temperature
+                }
+            )
 
-            repaired = repair_json(raw_response.content)
+            raw_content = response['message']['content'].strip()
+
+            # 手动解析 JSON 响应为 IntentExtraction
+            repaired = repair_json(raw_content)
             parsed = json.loads(repaired)
             return IntentExtraction(**parsed)
+
         except Exception as parse_err:
-            log.warning(f"[L1] JSON 解析失败: {parse_err}, 原始响应: {raw_response.content[:200]}")
-            return self._fallback_intent_from_text(raw_response.content)
+            log.warning(f"[L1] 本地 API 调用或 JSON 解析失败: {parse_err}, 原始响应: {raw_content[:200]}")
+            return self._fallback_intent_from_text(raw_content)
 
     def _fallback_intent_from_text(self, text: str) -> IntentExtraction:
         """从 LLM 原始文本响应中提取意图（JSON 解析失败时的兜底）"""
