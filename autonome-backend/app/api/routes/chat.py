@@ -208,6 +208,18 @@ async def chat_stream(
         elif msg.role == RoleEnum.assistant:
             lc_messages.append({"role": "assistant", "content": msg.content})
 
+    # ✨ 调试日志：打印提交给 LLM 的完整提示词
+    log.info(f"[Chat] 提交给 LLM 的完整提示词 (共 {len(lc_messages)} 条消息):")
+    for i, msg in enumerate(lc_messages):
+        role = msg["role"]
+        content = msg["content"]
+        # system 消息完整打印，user/assistant 消息截断到 200 字符
+        if role == "system":
+            log.info(f"  [{i}] role={role}, content={content!r}")
+        else:
+            truncated = content[:200] + "..." if len(content) > 200 else content
+            log.info(f"  [{i}] role={role}, content={truncated!r}")
+
     # 8. UIMessage Stream 流式响应（Vercel AI SDK v5 协议）
     async def vercel_event_generator():
         encoder = VercelDataStreamEncoder()
