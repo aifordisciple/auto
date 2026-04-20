@@ -149,6 +149,7 @@ export default function AutonomeStudio() {
   const toggleProjectCenter = useUIStore(state => state.toggleProjectCenter);
   const openSkillCenter = useUIStore(state => state.openSkillCenter);
   const messages = useChatStore(state => state.messages);
+  const mirroredMessages = useChatStore(state => state.mirroredMessages);
 
   // 本地状态
   const [mounted, setMounted] = useState(false);
@@ -186,7 +187,13 @@ export default function AutonomeStudio() {
   // 导出对话到 Markdown
   // ==========================================
   const exportToMarkdown = useCallback(() => {
-    if (messages.length === 0) {
+    // 优先使用 mirroredMessages（包含当前会话的实时消息），回退到 messages（后端历史）
+    const sourceMessages = mirroredMessages.length > 0 ? mirroredMessages : messages;
+    // 过滤掉初始欢迎消息（id 以 'init-' 开头）
+    const chatMessages = sourceMessages.filter(
+      (m: Message) => !m.id.startsWith('init-')
+    );
+    if (chatMessages.length === 0) {
       alert('当前没有对话内容可导出');
       return;
     }
@@ -205,7 +212,7 @@ export default function AutonomeStudio() {
     markdown += `> 导出时间: ${formatTime(Date.now())}\n\n`;
     markdown += `---\n\n`;
 
-    messages.forEach((msg: Message) => {
+    chatMessages.forEach((msg: Message) => {
       const role = msg.role === 'user' ? '用户' : 'AI';
       const time = formatTime(msg.timestamp);
       markdown += `## ${role} (${time})\n\n`;
@@ -222,7 +229,7 @@ export default function AutonomeStudio() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [messages]);
+  }, [messages, mirroredMessages]);
 
   // ==========================================
   // 获取项目名称（带缓存）
