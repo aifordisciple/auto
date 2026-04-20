@@ -138,16 +138,25 @@ export function ChatStage() {
   // 直接从 useChat.messages 渲染（不经过 store 中转）
   // UIMessage.parts → 提取文本 → 转为 store Message 格式
   // 这样避免 mirroredMessages 同步延迟导致 UI 不更新
+  //
+  // ⚠️ 修复：user 消息往往只有 content 没有 parts，
+  // 必须兼容 content 字段，否则用户消息显示为空
   // ==========================================
-  const messages = useMemo(() => aiMessages.map(msg => ({
-    id: msg.id,
-    role: msg.role as 'user' | 'assistant' | 'system',
-    content: (msg.parts ?? [])
-      .filter((p): p is typeof p & { type: 'text' } => p.type === 'text')
-      .map(p => (p as { type: 'text'; text: string }).text)
-      .join(''),
-    timestamp: Date.now(),
-  })), [aiMessages]);
+  const messages = useMemo(() => aiMessages.map(msg => {
+    let content = msg.content || '';
+    if (msg.parts && msg.parts.length > 0) {
+      const textParts = msg.parts.filter((p): p is typeof p & { type: 'text' } => p.type === 'text');
+      if (textParts.length > 0) {
+        content = textParts.map(p => (p as { type: 'text'; text: string }).text).join('');
+      }
+    }
+    return {
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content,
+      timestamp: Date.now(),
+    };
+  }), [aiMessages]);
   const isTyping = isLoading;
 
   // ==========================================
@@ -225,6 +234,9 @@ export function ChatStage() {
   // ==========================================
   // Fetch messages when session changes
   // ⚠️ 关键保护：流式输出中不重新加载，避免清空正在接收的消息
+  // ⚠️ 修复：历史消息必须同时同步给 setAiMessages，
+  // 否则后续 append/sendMessage 只传当前页面的消息给后端，
+  // 导致上下文断层（问单细胞却回答 PCA）
   // ==========================================
   useEffect(() => {
     const fetchMessages = async () => {
@@ -251,7 +263,17 @@ export function ChatStage() {
             timestamp: Date.now(),
             attachments: msg.attachments
           }));
+
+          // 同步给 Zustand store（供 SessionSidebar 等读取）
           setMessages(formattedMessages);
+
+          // ⚠️ 核心修复：同步给 Vercel AI SDK 的 aiMessages
+          // 这样后续 sendMessage 才会把完整历史传给后端
+          setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string }) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          })));
         } else {
           setMessages([]);
         }
@@ -261,7 +283,8 @@ export function ChatStage() {
       }
     };
     fetchMessages();
-  }, [currentSessionId, setMessages, setAiMessages, isLoading]);
+  // ⚠️ 依赖项剥离 isLoading 避免流式期间无限重触发
+  }, [currentSessionId, setMessages, setAiMessages]);
 
   // ==========================================
   // 打开技能中心（基础分析模式）

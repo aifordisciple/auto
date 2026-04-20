@@ -24,15 +24,21 @@ interface UseChatSyncOptions {
 }
 
 /**
- * 从 UIMessage.parts 中提取纯文本内容
- * v5 中 UIMessage 没有 content 字段，文本在 parts 中 type='text' 的项里
+ * 从 UIMessage 中提取纯文本内容
+ *
+ * ⚠️ 修复：Vercel AI SDK 的 user 消息往往只有 content 没有 parts，
+ * 原代码仅从 parts 提取，导致 user 消息内容为空字符串，UI 不显示用户消息。
+ * 修复策略：优先使用 content，仅在 parts 有文本时覆盖（parts 更完整）。
  */
 function extractTextFromParts(msg: UIMessage): string {
-  if (!msg.parts) return '';
-  return msg.parts
-    .filter((part): part is typeof part & { type: 'text' } => part.type === 'text')
-    .map(part => (part as { type: 'text'; text: string }).text)
-    .join('');
+  let content = msg.content || '';
+  if (msg.parts && msg.parts.length > 0) {
+    const textParts = msg.parts.filter((part): part is typeof part & { type: 'text' } => part.type === 'text');
+    if (textParts.length > 0) {
+      content = textParts.map(part => (part as { type: 'text'; text: string }).text).join('');
+    }
+  }
+  return content;
 }
 
 /**
@@ -94,8 +100,11 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
     prevIsLoadingRef.current = isLoading;
 
     if (isLoading && !wasLoading) {
-      // 流刚开始：仅同步 typing 状态，保持 mirroredMessages 不变
+      // 流刚开始：同步 typing 状态，同时清空上一轮的思考内容
+      // ⚠️ 修复：不清空 thinkingContent 会导致思考框卡死或内容堆叠
       useChatStore.getState().syncLoadingState(true);
+      useChatStore.getState().setThinkingContent('');
+      useChatStore.getState().setIsThinking(false);
     } else if (!isLoading) {
       // 非流式状态（流结束或空闲）：提交完整消息到 Zustand
       // 这也覆盖了首次挂载和会话切换后的初始化同步
@@ -136,11 +145,9 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
             break;
           case 'session_info':
             setCurrentSessionId(event.session_id as string);
-            // ⚠️ 同步到 workspaceStore，确保 SessionSidebar 和 ChatStage 的 currentSessionId 一致
-            // 只有新会话（is_new=true）时才更新，避免切换历史会话时覆盖
-            if (event.is_new) {
-              setWorkspaceSessionId(event.session_id as string);
-            }
+            // ⚠️ 修复：无论 is_new 是什么，都强制同步给 workspace，
+            // 防止 fetch 历史后 currentSessionId 不一致导致上下文丢失
+            setWorkspaceSessionId(event.session_id as string);
             break;
           case 'billing':
             useChatStore.getState().setLastBilling({
