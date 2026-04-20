@@ -436,6 +436,19 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                 if (!displayContent) return null;
 
+                // ✨ 已完成的 AI 消息：如果消息上有 thinkingContent，也要传递给 StreamingMarkdown
+                // 这样思考卡片在流结束后仍然保留，用户可以随时展开查看
+                if (msg.role === 'assistant' && msg.thinkingContent) {
+                  return (
+                    <StreamingMarkdown
+                      content={cleanedContent}
+                      isStreaming={false}
+                      thinkingContent={msg.thinkingContent}
+                      isThinking={false}
+                    />
+                  );
+                }
+
                 // ✨ 文件资产树渲染：检测到文件时显示资产树卡片
                 if (fileAssets.length > 0) {
                   return (

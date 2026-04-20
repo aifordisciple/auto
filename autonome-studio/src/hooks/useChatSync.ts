@@ -250,9 +250,12 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
     }
   }, [messages, setThinkingContent, setIsThinking, setCurrentSessionId, setWorkspaceSessionId]);
 
-  // 流结束后关闭思考状态
+  // 流结束后：保存思考内容到消息 + 关闭思考状态
   useEffect(() => {
     if (!isLoading) {
+      // ✨ 先将全局 thinkingContent 保存到最后一条 assistant 消息上
+      // 这样思考卡片在流结束后仍然保留，用户可以随时展开查看
+      useChatStore.getState().saveThinkingToLastAssistant();
       setIsThinking(false);
     }
   }, [isLoading, setIsThinking]);

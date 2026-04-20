@@ -76,7 +76,13 @@ async def get_project_id(base_url: str, token: str) -> str:
             raise RuntimeError(f"获取项目列表失败: {resp.status_code}")
 
         data = resp.json()
-        projects = data if isinstance(data, list) else data.get("items", data.get("data", []))
+        # 适配 {"status": "success", "data": [...]} 格式
+        if isinstance(data, dict) and "data" in data:
+            projects = data["data"]
+        elif isinstance(data, list):
+            projects = data
+        else:
+            projects = data.get("items", [])
 
         if not projects:
             logger.warning("API调用器 | 无可用项目，使用默认 project_id='default'")
@@ -177,26 +183,52 @@ async def call_chat(
                         parsed = json.loads(event_data)
                         raw_events.append(parsed)
 
-                        # 提取意图
-                        if "intent" in parsed and isinstance(parsed["intent"], str):
-                            result.actual_intent = parsed["intent"]
-                            logger.debug(f"[{idx}/{total}] 意图识别: {parsed['intent']}")
+                        # SSE 事件格式: {"type": "data-intent", "data": {...}}
+                        # 或直接: {"intent": "chat", ...}
+                        event_type = parsed.get("type", "")
+                        event_data_inner = parsed.get("data", {})
 
-                        # 提取会话 ID
-                        if "session_id" in parsed:
-                            result.session_id = parsed["session_id"]
+                        # 提取意图 (data-intent 事件)
+                        if event_type == "data-intent" and isinstance(event_data_inner, dict):
+                            intent = event_data_inner.get("intent", "")
+                            if intent:
+                                result.actual_intent = intent
+                                logger.debug(f"[{idx}/{total}] 意图识别: {intent} (confidence={event_data_inner.get('confidence', 'N/A')})")
 
-                        # 提取 AI 消息 ID
-                        if "ai_message_id" in parsed:
-                            result.ai_message_id = parsed["ai_message_id"]
+                        # 提取会话 ID (data-session_info 事件)
+                        if event_type == "data-session_info" and isinstance(event_data_inner, dict):
+                            sid = event_data_inner.get("session_id", "")
+                            if sid:
+                                result.session_id = sid
 
-                        # 提取完整 AI 消息内容
-                        if "content" in parsed and isinstance(parsed["content"], str) and len(parsed["content"]) > len(result.response_text):
-                            result.response_text = parsed["content"]
+                        # 提取 AI 消息 ID (data-ai_message_id 事件)
+                        if event_type == "data-ai_message_id" and isinstance(event_data_inner, dict):
+                            mid = event_data_inner.get("message_id", "")
+                            if mid:
+                                result.ai_message_id = mid
 
-                        # 提取文本增量
-                        if "delta" in parsed and isinstance(parsed["delta"], str):
-                            text_chunks.append(parsed["delta"])
+                        # 提取完整 AI 消息内容 (data-ai_message_content 事件)
+                        if event_type == "data-ai_message_content" and isinstance(event_data_inner, dict):
+                            content = event_data_inner.get("content", "")
+                            if isinstance(content, str) and len(content) > len(result.response_text):
+                                result.response_text = content
+
+                        # 提取文本增量 (text-delta 事件)
+                        if event_type == "text-delta":
+                            delta = parsed.get("delta", "")
+                            if isinstance(delta, str):
+                                text_chunks.append(delta)
+
+                        # 兼容：无 type 字段的直接格式
+                        if not event_type:
+                            if "intent" in parsed and isinstance(parsed["intent"], str):
+                                result.actual_intent = parsed["intent"]
+                            if "session_id" in parsed:
+                                result.session_id = parsed["session_id"]
+                            if "delta" in parsed and isinstance(parsed["delta"], str):
+                                text_chunks.append(parsed["delta"])
+                            if "content" in parsed and isinstance(parsed["content"], str) and len(parsed["content"]) > len(result.response_text):
+                                result.response_text = parsed["content"]
 
                     except json.JSONDecodeError:
                         # 非 JSON 数据，可能是纯文本

@@ -7,8 +7,8 @@ api:
 
 # 测试账号
 test_account:
-  email: "test@autonome.ai"
-  password: "test123456"
+  email: "simtest@autonome.ai"
+  password: "SimTest2026!"
 
 # 问题生成配置
 questions:

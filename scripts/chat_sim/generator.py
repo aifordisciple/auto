@@ -79,7 +79,26 @@ def _get_category_requirements(categories: dict) -> str:
 
 
 def _get_llm_config():
-    """获取 LLM 配置，优先从环境变量，其次从 .env 文件"""
+    """获取 LLM 配置，优先从后端系统设置 API 获取"""
+    import httpx
+
+    # 从后端 API 获取系统配置
+    try:
+        api_base = os.environ.get("API_BASE_URL", "http://localhost:8000")
+        # 先尝试无需认证的端点
+        resp = httpx.get(f"{api_base}/api/system/settings", timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            config = data.get("data", data) if isinstance(data, dict) else {}
+            api_key = config.get("openai_api_key", "")
+            base_url_llm = config.get("openai_base_url", "")
+            model = config.get("default_model", "")
+            if api_key and base_url_llm and model:
+                logger.info(f"问题生成器 | 从系统设置获取 LLM: model={model} base_url={base_url_llm}")
+                return api_key, base_url_llm, model
+    except Exception as e:
+        logger.debug(f"问题生成器 | 从 API 获取配置失败: {e}")
+
     # 尝试从后端 .env 加载
     env_file = _BACKEND_DIR / ".env"
     env_vars = {}
@@ -92,10 +111,10 @@ def _get_llm_config():
                     env_vars[key.strip()] = value.strip().strip('"').strip("'")
 
     api_key = os.environ.get("OPENAI_API_KEY", env_vars.get("OPENAI_API_KEY", ""))
-    base_url = os.environ.get("OPENAI_BASE_URL", env_vars.get("OPENAI_BASE_URL", "https://api.openai.com/v1"))
+    base_url_llm = os.environ.get("OPENAI_BASE_URL", env_vars.get("OPENAI_BASE_URL", "https://api.openai.com/v1"))
     model = os.environ.get("SIM_TEST_MODEL", env_vars.get("DEFAULT_MODEL", "gpt-4o-mini"))
 
-    return api_key, base_url, model
+    return api_key, base_url_llm, model
 
 
 async def generate_questions(

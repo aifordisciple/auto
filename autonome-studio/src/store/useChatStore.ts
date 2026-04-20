@@ -31,6 +31,8 @@ export interface Message {
   queueStatus?: 'pending' | 'processing' | 'completed' | 'failed';
   /** ✨ 关联的队列项 ID */
   queueItemId?: string;
+  /** ✨ 深度思考内容：流式结束后保留在消息上，不会随全局状态清空而消失 */
+  thinkingContent?: string;
 }
 
 export interface Bookmark {
@@ -143,6 +145,8 @@ export interface ChatState {
   setThinkingContent: (content: string) => void;
   /** 设置是否正在思考 */
   setIsThinking: (thinking: boolean) => void;
+  /** ✨ 流结束后：将全局 thinkingContent 保存到最后一条 assistant 消息上 */
+  saveThinkingToLastAssistant: () => void;
   /** ✨ 深度思考模式开关（持久化，用户手动切换） */
   enableThink: boolean;
   /** 设置深度思考模式开关 */
@@ -272,6 +276,26 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   // ✨ 深度思考模式开关（持久化）
   enableThink: false,
   setEnableThink: (enable: boolean) => set({ enableThink: enable }),
+  // ✨ 流结束后：将全局 thinkingContent 保存到最后一条 assistant 消息上
+  // 这样思考内容不会随全局状态清空而消失，用户可以随时展开查看
+  saveThinkingToLastAssistant: () =>
+    set((state) => {
+      const thinking = state.thinkingContent;
+      if (!thinking) return state;
+      // 更新 mirroredMessages 中最后一条 assistant 消息
+      const newMirrored = [...state.mirroredMessages];
+      const lastIdx = newMirrored.map(m => m.role).lastIndexOf('assistant');
+      if (lastIdx !== -1) {
+        newMirrored[lastIdx] = { ...newMirrored[lastIdx], thinkingContent: thinking };
+      }
+      // 同时更新 messages 中最后一条 assistant 消息
+      const newMessages = [...state.messages];
+      const msgLastIdx = newMessages.map(m => m.role).lastIndexOf('assistant');
+      if (msgLastIdx !== -1) {
+        newMessages[msgLastIdx] = { ...newMessages[msgLastIdx], thinkingContent: thinking };
+      }
+      return { mirroredMessages: newMirrored, messages: newMessages };
+    }),
 
   // ==========================================
   // ✨ 消息队列状态实现
