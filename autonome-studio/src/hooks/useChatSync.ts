@@ -74,12 +74,35 @@ export function useChatSync({ messages, isLoading }: UseChatSyncOptions) {
   // 跟踪每个消息已处理的 data-* parts 数量
   // key: message.id, value: 已处理的 data parts 数量
   const processedDataPartsRef = useRef<Record<string, number>>({});
+  // 跟踪上一次 isLoading 状态，避免流式期间重复触发 syncLoadingState
+  const prevIsLoadingRef = useRef(false);
 
-  // 同步 messages 和 isLoading 到 store 的镜像字段
-  // 转换 UIMessage[] → Message[]，保持下游组件兼容
+  // ==========================================
+  // 分离高频渲染状态与低频业务状态
+  //
+  // 流式输出期间（isLoading=true），aiMessages 每秒变化十几次，
+  // 如果全量同步到 Zustand mirroredMessages，会触发所有订阅组件无效重渲染。
+  //
+  // 优化策略：
+  // - 流式开始时：仅同步 isLoading=true，不同步消息内容
+  // - 流式期间：messages 变化不触发任何 Zustand 写入（跳过）
+  // - 流结束后：一次性将完整消息提交到 mirroredMessages
+  // - data-* 事件始终同步（低频，不影响性能）
+  // ==========================================
   useEffect(() => {
-    const storeMessages = convertToStoreMessages(messages);
-    syncFromUseChat(storeMessages, isLoading);
+    const wasLoading = prevIsLoadingRef.current;
+    prevIsLoadingRef.current = isLoading;
+
+    if (isLoading && !wasLoading) {
+      // 流刚开始：仅同步 typing 状态，保持 mirroredMessages 不变
+      useChatStore.getState().syncLoadingState(true);
+    } else if (!isLoading) {
+      // 非流式状态（流结束或空闲）：提交完整消息到 Zustand
+      // 这也覆盖了首次挂载和会话切换后的初始化同步
+      const storeMessages = convertToStoreMessages(messages);
+      syncFromUseChat(storeMessages, false);
+    }
+    // 流式期间（isLoading && wasLoading）：跳过，不触发任何 Zustand 写入
   }, [messages, isLoading, syncFromUseChat]);
 
   // 处理消息 parts 中的 data-* 事件（v5 自定义数据事件）

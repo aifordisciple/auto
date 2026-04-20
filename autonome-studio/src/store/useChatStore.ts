@@ -101,6 +101,8 @@ export interface ChatState {
   mirroredIsTyping: boolean;
   /** 同步 useChat 状态到镜像字段（由 useChatSync 调用） */
   syncFromUseChat: (messages: Message[], isLoading: boolean) => void;
+  /** 仅同步 isLoading 到镜像字段，流式期间不替换消息（性能优化） */
+  syncLoadingState: (isLoading: boolean) => void;
   /** 更新镜像中最后一条 assistant 消息的 ID（后端真实 ID 同步） */
   updateMirroredMessageId: (newId: string) => void;
   /** 当前会话 ID（从 data channel session_info 事件获取） */
@@ -220,6 +222,9 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   // 同步 useChat 的 messages 和 isLoading 到镜像字段
   syncFromUseChat: (messages: Message[], isLoading: boolean) =>
     set({ mirroredMessages: messages, mirroredIsTyping: isLoading }),
+  // 仅同步 isLoading，流式期间不替换 mirroredMessages（避免高频 text-delta 触发无效重渲染）
+  syncLoadingState: (isLoading: boolean) =>
+    set({ mirroredIsTyping: isLoading }),
   // 更新镜像中最后一条 assistant 消息的 ID（后端真实 ID 同步）
   // 解决问题：前端使用临时 ID，后端使用 msg_{uuid} 格式
   // 当用户点击执行策略卡片时，前端需要真实 ID 来调用 PATCH API 持久化 TASK_ID
