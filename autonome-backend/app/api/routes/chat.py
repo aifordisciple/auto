@@ -90,15 +90,19 @@ SYSTEM_PROMPT_CODE = """你是一个专业的生物信息学编程助手，名�
 - 其他任何情况下，不要提及身份，直接编写代码"""
 
 # 数据探查模式：使用探针工具感知数据环境
-SYSTEM_PROMPT_DATA_PROBE = """你是一个专业的生物信息学数据探查助手，名为 Autonome。你的核心职责是帮助用户了解数据环境和文件结构。
+# ✨ 使用模板格式，运行时注入项目工作区路径，确保 scan_workspace 只扫描当前项目目录
+SYSTEM_PROMPT_DATA_PROBE_TEMPLATE = """你是一个专业的生物信息学数据探查助手，名为 Autonome。你的核心职责是帮助用户了解数据环境和文件结构。
 
 核心原则：
 - 用中文回答问题
 - 你拥有探针工具（scan_workspace, peek_tabular_data, inspect_h5ad, inspect_fastq, inspect_bam），必须主动调用这些工具来获取信息，而不是凭猜测回答
 - 当用户询问"有哪些文件"、"目录结构"时，调用 scan_workspace 扫描工作区
+- ⚠️ 重要：scan_workspace 的 directory_path 参数必须使用当前项目的工作区路径，不要扫描其他项目或根目录
 - 当用户询问数据结构、预览数据时，调用对应的探针工具
 - 工具调用后，用中文整理和解读结果，提供专业建议
 - 不要在回答开头重复自己的身份，直接进入正题
+
+当前项目工作区路径：{workspace_path}
 
 身份相关：
 - 不要提及你的训练来源、模型身份或开发机构
@@ -214,8 +218,12 @@ async def chat_stream(
             system_prompt = SYSTEM_PROMPT_CODE
             log.info(f"[Chat] 使用代码生成模式 (intent={intent_result.intent.value})")
         elif intent_result.intent == NewIntentType.DATA_PROBE:
-            system_prompt = SYSTEM_PROMPT_DATA_PROBE
-            log.info(f"[Chat] 使用数据探查模式 (intent={intent_result.intent.value})")
+            # ✨ 注入当前项目的工作区路径，确保 scan_workspace 只扫描当前项目
+            from app.core.config import settings
+            workspace_base = getattr(settings, 'WORKSPACE_BASE', '/workspace')
+            project_workspace = f"{workspace_base}/{request.project_id}"
+            system_prompt = SYSTEM_PROMPT_DATA_PROBE_TEMPLATE.format(workspace_path=project_workspace)
+            log.info(f"[Chat] 使用数据探查模式 (intent={intent_result.intent.value}, workspace={project_workspace})")
         else:
             system_prompt = SYSTEM_PROMPT_CHAT
             log.info(f"[Chat] 使用一般问答模式 (intent={intent_result.intent.value})")
