@@ -41,6 +41,9 @@ class IntentExtraction(BaseModel):
     意图提取结果 - L1 LLM 结构化输出的目标格式。
 
     下游 LangGraph 节点根据此结果进行确定性路由。
+
+    v2: 合并 L1+L2 为单次调用，slots 字段替代独立的 L2 提取。
+    仅当意图为 skill_forge/explicit_skill/data_probe 时 slots 有值。
     """
     intent: IntentType = Field(
         description="识别出的核心意图分类"
@@ -69,6 +72,15 @@ class IntentExtraction(BaseModel):
     routing_target: Optional[str] = Field(
         default=None,
         description="目标 Agent 节点名，由引擎根据 intent 计算"
+    )
+    # v2: 合并 L2 的槽位提取结果，避免串行二次 LLM 调用
+    slots: Dict[str, str] = Field(
+        default_factory=dict,
+        description="仅 skill_forge/explicit_skill/data_probe 意图时提取的参数槽位"
+    )
+    missing_slots: List[str] = Field(
+        default_factory=list,
+        description="必需但未填充的参数名"
     )
 
 

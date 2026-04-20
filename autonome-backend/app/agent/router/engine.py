@@ -1,10 +1,15 @@
 """
-意图路由编排引擎 - 组合 L0/L1/L2 的漏斗式管道。
+意图路由编排引擎 - 组合 L0/L1 的漏斗式管道。
+
+v2: L1+L2 合并为单次 LLM 结构化输出调用。
+- L1 prompt 包含条件性槽位提取指令
+- IntentExtraction schema 扩展了 slots/missing_slots 字段
+- 消除 L2 串行调用，TTFB 降低 ~200ms
 
 执行流程：
 1. L0 规则拦截（0ms，~30-40% 命中率）
-2. L1 LLM 结构化分类（~200ms）
-3. L2 槽位提取（~200ms，仅 skill_forge/explicit_skill/data_probe）
+2. L1 LLM 结构化分类 + 条件性槽位提取（~250ms，合并原 L1+L2）
+3. 上下文自动填充（从 workspace context 注入已知参数）
 4. 置信度降级保护
 5. 计算 routing_target
 """
@@ -21,8 +26,7 @@ class IntentRouterEngine:
     """
     意图路由编排引擎。
 
-    组合 L0 规则拦截、L1 LLM 分类、L2 槽位提取三层，
-    输出结构化的 IntentExtraction 结果供 LangGraph 条件路由使用。
+    v2: L1+L2 合并为单次调用，L2SlotExtractor 仅保留上下文自动填充逻辑。
     """
 
     def __init__(self, session, user_id: str, confidence_threshold: float = 0.7):
@@ -36,6 +40,7 @@ class IntentRouterEngine:
         """
         self.l0 = L0RuleEngine()
         self.l1 = L1Classifier(session, user_id)
+        # L2 仅保留上下文自动填充逻辑，不再做独立 LLM 调用
         self.l2 = L2SlotExtractor()
         self.confidence_threshold = confidence_threshold
 
@@ -57,22 +62,29 @@ class IntentRouterEngine:
             log.info(f"[Engine] L0 命中: intent={result.intent.value}, target={result.routing_target}")
             return result
 
-        # Step 2: L1 LLM 分类
+        # Step 2: L1 合并分类 + 槽位提取（单次 LLM 调用）
+        # v2: L1 prompt 已包含条件性槽位提取指令，IntentExtraction schema 包含 slots/missing_slots
         result = await self.l1.classify(query, context)
-        log.info(f"[Engine] L1 结果: intent={result.intent.value}, confidence={result.confidence}")
+        log.info(
+            f"[Engine] L1 结果: intent={result.intent.value}, "
+            f"confidence={result.confidence}, "
+            f"slots={result.slots_ids if hasattr(result, 'slot_ids') else result.slots}"
+        )
 
-        # Step 3: L2 槽位提取（仅对需要深度提取的意图）
+        # Step 3: 上下文自动填充（从 workspace context 注入已知参数，替代原 L2 的 _enrich_from_context）
         if result.intent in L2SlotExtractor.EXTRACTION_INTENTS:
-            slot_result = await self.l2.extract(
-                query, context, result.intent, self.l1.primary_llm
-            )
-            # 合并 L2 提取的槽位和上下文填充到 entities
+            context_enrichments = self.l2._enrich_from_context(result.intent, context)
+            # 合并：LLM 提取的 slots 优先，上下文填充补充缺失项
+            for key, value in context_enrichments.items():
+                if key not in result.slots:
+                    result.slots[key] = value
+            # 同时合并到 entities，保持下游兼容
             result.entities = {
                 **result.entities,
-                **slot_result.slots,
-                **slot_result.context_enrichments
+                **result.slots,
+                **context_enrichments,
             }
-            log.info(f"[Engine] L2 结果: slots={slot_result.slots}, enrichments={slot_result.context_enrichments}")
+            log.info(f"[Engine] 上下文填充: enrichments={context_enrichments}")
 
         # Step 4: 置信度降级保护
         if result.confidence < self.confidence_threshold:

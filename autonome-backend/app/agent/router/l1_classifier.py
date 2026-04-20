@@ -18,7 +18,7 @@ from app.core.logger import log
 from app.utils.llm_config import get_llm_config, _is_local_model
 
 
-# L1 意图分类系统提示词
+# L1 意图分类系统提示词（v2: 合并 L1+L2 为单次调用）
 INTENT_CLASSIFICATION_PROMPT = """你是一个生物信息学 IDE (Autonome Studio) 的中央路由网关。
 你的任务是根据用户的输入和当前工作区上下文，精准分类用户的意图，并提取关键的生物学或工程参数。
 
@@ -35,7 +35,14 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个生物信息学 IDE (Autonome Stud
 - 提取明确提及的生信实体（基因名、算法包、阈值参数）。
 - 如果用户要求执行分析（skill_forge），但明显缺失关键输入数据或必要参数，将 requires_followup 设为 true，并提供 followup_question。
 - 保持客观和科学严谨，禁止主观臆测。
-- confidence 反映你对意图判断的确信程度，0.0 表示完全不确定，1.0 表示绝对确定。"""
+- confidence 反映你对意图判断的确信程度，0.0 表示完全不确定，1.0 表示绝对确定。
+
+槽位提取规则（仅当意图为 skill_forge/explicit_skill/data_probe 时执行）：
+- skill_forge: 提取 analysis_type(分析类型如DEG/clustering/trajectory), input_file(输入数据路径), tool(分析工具如Seurat/Scanpy), species(物种如human/mouse)
+- explicit_skill: 提取技能执行所需的参数键值对
+- data_probe: 提取 file_path(数据文件路径), probe_type(探查类型如structure/quality/statistics), file_format(文件格式如h5ad/fastq/bam)
+- 未提及的必需参数加入 missing_slots
+- chat/diagnostic/literature 意图时 slots 和 missing_slots 留空"""
 
 
 class L1Classifier:
@@ -134,7 +141,7 @@ class L1Classifier:
         Ollama 等本地模型不一定支持 function calling，
         使用 JSON mode 强制输出 JSON，然后手动解析为 IntentExtraction。
         """
-        # 在提示词中追加 JSON 格式要求
+        # 在提示词中追加 JSON 格式要求（v2: 包含 slots 和 missing_slots）
         json_instruction = (
             "\n\n请严格按照以下 JSON 格式输出，不要输出任何其他内容：\n"
             '{"intent": "chat|skill_forge|explicit_skill|diagnostic|literature|data_probe", '
@@ -142,7 +149,9 @@ class L1Classifier:
             '"entities": {"key": "value"}, '
             '"skill_id": null, '
             '"requires_followup": false, '
-            '"followup_question": null}'
+            '"followup_question": null, '
+            '"slots": {"key": "value"}, '
+            '"missing_slots": []}'
         )
         prompt = ChatPromptTemplate.from_messages([
             ("system", INTENT_CLASSIFICATION_PROMPT + json_instruction),
