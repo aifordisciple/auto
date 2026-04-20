@@ -379,10 +379,14 @@ class StreamContentFilter:
 
         while self._buffer:
             if self._in_thinking:
-                end_pos = self._find_end_marker()
+                end_pos, trim_from_thinking = self._find_end_marker()
                 if end_pos is not None:
                     # ✨ 思考标签结束：将缓冲的思考内容输出
-                    thinking_output += self._thinking_buffer
+                    # 跨 buffer 匹配时，从 _thinking_buffer 尾部截掉 end marker 的前半部分
+                    if trim_from_thinking > 0:
+                        thinking_output += self._thinking_buffer[:-trim_from_thinking]
+                    else:
+                        thinking_output += self._thinking_buffer
                     self._thinking_buffer = ""
                     self._buffer = self._buffer[end_pos:]
                     self._in_thinking = False
@@ -436,14 +440,42 @@ class StreamContentFilter:
         return (earliest_pos, earliest_len)
 
     def _find_end_marker(self):
+        """
+        查找思考结束标记，支持跨 _thinking_buffer 和 _buffer 的拆分匹配。
+
+        当 end marker 被 SSE chunk 边界拆分时，前半部分在 _thinking_buffer 尾部，
+        后半部分在 _buffer 头部。必须拼接后才能匹配。
+
+        Returns:
+            (end_pos, trim_from_thinking) 元组:
+            - end_pos: end marker 在 _buffer 中的结束位置（None 表示未找到）
+            - trim_from_thinking: 需要从 _thinking_buffer 尾部截掉的字符数
+              （跨 buffer 匹配时 > 0，普通匹配时 = 0）
+        """
         earliest_end = None
+        earliest_trim = 0
         for marker in self.THINKING_END_MARKERS:
+            # 1. 在 _buffer 中直接查找完整 marker
             pos = self._buffer.find(marker)
             if pos != -1:
                 end = pos + len(marker)
                 if earliest_end is None or end < earliest_end:
                     earliest_end = end
-        return earliest_end
+                    earliest_trim = 0
+                continue
+
+            # 2. 跨 buffer 拆分查找：marker 前半在 _thinking_buffer 尾部，后半在 _buffer 头部
+            for split_point in range(1, len(marker)):
+                prefix = marker[:split_point]
+                suffix = marker[split_point:]
+                if self._thinking_buffer.endswith(prefix) and self._buffer.startswith(suffix):
+                    end = len(suffix)
+                    if earliest_end is None or end < earliest_end:
+                        earliest_end = end
+                        earliest_trim = split_point  # 从 thinking_buffer 尾部截掉 marker 前半
+                    break
+
+        return (earliest_end, earliest_trim)
 
     def flush(self) -> tuple:
         """刷新缓冲区，返回剩余内容"""
