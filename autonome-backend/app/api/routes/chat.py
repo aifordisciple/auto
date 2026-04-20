@@ -384,14 +384,14 @@ async def chat_stream(
             use_native_ollama = is_local_model
 
             try:
-            # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）
-            is_data_probe = intent_data.get("intent") == "data_probe"
-            # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
-            data_probe_project_dir = ""
-            if is_data_probe:
-                from app.core.config import settings as app_settings
-                data_probe_project_dir = str(Path(app_settings.UPLOAD_DIR) / f"project_{request.project_id}")
-                log.info(f"[Chat] data_probe 项目目录: {data_probe_project_dir}")
+                # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）
+                is_data_probe = intent_data.get("intent") == "data_probe"
+                # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
+                data_probe_project_dir = ""
+                if is_data_probe:
+                    from app.core.config import settings as app_settings
+                    data_probe_project_dir = str(Path(app_settings.UPLOAD_DIR) / f"project_{request.project_id}")
+                    log.info(f"[Chat] data_probe 项目目录: {data_probe_project_dir}")
 
                 if use_native_ollama:
                     # ✨ 本地 Ollama：使用 ollama.AsyncClient 原生流式
