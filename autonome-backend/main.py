@@ -24,10 +24,17 @@ app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
 # ==========================================
 # 🛡️ CORS 中间件配置 - 必须在所有路由之前注册
 # ==========================================
+# Cookie 模式要求 allow_credentials=True，此时不能用 allow_origins=["*"]
+# 必须显式列出允许的来源
+_cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    settings.FRONTEND_URL,  # 从配置读取（支持生产环境 IP/域名）
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,  # 不能与 allow_origins=["*"] 同时为 True
+    allow_origins=_cors_origins,
+    allow_credentials=True,  # Cookie 模式必须为 True
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -91,11 +98,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            }
         )
 
     # 其他异常返回 500
@@ -103,11 +105,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
     )
 
 @app.on_event("startup")

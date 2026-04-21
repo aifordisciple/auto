@@ -47,6 +47,8 @@ services:
       - HOST_UPLOAD_DIR=/opt/data1/public/software/systools/autonome/uploads
       # ✨ 关键修复：容器内使用 /workspace 而非默认的 uploads
       - UPLOAD_DIR=/workspace
+      # 前端 URL（CORS 允许来源，生产环境需设置为实际访问地址）
+      - FRONTEND_URL=http://113.44.66.210:3001
     volumes:
       # ✨ 修复2：改为绝对直连的 Bind Mount，容器侧路径改为 /workspace
       - ./uploads:/workspace
