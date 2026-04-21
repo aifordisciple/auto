@@ -22,6 +22,7 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
@@ -164,19 +165,26 @@ async def register(
 
 @router.post("/login", response_model=Token)
 async def login(
-    # OAuth2PasswordRequestForm 要求 username 字段，实际传入 email
-    request_data: dict = None,
+    form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session)
 ):
     """
     邮箱密码登录（OAuth2 兼容）
 
     使用 OAuth2PasswordRequestForm，username 字段传入 email
+    返回长命 JWT（7天，向后兼容旧前端）
     """
-    from fastapi.security import OAuth2PasswordRequestForm
-    # 此端点由 FastAPI OAuth2 依赖自动处理
-    # 实际实现在 main.py 的 OAuth2 路由中
-    pass
+    # form_data.username 当作 email 使用
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
+    if not user or not user.hashed_password or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="邮箱或密码错误"
+        )
+
+    # 签发长命 JWT（7天，向后兼容旧端点）
+    access_token = create_access_token(data={"sub": str(user.id)})
+    return Token(access_token=access_token)
 
 
 @router.get("/me", response_model=UserInfo)
