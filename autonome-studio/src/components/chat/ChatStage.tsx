@@ -163,15 +163,23 @@ export function ChatStage() {
   const mirroredMessages = useChatStore(state => state.mirroredMessages);
 
   const messages = useMemo(() => {
-    // 构建 thinkingContent 索引：key=message.id
+    // 构建 thinkingContent 和 attachments 索引：key=message.id
     const thinkingMap = new Map<string, string>();
+    const attachmentsMap = new Map<string, MessageAttachments>();
     for (const msg of mirroredMessages) {
       if (msg.thinkingContent) {
         thinkingMap.set(msg.id, msg.thinkingContent);
       }
+      if (msg.attachments) {
+        attachmentsMap.set(msg.id, msg.attachments);
+      }
     }
 
-    return aiMessages.map(msg => {
+    // ✨ 流式期间：pendingAttachmentsRef 中的 attachments 还没同步到 mirroredMessages，
+    // 需要直接关联到最后一条用户消息
+    const pendingAttachments = pendingAttachmentsRef.current;
+
+    return aiMessages.map((msg, idx) => {
       let content = msg.content || '';
       if (msg.parts && msg.parts.length > 0) {
         const textParts = msg.parts.filter((p): p is typeof p & { type: 'text' } => p.type === 'text');
@@ -179,13 +187,19 @@ export function ChatStage() {
           content = textParts.map(p => (p as { type: 'text'; text: string }).text).join('');
         }
       }
+
+      // ✨ 判断是否为最后一条用户消息（用于关联 pendingAttachments）
+      const isLastUserMsg = msg.role === 'user' && idx === aiMessages.length - 1;
+
       return {
         id: msg.id,
         role: msg.role as 'user' | 'assistant' | 'system',
         content,
         timestamp: Date.now(),
-        // ✨ 合并 mirroredMessages 上的 thinkingContent
+        // ✨ 合并 mirroredMessages 上的 thinkingContent 和 attachments
         thinkingContent: thinkingMap.get(msg.id),
+        attachments: attachmentsMap.get(msg.id)
+          || (isLastUserMsg && pendingAttachments ? pendingAttachments : undefined),
       };
     });
   }, [aiMessages, mirroredMessages]);
