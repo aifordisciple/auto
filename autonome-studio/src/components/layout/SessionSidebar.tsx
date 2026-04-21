@@ -256,13 +256,6 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
             <Search size={15} strokeWidth={1.5} />
           </button>
           <button
-            onClick={() => setShowBookmarkPanel(!showBookmarkPanel)}
-            title="收藏夹"
-            className={`p-1.5 rounded-md transition-all ${showBookmarkPanel ? 'text-blue-500 bg-blue-500/10' : 'text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800/50'}`}
-          >
-            <Bookmark size={15} strokeWidth={1.5} />
-          </button>
-          <button
             onClick={handleNewChat}
             title="New Chat (⌘N)"
             className="p-1.5 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
