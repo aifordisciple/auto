@@ -192,6 +192,14 @@ export function getToken(): string | null {
   return token;
 }
 
+/**
+ * 移除 Token（向后兼容，Cookie 模式下调用 logout 端点）
+ */
+export function removeToken(): void {
+  const { setToken } = useAuthStore.getState();
+  setToken(null);
+}
+
 // ==========================================
 // SSE 流式请求（用于聊天等场景）
 // ==========================================
