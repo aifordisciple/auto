@@ -20,6 +20,9 @@ import { useAuthStore } from '@/store/useAuthStore';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
+// 向后兼容：BASE_URL 导出（供其他模块引用）
+export const BASE_URL = API_BASE_URL;
+
 // ==========================================
 // 并发刷新锁
 // ==========================================
@@ -174,6 +177,19 @@ export async function fetchAPI(
   }
 
   return response.json();
+}
+
+// ==========================================
+// Token 工具（向后兼容）
+// ==========================================
+
+/**
+ * 获取当前 Token（供 SSE/WebSocket 等场景使用）
+ * Cookie 模式下，普通请求无需手动管理 Token
+ */
+export function getToken(): string | null {
+  const { token } = useAuthStore.getState();
+  return token;
 }
 
 // ==========================================
