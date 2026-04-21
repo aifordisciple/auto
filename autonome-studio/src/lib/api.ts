@@ -18,10 +18,13 @@ import { useAuthStore } from '@/store/useAuthStore';
 // 配置
 // ==========================================
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+// BASE_URL: 后端服务器地址（不含 /api 前缀）
+// 智能动态获取：浏览器环境取当前 hostname + :8000，SSR 环境兜底 localhost
+export const BASE_URL = process.env.NEXT_PUBLIC_API_URL
+  || (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
 
-// 向后兼容：BASE_URL 导出（供其他模块引用）
-export const BASE_URL = API_BASE_URL;
+// API_BASE_URL: 含 /api 前缀的完整 API 基地址
+const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api`;
 
 // ==========================================
 // 并发刷新锁
