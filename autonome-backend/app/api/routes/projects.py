@@ -2,7 +2,7 @@ import os
 import shutil
 import secrets
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Request
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -656,12 +656,40 @@ async def toggle_project_share(
 async def view_project_file(
     project_id: str,
     file_path: str,
+    token: Optional[str] = None,
+    request: Request = None,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
 ):
     """
     提供给前端 Markdown 渲染图片的直链读取接口
+
+    支持两种认证方式：
+    1. Authorization header（标准方式）
+    2. ?token=xxx query parameter（用于 <img src> 等无法设置 header 的场景）
     """
+    from app.api.deps import verify_token_and_get_user
+
+    # ✨ 认证：优先使用 query parameter token，回退到 Authorization header
+    current_user = None
+    if token:
+        try:
+            current_user = verify_token_and_get_user(token, session)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="Token 无效或已过期")
+
+    if current_user is None and request:
+        # 尝试从 Authorization header 获取 Bearer token
+        auth_header = request.headers.get("authorization", "") if hasattr(request, "headers") else ""
+        if auth_header.startswith("Bearer "):
+            header_token = auth_header[7:]
+            try:
+                current_user = verify_token_and_get_user(header_token, session)
+            except HTTPException:
+                raise HTTPException(status_code=401, detail="Token 无效或已过期")
+
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="未认证")
+
     # 安全检查：防止路径穿越攻击
     if ".." in file_path or file_path.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid file path")

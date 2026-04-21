@@ -8,7 +8,7 @@ import type { Message, MessageAttachments } from "@/store/useChatStore";
 import { useChatStore } from "@/store/useChatStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
-import { BASE_URL } from "@/lib/api";
+import { BASE_URL, getToken } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
 import { buildAssetTreeFromFiles, AssetTreeNode } from "@/components/chat/shared/AssetTree";
 
@@ -395,9 +395,10 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                       {/* 图片标记 - 显示缩略图 */}
                       {msg.attachments.images?.map((path, idx) => {
-                        // 构建图片预览 URL
+                        // 构建图片预览 URL（附加 token 用于 <img> 认证）
                         const projectId = currentProjectId || '';
-                        const previewUrl = `${BASE_URL}/api/projects/${projectId}/files/${path}/view`;
+                        const token = getToken();
+                        const previewUrl = `${BASE_URL}/api/projects/${projectId}/files/${path}/view${token ? `?token=${token}` : ''}`;
                         return (
                           <div key={idx} className="mt-1">
                             <img
