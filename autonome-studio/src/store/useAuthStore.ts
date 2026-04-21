@@ -34,6 +34,7 @@ interface UserState {
   is_superuser: boolean;
   is_email_verified: boolean;
   is_2fa_enabled: boolean;
+  credits_balance: number;
 }
 
 interface AuthState {
@@ -67,6 +68,7 @@ const defaultUser: UserState = {
   is_superuser: false,
   is_email_verified: false,
   is_2fa_enabled: false,
+  credits_balance: 0,
 };
 
 // ==========================================
@@ -106,6 +108,7 @@ export const useAuthStore = create<AuthState>()(
               is_superuser: data.is_superuser,
               is_email_verified: data.is_email_verified,
               is_2fa_enabled: data.is_2fa_enabled,
+              credits_balance: data.credits_balance ?? 0,
             },
             isAuthenticated: true,
           });
