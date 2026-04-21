@@ -301,16 +301,20 @@ async def chat_stream(
     # ✨ 修复：确保 LLM 消息列表中没有连续的 user 消息
     # 跳过空助手消息后可能出现 user→user 序列，
     # 大多数 LLM API 要求 user/assistant 交替，连续 user 会导致 API 报错或回复混乱
+    # ✨ 修复：将连续的 user 消息合并为一条（而非丢弃），保留完整上下文
+    # 追问场景中前一条 user 消息可能包含图片和完整问题，丢弃会导致丢失关键上下文
     sanitized_messages = [lc_messages[0]]  # 保留 system 消息
     for msg in lc_messages[1:]:
         if (msg["role"] == "user" and
             sanitized_messages and
             sanitized_messages[-1]["role"] == "user"):
-            # 连续 user 消息：丢弃前一条（更旧的），保留最新的
-            # 原因：空 assistant 回复对应的 user 问题已经没有有效回答，
-            # 保留它只会让 LLM 困惑，不如只保留最新的 user 问题
-            log.warning(f"[Chat] 丢弃无回复的旧 user 消息: {sanitized_messages[-1]['content'][:50]}...")
-            sanitized_messages[-1] = msg
+            # 连续 user 消息：合并为一条，保留所有内容
+            prev_msg = sanitized_messages[-1]
+            merged_content = prev_msg["content"]
+            if msg["content"]:
+                merged_content = f"{prev_msg['content']}\n{msg['content']}" if prev_msg["content"] else msg["content"]
+            log.info(f"[Chat] 合并连续 user 消息: '{prev_msg['content'][:30]}...' + '{msg['content'][:30]}...'")
+            sanitized_messages[-1] = {**prev_msg, "content": merged_content}
         else:
             sanitized_messages.append(msg)
     lc_messages = sanitized_messages
