@@ -395,10 +395,19 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
 
                       {/* 图片标记 - 显示缩略图 */}
                       {msg.attachments.images?.map((path, idx) => {
-                        // 构建图片预览 URL（附加 token 用于 <img> 认证）
+                        // 构建图片预览 URL
+                        // path 可能是绝对路径（如 /workspace/project_xxx/raw_data/.pasted/image.png）
+                        // 或相对路径（如 raw_data/.pasted/image.png）
+                        // /view 端点需要相对路径，所以提取 project_xxx/ 之后的部分
                         const projectId = currentProjectId || '';
+                        let relativePath = path;
+                        const projectPrefix = `project_${projectId}/`;
+                        const prefixIdx = path.indexOf(projectPrefix);
+                        if (prefixIdx !== -1) {
+                          relativePath = path.substring(prefixIdx + projectPrefix.length);
+                        }
                         const token = getToken();
-                        const previewUrl = `${BASE_URL}/api/projects/${projectId}/files/${path}/view${token ? `?token=${token}` : ''}`;
+                        const previewUrl = `${BASE_URL}/api/projects/${projectId}/files/${relativePath}/view${token ? `?token=${token}` : ''}`;
                         return (
                           <div key={idx} className="mt-1">
                             <img

@@ -233,20 +233,26 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   //   如果不保留，thinkingContent 会被 convertToStoreMessages 生成的新消息覆盖掉）
   syncFromUseChat: (messages: Message[], isLoading: boolean) =>
     set((state) => {
-      // 构建已有 thinkingContent 的索引：key=message.id
+      // 构建已有 thinkingContent 和 attachments 的索引：key=message.id
       const thinkingMap = new Map<string, string>();
+      const attachmentsMap = new Map<string, MessageAttachments>();
       for (const msg of state.mirroredMessages) {
         if (msg.thinkingContent) {
           thinkingMap.set(msg.id, msg.thinkingContent);
         }
+        if (msg.attachments) {
+          attachmentsMap.set(msg.id, msg.attachments);
+        }
       }
-      // 合并：新消息优先，但保留已有的 thinkingContent
+      // 合并：新消息优先，但保留已有的 thinkingContent 和 attachments
       const merged = messages.map(msg => {
         const existingThinking = thinkingMap.get(msg.id);
-        if (existingThinking && !msg.thinkingContent) {
-          return { ...msg, thinkingContent: existingThinking };
-        }
-        return msg;
+        const existingAttachments = attachmentsMap.get(msg.id);
+        return {
+          ...msg,
+          thinkingContent: msg.thinkingContent || existingThinking,
+          attachments: msg.attachments || existingAttachments,
+        };
       });
       return { mirroredMessages: merged, mirroredIsTyping: isLoading };
     }),
