@@ -29,11 +29,19 @@ class Settings(BaseSettings):
     # JWT 配置
     SECRET_KEY: str = ""  # 必须在 .env 中设置，启动时校验非空
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days（旧端点兼容）
+    # 新端点使用短命 AT + 长命 RT
+    ACCESS_TOKEN_SHORT_EXPIRE_MINUTES: int = 15  # 15 分钟（新认证端点）
     # Refresh Token 有效期（天），用于长效会话保持
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     # Cookie 安全配置：生产环境必须设为 True（要求 HTTPS）
     SECURE_COOKIES: bool = False
+
+    # 阿里云短信服务配置
+    ALIYUN_ACCESS_KEY_ID: str = ""
+    ALIYUN_ACCESS_KEY_SECRET: str = ""
+    ALIYUN_SMS_SIGN_NAME: str = "Autonome"
+    ALIYUN_SMS_TEMPLATE_CODE: str = ""
 
     # OpenAI 默认 Base URL（作为数据库中未配置时的回退值）
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"

@@ -1,197 +1,243 @@
-// ==========================================
-// API 核心工具
-// ==========================================
-// 智能动态获取后端的 IP 地址
-// 如果在浏览器环境，自动获取当前访问的 IP (如 113.44.66.210)，拼接上后端 8000 端口
-// 如果在服务端渲染环境，则默认兜底为 localhost
-export const BASE_URL = typeof window !== 'undefined'
-  ? `http://${window.location.hostname}:8000`
-  : 'http://localhost:8000';
+/**
+ * API 客户端模块
+ *
+ * 设计日期: 2026-03-22
+ * 更新日期: 2026-04-21（阶段2：Cookie 模式 + 401 无感刷新）
+ *
+ * 功能：
+ * - 统一 fetchAPI 封装，自动注入认证信息
+ * - Cookie 模式：credentials: 'include' 自动携带 Cookie
+ * - 401 拦截器：自动 Refresh Token 刷新，对调用方透明
+ * - 并发刷新锁：防止多个 401 同时触发多个 refresh 请求
+ * - SSE/WebSocket 场景：仍支持手动 Token 注入
+ */
+
+import { useAuthStore } from '@/store/useAuthStore';
 
 // ==========================================
-// API 缓存工具（供领域模块内部使用，不再从此处导出）
+// 配置
 // ==========================================
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+
+// ==========================================
+// 并发刷新锁
+// ==========================================
+
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
 
 /**
- * 获取存储在本地的 JWT token
+ * 执行 Refresh Token 刷新（带并发锁）
+ *
+ * 多个请求同时收到 401 时，只触发一次 refresh，
+ * 其他请求等待同一个 Promise 结果
  */
-export function getToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('autonome_access_token');
-  }
-  return null;
-}
-
-/**
- * 移除本地存储的 JWT token
- */
-export function removeToken(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('autonome_access_token');
-  }
-}
-
-export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const token = getToken();
-  const headers: any = {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-
-  // 防弹级 FormData 检测 (兼容各种复杂的 SSR / 浏览器环境)
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  if (!isFormData && options.body) {
-    headers['Content-Type'] = 'application/json';
+async function refreshAccessToken(): Promise<boolean> {
+  // 如果已经在刷新中，复用同一个 Promise
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
   }
 
-  if (options.headers) {
-    Object.assign(headers, options.headers);
-  }
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include', // 自动携带 refresh_token Cookie
+        headers: { 'Content-Type': 'application/json' },
+      });
 
-  // 防弹级 URL 拼接：终极方案
-  const cleanBase = BASE_URL.replace(/\/$/, '');
-  let cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      if (!response.ok) {
+        // Refresh 失败，清除状态，跳转登录
+        const { logout } = useAuthStore.getState();
+        logout();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        return false;
+      }
 
-  // 核心修复：如果 endpoint 已经以 /api 开头，我们就不再重复添加 /api
-  // 否则，我们在前面加上 /api
-  const url = cleanEndpoint.startsWith('/api')
-    ? `${cleanBase}${cleanEndpoint}`
-    : `${cleanBase}/api${cleanEndpoint}`;
+      const data = await response.json();
+      // 新的 AT 已通过 Cookie 设置，无需手动管理
+      // 但 SSE 等场景需要手动 Token，存储到 store
+      if (data.access_token) {
+        const { setToken } = useAuthStore.getState();
+        setToken(data.access_token);
+      }
 
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
-
-    if (!response.ok) {
-      if (response.status === 401 && typeof window !== 'undefined') {
-        localStorage.removeItem('autonome_access_token');
+      return true;
+    } catch {
+      // 网络错误等
+      const { logout } = useAuthStore.getState();
+      logout();
+      if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }
-      const errorData = await response.json().catch(() => ({}));
-      // 更清晰的报错信息
-      throw new Error(errorData.detail || errorData.message || `后端拒绝了请求 (状态码: ${response.status})`);
+      return false;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
     }
+  })();
 
-    return await response.json();
-  } catch (error: any) {
-    // 专门捕获 Network Error / CORS 错误
-    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-      console.error("网络或 CORS 跨域错误。尝试访问的 URL:", url);
-      throw new Error(`网络连接失败，请检查后端 ${cleanBase} 是否运行正常，或者 URL 是否正确。`);
-    }
-    throw error;
-  }
+  return refreshPromise;
 }
 
 // ==========================================
-// 从领域模块重新导出所有 API
-// 确保现有 import { ... } from '@/lib/api' 继续工作
+// 核心 fetchAPI 函数
 // ==========================================
 
-// 文件夹管理 API
-export {
-  createFolder,
-  moveFile,
-  getFolderTree,
-  type CreateFolderRequest,
-  type MoveFileRequest,
-  type FolderNode,
-} from './api/folder';
+export async function fetchAPI(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<any> {
+  const url = `${API_BASE_URL}${endpoint}`;
 
-// SKILL Forge 技能工厂 API
-export {
-  skillForgeApi,
-  type ExecutorType,
-  type CraftRequest,
-  type CraftResponse,
-  type BundleResponse,
-  type SkillAsset,
-} from './api/skillForge';
+  // 构建请求头
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
 
-// 技能草稿 API
-export {
-  skillDraftApi,
-  type PendingSkillDraft,
-  type DraftStats,
-} from './api/skillDraft';
+  // 对于 SSE/WebSocket 等需要手动注入 Token 的场景
+  // 从 store 读取 token（仅当 Cookie 模式不可用时）
+  const { token } = useAuthStore.getState();
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
-// Admin 管理员专区 API
-export { adminApi } from './api/admin';
+  // 构建请求选项
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers,
+    // Cookie 模式：自动携带 httpOnly Cookie
+    credentials: 'include',
+  };
 
-// SKILL Templates 模板 API
-export {
-  templateApi,
-  type SkillTemplate,
-  type InstantiateRequest,
-  type InstantiateResult,
-} from './api/template';
+  // 发送请求
+  let response = await fetch(url, fetchOptions);
 
-// 技能锻造会话 API
-export {
-  forgeSessionApi,
-  type ForgeSessionCreateRequest,
-  type ForgeSessionResponse,
-  type ForgeSessionDetail,
-  type ForgeMessageData,
-  type ForgeChatRequest,
-  type SkillDraftUpdateRequest,
-  type ForgeSessionListItem,
-  type SkillDraft,
-} from './api/forgeSession';
+  // ==========================================
+  // 401 拦截器：自动刷新 Token
+  // ==========================================
+  if (response.status === 401) {
+    // 尝试刷新 Token
+    const refreshed = await refreshAccessToken();
 
-// 参考基因组管理 API
-export {
-  genomeApi,
-  type GenomeAsset,
-} from './api/genome';
+    if (refreshed) {
+      // 刷新成功，重试原请求
+      // 更新 Authorization header（如果使用手动 Token 模式）
+      const { token: newToken } = useAuthStore.getState();
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`;
+      }
 
-// 分析数据库管理 API
-export {
-  databaseApi,
-  type AnalysisDatabase,
-} from './api/database';
+      response = await fetch(url, {
+        ...fetchOptions,
+        headers,
+      });
 
-// 错误诊断 API
-export {
-  errorDiagnosticApi,
-  type DiagnoseRequest,
-  type FixSuggestion,
-  type ErrorDiagnosis,
-  type DiagnoseResponse,
-  type FixResponse,
-} from './api/errorDiagnostic';
+      // 重试后仍然 401，说明真的没权限
+      if (response.status === 401) {
+        const { logout } = useAuthStore.getState();
+        logout();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        throw new Error('认证失败，请重新登录');
+      }
+    } else {
+      throw new Error('认证已过期，请重新登录');
+    }
+  }
 
-// 执行参数状态管理（本地存储）
-export {
-  executionStateApi,
-  type ExecutionParams,
-} from './api/executionState';
+  // ==========================================
+  // 响应处理
+  // ==========================================
 
-// 首页收藏技能管理（本地存储）
-export {
-  pinnedSkillsApi,
-  type PinnedSkill,
-} from './api/pinnedSkills';
+  if (!response.ok) {
+    // 尝试解析错误信息
+    let errorDetail = `请求失败 (${response.status})`;
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorData.message || errorDetail;
+    } catch {
+      // JSON 解析失败，使用默认错误信息
+    }
+    throw new Error(errorDetail);
+  }
 
-// 技能快速执行 API
-export {
-  quickExecuteApi,
-  type QuickMatchRequest,
-  type QuickMatchResponse,
-  type MatchMode,
-} from './api/quickExecute';
+  // 204 No Content
+  if (response.status === 204) {
+    return null;
+  }
 
-// 推荐反馈 API
-export {
-  feedbackApi,
-  type FeedbackEventType,
-  type RecordBehaviorRequest,
-} from './api/feedback';
+  return response.json();
+}
 
-// 消息队列 API
-export {
-  chatQueueApi,
-  type ChatQueueItem,
-  type QueueItemStatus,
-} from './api/chatQueue';
+// ==========================================
+// SSE 流式请求（用于聊天等场景）
+// ==========================================
+
+export function createSSEUrl(endpoint: string): string {
+  /**
+   * 构建 SSE 连接 URL
+   *
+   * SSE 无法自定义 header，Token 通过 query parameter 传递
+   * 后端需支持 ?token=xxx 参数验证
+   */
+  const { token } = useAuthStore.getState();
+  const url = `${API_BASE_URL}${endpoint}`;
+  if (token) {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}token=${encodeURIComponent(token)}`;
+  }
+  return url;
+}
+
+// ==========================================
+// 文件上传
+// ==========================================
+
+export async function uploadFile(
+  endpoint: string,
+  file: File,
+  additionalData?: Record<string, string>
+): Promise<any> {
+  /**
+   * 文件上传（multipart/form-data）
+   */
+  const formData = new FormData();
+  formData.append('file', file);
+
+  if (additionalData) {
+    for (const [key, value] of Object.entries(additionalData)) {
+      formData.append(key, value);
+    }
+  }
+
+  const { token } = useAuthStore.getState();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    let errorDetail = `上传失败 (${response.status})`;
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorData.message || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+
+  return response.json();
+}

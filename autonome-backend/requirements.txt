@@ -28,6 +28,10 @@ requests==2.31.0
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
 
+# Aliyun SMS SDK
+alibabacloud-dysmsapi20170525>=3.0.0
+alibabacloud-tea-openapi>=0.3.0
+
 # PostgreSQL driver
 psycopg2-binary==2.9.9
 

@@ -1,109 +1,444 @@
+/**
+ * 登录页面 - 双通道认证
+ *
+ * 设计日期: 2026-03-22
+ * 更新日期: 2026-04-21（阶段2：新增短信验证码登录 + Cookie 模式）
+ *
+ * 功能：
+ * - 三 Tab 登录：短信验证码 / 手机号密码 / 邮箱密码
+ * - 60 秒倒计时发送按钮
+ * - Cookie 模式：登录成功后 Cookie 自动设置，无需手动管理 Token
+ */
+
 "use client";
 
-import { useState } from "react";
-import { fetchAPI, BASE_URL } from "../../lib/api";
-import { useAuthStore } from "../../store/useAuthStore";
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { fetchAPI } from '@/lib/api';
+import { useAuthStore } from '@/store/useAuthStore';
+import { Phone, Mail, Lock, MessageSquare, Send, Loader2, Eye, EyeOff, ArrowRight } from 'lucide-react';
+
+// ==========================================
+// 类型定义
+// ==========================================
+
+type LoginTab = 'sms' | 'password' | 'email';
+
+interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  user: {
+    id: number;
+    email: string;
+    full_name: string | null;
+    phone_number: string | null;
+    is_superuser: boolean;
+    is_email_verified: boolean;
+    is_2fa_enabled: boolean;
+  };
+}
+
+// ==========================================
+// 登录页面组件
+// ==========================================
 
 export default function LoginPage() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const { setToken, setUser } = useAuthStore();
+  const router = useRouter();
+  const { setUser } = useAuthStore();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
+  // Tab 状态
+  const [activeTab, setActiveTab] = useState<LoginTab>('sms');
+
+  // 短信登录表单
+  const [smsPhone, setSmsPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [smsSending, setSmsSending] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+
+  // 手机号密码登录表单
+  const [pwdPhone, setPwdPhone] = useState('');
+  const [pwdPassword, setPwdPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  // 邮箱登录表单
+  const [email, setEmail] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+
+  // 通用状态
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // ==========================================
+  // 倒计时逻辑
+  // ==========================================
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  // ==========================================
+  // 发送验证码
+  // ==========================================
+
+  const handleSendSMS = async () => {
+    // 手机号格式校验
+    if (!/^1[3-9]\d{9}$/.test(smsPhone)) {
+      setError('请输入正确的手机号码');
+      return;
+    }
+
+    setSmsSending(true);
+    setError('');
 
     try {
-      if (isLogin) {
-        // FastAPI OAuth2 需要 x-www-form-urlencoded
-        const formData = new URLSearchParams();
-        formData.append('username', email);
-        formData.append('password', password);
-
-        const res = await fetch(`${BASE_URL}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formData.toString()
-        });
-
-        if (!res.ok) throw new Error("账号或密码错误");
-        const data = await res.json();
-
-        // 1. 存 Token
-        setToken(data.access_token);
-        // ✨ 这里有个小 trick：存入 localStorage 方便 fetchAPI 读取
-        localStorage.setItem('autonome_access_token', data.access_token);
-
-        // 2. 拉取用户信息
-        const userRes = await fetch(`${BASE_URL}/api/auth/me`, {
-          headers: { 'Authorization': `Bearer ${data.access_token}` }
-        });
-
-        if (!userRes.ok) {
-          // 即使 /me 请求失败，仍然使用基本信息跳转
-          setUser({ id: 1, email, credits_balance: 0, is_superuser: false });
-        } else {
-          const userData = await userRes.json();
-          setUser(userData);
-        }
-
-        // 3. 跳转主页
-        window.location.href = "/";
-      } else {
-        // 注册流程
-        await fetchAPI('/api/auth/register', {
-          method: 'POST',
-          body: JSON.stringify({ email, password })
-        });
-        setIsLogin(true); // 注册成功切回登录
-        alert("注册成功！送您 100 算力点，请登录。");
-      }
+      await fetchAPI('/auth/send-sms', {
+        method: 'POST',
+        body: JSON.stringify({ phone_number: smsPhone }),
+      });
+      // 发送成功，开始 60 秒倒计时
+      setCountdown(60);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || '验证码发送失败');
+    } finally {
+      setSmsSending(false);
+    }
+  };
+
+  // ==========================================
+  // 短信验证码登录
+  // ==========================================
+
+  const handleSMSLogin = async () => {
+    if (!/^1[3-9]\d{9}$/.test(smsPhone)) {
+      setError('请输入正确的手机号码');
+      return;
+    }
+    if (!/^\d{6}$/.test(otpCode)) {
+      setError('请输入 6 位验证码');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await fetchAPI('/auth/login/sms', {
+        method: 'POST',
+        body: JSON.stringify({ phone_number: smsPhone, otp_code: otpCode }),
+      }) as LoginResponse;
+
+      // Cookie 模式：Token 已通过 httpOnly Cookie 设置
+      // 仅需更新前端用户状态
+      setUser({
+        id: data.user.id,
+        email: data.user.email,
+        full_name: data.user.full_name,
+        is_superuser: data.user.is_superuser,
+        phone_number: data.user.phone_number,
+        is_email_verified: data.user.is_email_verified,
+        is_2fa_enabled: data.user.is_2fa_enabled,
+      });
+
+      router.push('/');
+    } catch (err: any) {
+      setError(err.message || '登录失败');
     } finally {
       setLoading(false);
     }
   };
 
+  // ==========================================
+  // 手机号密码登录
+  // ==========================================
+
+  const handlePasswordLogin = async () => {
+    if (!/^1[3-9]\d{9}$/.test(pwdPhone)) {
+      setError('请输入正确的手机号码');
+      return;
+    }
+    if (pwdPassword.length < 8) {
+      setError('密码至少 8 位');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await fetchAPI('/auth/login/password', {
+        method: 'POST',
+        body: JSON.stringify({ phone_number: pwdPhone, password: pwdPassword }),
+      }) as LoginResponse;
+
+      setUser({
+        id: data.user.id,
+        email: data.user.email,
+        full_name: data.user.full_name,
+        is_superuser: data.user.is_superuser,
+        phone_number: data.user.phone_number,
+        is_email_verified: data.user.is_email_verified,
+        is_2fa_enabled: data.user.is_2fa_enabled,
+      });
+
+      router.push('/');
+    } catch (err: any) {
+      setError(err.message || '登录失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // 邮箱密码登录（向后兼容）
+  // ==========================================
+
+  const handleEmailLogin = async () => {
+    if (!email) {
+      setError('请输入邮箱');
+      return;
+    }
+    if (emailPassword.length < 8) {
+      setError('密码至少 8 位');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // 使用 OAuth2PasswordRequestForm 格式
+      const formData = new URLSearchParams();
+      formData.append('username', email);
+      formData.append('password', emailPassword);
+
+      const data = await fetchAPI('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData,
+      }) as { access_token: string; token_type: string };
+
+      // 旧端点不设置 Cookie，手动设置 Token（兼容模式）
+      // 后续 /auth/me 会通过 Bearer Token 验证
+      const { setToken } = useAuthStore.getState();
+      setToken(data.access_token);
+
+      // 获取用户信息
+      const userInfo = await fetchAPI('/auth/me');
+      setUser(userInfo);
+
+      router.push('/');
+    } catch (err: any) {
+      setError(err.message || '登录失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // 渲染
+  // ==========================================
+
+  const tabs: { key: LoginTab; label: string; icon: React.ReactNode }[] = [
+    { key: 'sms', label: '验证码登录', icon: <MessageSquare size={16} /> },
+    { key: 'password', label: '密码登录', icon: <Lock size={16} /> },
+    { key: 'email', label: '邮箱登录', icon: <Mail size={16} /> },
+  ];
+
   return (
-    <div className="min-h-screen bg-neutral-950 flex items-center justify-center relative overflow-hidden font-sans">
-      {/* 背景光效 */}
-      <div className="absolute top-[20%] left-[20%] w-[500px] h-[500px] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[20%] right-[20%] w-[400px] h-[400px] bg-purple-900/20 rounded-full blur-[100px] pointer-events-none"></div>
-      <div className="absolute inset-0 bg-grid-pattern pointer-events-none opacity-40"></div>
-
-      <div className="z-10 bg-neutral-900/80 backdrop-blur-xl border border-neutral-800 p-10 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="text-center mb-10">
-          <div className="text-3xl mb-2 tracking-widest font-bold text-white"><span className="text-blue-500">🧬</span> AUTONOME</div>
-          <p className="text-neutral-500 text-sm">Next-Gen Bioinformatics Agent</p>
+    <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* Logo / 标题 */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-white mb-2">Autonome</h1>
+          <p className="text-neutral-400">AI-Native Bioinformatics IDE</p>
         </div>
 
-        <div className="flex gap-4 mb-8">
-          <button onClick={() => setIsLogin(true)} className={`flex-1 pb-2 text-sm font-medium transition-colors ${isLogin ? 'text-blue-400 border-b-2 border-blue-500' : 'text-neutral-500 border-b-2 border-transparent hover:text-neutral-300'}`}>Sign In</button>
-          <button onClick={() => setIsLogin(false)} className={`flex-1 pb-2 text-sm font-medium transition-colors ${!isLogin ? 'text-blue-400 border-b-2 border-blue-500' : 'text-neutral-500 border-b-2 border-transparent hover:text-neutral-300'}`}>Create Account</button>
+        {/* Tab 切换 */}
+        <div className="flex border-b border-neutral-800 mb-6">
+          {tabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => { setActiveTab(tab.key); setError(''); }}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors border-b-2 ${
+                activeTab === tab.key
+                  ? 'text-blue-400 border-blue-400'
+                  : 'text-neutral-500 border-transparent hover:text-neutral-300'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && <div className="p-3 bg-red-950/50 border border-red-900/50 text-red-400 text-xs rounded-md text-center">{error}</div>}
-          
-          <div>
-            <label className="block text-xs text-neutral-400 mb-1.5 uppercase tracking-wide">Email Address</label>
-            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all text-sm" />
+        {/* 错误提示 */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            {error}
           </div>
-          
-          <div>
-            <label className="block text-xs text-neutral-400 mb-1.5 uppercase tracking-wide">Password</label>
-            <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all text-sm" />
-          </div>
+        )}
 
-          <button type="submit" disabled={loading} className="w-full mt-4 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white font-medium p-3 rounded-lg text-sm transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)]">
-            {loading ? "Processing..." : (isLogin ? "INITIALIZE SESSION" : "DEPLOY WORKSPACE")}
-          </button>
-        </form>
+        {/* 短信验证码登录 */}
+        {activeTab === 'sms' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-neutral-300 mb-1.5">手机号码</label>
+              <div className="relative">
+                <Phone size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                <input
+                  type="tel"
+                  value={smsPhone}
+                  onChange={(e) => setSmsPhone(e.target.value)}
+                  placeholder="请输入手机号码"
+                  className="w-full pl-10 pr-4 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-neutral-300 mb-1.5">验证码</label>
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <MessageSquare size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                  <input
+                    type="text"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="6 位验证码"
+                    maxLength={6}
+                    className="w-full pl-10 pr-4 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+                <button
+                  onClick={handleSendSMS}
+                  disabled={smsSending || countdown > 0 || !smsPhone}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                >
+                  {smsSending ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : countdown > 0 ? (
+                    `${countdown}s`
+                  ) : (
+                    <span className="flex items-center gap-1"><Send size={14} /> 发送</span>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSMSLogin}
+              disabled={loading}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
+              登录
+            </button>
+          </div>
+        )}
+
+        {/* 手机号密码登录 */}
+        {activeTab === 'password' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-neutral-300 mb-1.5">手机号码</label>
+              <div className="relative">
+                <Phone size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                <input
+                  type="tel"
+                  value={pwdPhone}
+                  onChange={(e) => setPwdPhone(e.target.value)}
+                  placeholder="请输入手机号码"
+                  className="w-full pl-10 pr-4 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-neutral-300 mb-1.5">密码</label>
+              <div className="relative">
+                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={pwdPassword}
+                  onChange={(e) => setPwdPassword(e.target.value)}
+                  placeholder="请输入密码"
+                  className="w-full pl-10 pr-10 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={handlePasswordLogin}
+              disabled={loading}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
+              登录
+            </button>
+          </div>
+        )}
+
+        {/* 邮箱密码登录（向后兼容）*/}
+        {activeTab === 'email' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-neutral-300 mb-1.5">邮箱</label>
+              <div className="relative">
+                <Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="请输入邮箱"
+                  className="w-full pl-10 pr-4 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-neutral-300 mb-1.5">密码</label>
+              <div className="relative">
+                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={emailPassword}
+                  onChange={(e) => setEmailPassword(e.target.value)}
+                  placeholder="请输入密码"
+                  onKeyDown={(e) => e.key === 'Enter' && handleEmailLogin()}
+                  className="w-full pl-10 pr-10 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={handleEmailLogin}
+              disabled={loading}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
+              登录
+            </button>
+          </div>
+        )}
+
+        {/* 底部提示 */}
+        <p className="mt-6 text-center text-xs text-neutral-600">
+          登录即表示同意服务条款和隐私政策
+        </p>
       </div>
     </div>
   );
