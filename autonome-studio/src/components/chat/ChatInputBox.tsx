@@ -378,13 +378,14 @@ const ChatInputBox = memo(function ChatInputBox({
           </AnimatePresence>
         </div>
 
-        {/* 弹性空间，让 Tools 按钮和发送按钮分开 */}
+        {/* ✨ 深度思考开关 - 放在左侧工具按钮旁边，持久化状态 */}
+        <DeepThinkToggle />
+
+        {/* 弹性空间，让工具按钮和发送按钮分开 */}
         <div className="flex-1" />
 
-        {/* 右侧: 深度思考开关 + 发送按钮 + 停止按钮 */}
+        {/* 右侧: 发送按钮 + 停止按钮 */}
         <div className="flex items-center gap-1">
-          {/* ✨ 深度思考开关 - 发送按钮左侧，持久化状态 */}
-          <DeepThinkToggle />
           {/* ✨ AI 回复中：只显示停止按钮，隐藏发送按钮 */}
           {isTyping ? (
             <button
