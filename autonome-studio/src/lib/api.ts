@@ -257,3 +257,101 @@ export async function uploadFile(
 
   return response.json();
 }
+
+// ==========================================
+// 从领域模块重新导出所有 API
+// 确保现有 import { ... } from '@/lib/api' 继续工作
+// ==========================================
+
+export {
+  createFolder,
+  moveFile,
+  getFolderTree,
+  type CreateFolderRequest,
+  type MoveFileRequest,
+  type FolderNode,
+} from './api/folder';
+
+export {
+  skillForgeApi,
+  type ExecutorType,
+  type CraftRequest,
+  type CraftResponse,
+  type BundleResponse,
+  type SkillAsset,
+} from './api/skillForge';
+
+export {
+  skillDraftApi,
+  type PendingSkillDraft,
+  type DraftStats,
+} from './api/skillDraft';
+
+export { adminApi } from './api/admin';
+
+export {
+  templateApi,
+  type SkillTemplate,
+  type InstantiateRequest,
+  type InstantiateResult,
+} from './api/template';
+
+export {
+  forgeSessionApi,
+  type ForgeSessionCreateRequest,
+  type ForgeSessionResponse,
+  type ForgeSessionDetail,
+  type ForgeMessageData,
+  type ForgeChatRequest,
+  type SkillDraftUpdateRequest,
+  type ForgeSessionListItem,
+  type SkillDraft,
+} from './api/forgeSession';
+
+export {
+  genomeApi,
+  type GenomeAsset,
+} from './api/genome';
+
+export {
+  databaseApi,
+  type AnalysisDatabase,
+} from './api/database';
+
+export {
+  errorDiagnosticApi,
+  type DiagnoseRequest,
+  type FixSuggestion,
+  type ErrorDiagnosis,
+  type DiagnoseResponse,
+  type FixResponse,
+} from './api/errorDiagnostic';
+
+export {
+  executionStateApi,
+  type ExecutionParams,
+} from './api/executionState';
+
+export {
+  pinnedSkillsApi,
+  type PinnedSkill,
+} from './api/pinnedSkills';
+
+export {
+  quickExecuteApi,
+  type QuickMatchRequest,
+  type QuickMatchResponse,
+  type MatchMode,
+} from './api/quickExecute';
+
+export {
+  feedbackApi,
+  type FeedbackEventType,
+  type RecordBehaviorRequest,
+} from './api/feedback';
+
+export {
+  chatQueueApi,
+  type ChatQueueItem,
+  type QueueItemStatus,
+} from './api/chatQueue';
