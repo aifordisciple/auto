@@ -155,12 +155,16 @@ export function SettingsCenter() {
     }
 
     // 保存快捷键
+    // 跨平台录制：Mac 上按 ⌘Cmd 或 Windows 上按 Ctrl 时，统一存为 metaOrCtrl
+    const hasMetaOrCtrl = e.metaKey || e.ctrlKey;
     updateShortcut(recordingId, {
       key: e.key.toLowerCase(),
-      ctrl: e.ctrlKey,
-      meta: e.metaKey,
-      shift: e.shiftKey,
-      alt: e.altKey
+      metaOrCtrl: hasMetaOrCtrl || undefined,
+      // metaOrCtrl 优先，清除单独的 meta/ctrl 避免冲突
+      meta: hasMetaOrCtrl ? undefined : (e.metaKey || undefined),
+      ctrl: hasMetaOrCtrl ? undefined : (e.ctrlKey || undefined),
+      shift: e.shiftKey || undefined,
+      alt: e.altKey || undefined
     });
     setRecordingId(null);
   }, [recordingId, updateShortcut]);
@@ -172,15 +176,20 @@ export function SettingsCenter() {
     }
   }, [recordingId, handleKeyDown]);
 
-  // 格式化展示快捷键
+  // 格式化展示快捷键（根据平台动态显示修饰键符号）
+  const isMac = typeof window !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
   const formatShortcut = (s: Shortcut) => {
     const keys = [];
-    if (s.meta) keys.push('⌘'); // Mac Meta
-    if (s.ctrl) keys.push('Ctrl');
-    if (s.alt) keys.push('Alt');
-    if (s.shift) keys.push('Shift');
+    if (s.metaOrCtrl) {
+      keys.push(isMac ? '⌘' : 'Ctrl');
+    } else {
+      if (s.meta) keys.push(isMac ? '⌘' : 'Win');
+      if (s.ctrl) keys.push('Ctrl');
+    }
+    if (s.alt) keys.push(isMac ? '⌥' : 'Alt');
+    if (s.shift) keys.push(isMac ? '⇧' : 'Shift');
     keys.push(s.key.toUpperCase());
-    return keys.join(' + ');
+    return keys.join(isMac ? '' : ' + ');
   };
 
   return (

@@ -21,10 +21,6 @@ const SessionSidebar = dynamic(() => import("./SessionSidebar").then(m => m.Sess
   ),
 });
 
-const BookmarkPanel = dynamic(() => import("../chat/BookmarkPanel").then(m => m.BookmarkPanel), {
-  ssr: false,
-  loading: () => null,
-});
 
 export function Sidebar() {
   const { toggleControlPanel, toggleProjectCenter, toggleDataCenter, toggleTaskCenter, toggleSkillCenter, toggleTerminal, toggleLearningCenter, openUserCenter, isProjectCenterOpen, isDataCenterOpen, isSkillCenterOpen, isLearningCenterOpen, theme, toggleTheme } = useUIStore();
@@ -236,13 +232,6 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Bookmark Panel - 收藏夹面板 */}
-      {currentProjectId && (
-        <BookmarkPanel
-          projectId={currentProjectId}
-          onSelectSession={setCurrentSessionId}
-        />
-      )}
     </div>
   );
 }

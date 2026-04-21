@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { SquarePen, Trash2, Edit2, MessageSquare, Search, Bookmark } from "lucide-react";
+import { SquarePen, Trash2, Edit2, MessageSquare, Search } from "lucide-react";
 import dynamic from "next/dynamic";
 import { BASE_URL, getToken } from "@/lib/api";
 import { useChatStore, SessionTag } from "@/store/useChatStore";
@@ -31,7 +31,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 从 store 获取标签状态（搜索状态已移至 ChatSearchModal 组件）
   const {
-    tags, setTags, selectedTagId, setSelectedTagId, showBookmarkPanel, setShowBookmarkPanel
+    tags, setTags, selectedTagId, setSelectedTagId
   } = useChatStore();
 
   // ✨ 获取 UI 状态：移动端菜单关闭方法 + 搜索弹窗打开方法
