@@ -47,6 +47,7 @@ Autonome Studio 是一个面向生物信息学的 AI 原生 IDE，核心能力�
 - **Docker 沙箱执行**：隔离的代码执行环境，支持 Python/R/Nextflow 工作流
 - **技能生态系统**：可复用的分析技能包，支持创建、测试、发布、市场交易
 - **Vercel AI SDK v5**：UIMessage Stream Protocol 实现前后端流式通信
+- **Claude Code 集成**：PTY 模式启动 Claude Code，支持本地和容器内执行
 
 **技术栈概览**：
 
@@ -74,13 +75,13 @@ Autonome Studio 是一个面向生物信息学的 AI 原生 IDE，核心能力�
 ```
 autonome/
 ├── autonome-backend/          # FastAPI + LangGraph 后端 (Python 3.11/3.12)
-│   ├── main.py                # 应用入口
-│   ├── app/                   # 核心应用代码 (139 文件, ~54,530 行)
+│   ├── main.py                # 应用入口 (255 行)
+│   ├── app/                   # 核心应用代码 (178 文件, ~55,227 行)
 │   ├── requirements.txt       # Python 依赖
 │   ├── Dockerfile             # 生产镜像
 │   └── Dockerfile.sandbox     # 沙箱镜像 (暖池容器)
 ├── autonome-studio/           # Next.js 16 前端 (React 19, TypeScript 5)
-│   ├── src/                   # 前端源码
+│   ├── src/                   # 前端源码 (~52,404 行)
 │   ├── package.json           # Node 依赖
 │   ├── Dockerfile             # 生产镜像 (4 阶段构建)
 │   └── next.config.ts         # Next.js 配置
@@ -150,7 +151,7 @@ autonome/
 
 ### 4.1 入口与中间件
 
-**文件**：`autonome-backend/main.py` (256 行)
+**文件**：`autonome-backend/main.py` (255 行)
 
 **应用创建流程**：
 
@@ -159,12 +160,23 @@ FastAPI(title="Autonome Studio", version="2.0.0")
     │
     ├── 中间件注册
     │   ├── CORSMiddleware (allow_origins=["*"], allow_credentials=False)
+    │   ├── AccessLogFilterMiddleware (抑制高频轮询日志如 /api/auth/me)
     │   └── 全局异常处理器 (确保 CORS 头在错误响应中)
     │
     ├── 启动事件 (on_startup)
-    │   └── create_db_and_tables() — 自动建表
+    │   ├── 清理僵尸 Docker 沙箱容器 (autonome-tool-env:latest)
+    │   ├── create_db_and_tables() — 自动建表
+    │   ├── 初始化 SystemConfig (id=1, OpenAI key from env)
+    │   ├── init_templates() — 初始化技能模板
+    │   ├── 初始化缓存服务 (60s 清理间隔)
+    │   ├── 初始化容器暖池
+    │   └── 启动终端会话清理线程
     │
-    ├── 路由注册 (30+ 路由模块)
+    ├── 关闭事件 (on_shutdown)
+    │   ├── 清空容器池
+    │   └── 销毁所有终端会话
+    │
+    ├── 路由注册 (24+ 路由模块)
     │   └── 见 4.4 API 路由层
     │
     └── 静态文件挂载
@@ -206,7 +218,7 @@ FastAPI(title="Autonome Studio", version="2.0.0")
 
 ### 4.2 核心基础设施 (app/core)
 
-共 9 个文件，2,385 行代码。
+共 12 个文件，3,028 行代码。
 
 | 文件 | 行数 | 核心功能 |
 |------|------|----------|
@@ -214,13 +226,13 @@ FastAPI(title="Autonome Studio", version="2.0.0")
 | `database.py` | 49 | SQLModel 引擎创建、`create_db_and_tables()`、`get_session()` 依赖注入生成器 |
 | `security.py` | 36 | bcrypt 密码哈希、JWT 创建（python-jose，HS256，7 天有效期） |
 | `logger.py` | 31 | Loguru 配置：控制台 + 轮转文件（30 天保留） |
-| `content_filter.py` | 497 | LLM 输出过滤器：thinking 标签清理、代码块修复、`StreamContentFilter` 有状态流过滤 |
+| `content_filter.py` | 535 | LLM 输出过滤器：thinking 标签清理、代码块修复（GLM-5/MINIMAX/QWEN 特殊处理）、`StreamContentFilter` 有状态流过滤 |
 | `docker_api.py` | 98 | 原始 Docker Engine API（Unix Socket 直连） |
 | `sandbox_config.py` | 212 | Docker 沙箱路径、挂载配置、用户包路径、环境变量 |
 | `skill_parser.py` | 1114 | SKILL.md 解析器：YAML frontmatter + 参数表 + 专家知识；`SkillBundleParser`（文件系统）、`DBSkillParser`（数据库）、`get_combined_skills()`（合并去重） |
 | `parallel_executor.py` | 388 | 通用并行执行框架：`ParallelTask` ABC、`ParallelExecutor`、`SimpleParallelTask` |
 | `sample_table.py` | 309 | 样本表 TSV 解析：`SampleInfo`、`SampleTable`（分组/索引） |
-| `vercel_stream.py` | 123 | Vercel AI SDK v5 UIMessage Stream Protocol 编码器 |
+| `vercel_stream.py` | 126 | Vercel AI SDK v5 UIMessage Stream Protocol 编码器 |
 | `init_templates.py` | 63 | 技能模板初始化脚本 |
 
 **关键实现细节**：
@@ -252,6 +264,7 @@ class Settings(BaseSettings):
 - `StreamContentFilter` 类处理跨 SSE chunk 的 thinking 标签拆分
 - 支持 DeepSeek R1、Claude、o1、reasoning、reflection 等多种 thinking 标签
 - 清理参数标签、系统意图标签、沙箱结果标记
+- `fix_code_block_format()` 修复 LLM 流式输出的代码块格式问题（GLM-5/MINIMAX/QWEN 模型特殊规则）
 
 **`skill_parser.py`** — 技能解析核心：
 - `SkillBundleParser`：从文件系统解析 SKILL.md（YAML frontmatter + Markdown 参数表 + 专家知识）
@@ -260,9 +273,9 @@ class Settings(BaseSettings):
 
 ### 4.3 多 Agent 编排 (app/agent)
 
-共 9 个文件，827 行代码。
+共 15 个文件，1,405 行代码。V2 架构升级：从扁平多 Agent 设计重构为 LangGraph StateGraph + 3 层意图路由。
 
-#### 4.3.1 Agent 图结构 (graph.py)
+#### 4.3.1 Agent 图结构 (graph.py, 126 行)
 
 ```
 LangGraph StateGraph
@@ -312,6 +325,7 @@ class AgentState(TypedDict):
     ▼
 [L2 参数提取] — ~200ms（仅 skill_forge/explicit_skill/data_probe）
     │  提取：SlotExtraction (参数 + 缺失槽位 + 上下文增强)
+    │  工作区文件自动注入上下文
     │
     ▼
 [条件边] → 路由到 6 个 Agent 节点之一
@@ -321,21 +335,34 @@ class AgentState(TypedDict):
 
 | 文件 | 行数 | 功能 |
 |------|------|------|
-| `router/engine.py` | 86 | `IntentRouterEngine`：L0+L1+L2 流水线编排 |
-| `router/l0_rules.py` | 279 | L0 规则拦截：8 条规则，关键词+正则匹配 |
-| `router/l1_classifier.py` | 186 | L1 LLM 分类：结构化输出 / JSON 模式双模式 |
-| `router/l2_extractor.py` | 160 | L2 参数提取：技能/探查/锻造参数推断 |
-| `router/schemas.py` | 107 | `IntentType`、`IntentExtraction`、`SlotExtraction`、`AgentState` |
+| `router/engine.py` | 98 | `IntentRouterEngine`：L0+L1+L2 流水线编排，置信度降级保护 |
+| `router/l0_rules.py` | 311 | L0 规则拦截：8 条规则，关键词+正则匹配 |
+| `router/l1_classifier.py` | 254 | L1 LLM 分类：结构化输出 / JSON 模式双模式 |
+| `router/l2_extractor.py` | 160 | L2 参数提取：技能/探查/锻造参数推断 + 上下文自动增强 |
+| `router/schemas.py` | 119 | `IntentType`、`IntentExtraction`、`SlotExtraction`、`AgentState` |
 
-#### 4.3.3 独立文献 Agent (literature_agent.py)
+#### 4.3.3 Agent 节点 (nodes/)
 
-- 158 行，独立 ReAct 模式 Agent
+| 文件 | 行数 | 功能 |
+|------|------|------|
+| `nodes/chat_node.py` | 30 | 通用对话节点，标记意图路由完成 |
+| `nodes/skill_forge_node.py` | 29 | 代码生成/执行请求节点 |
+| `nodes/explicit_skill_node.py` | 29 | 指定技能执行节点，传递 skill_id |
+| `nodes/diagnostic_node.py` | 28 | 错误诊断节点 |
+| `nodes/literature_node.py` | 27 | 文献/DOI/论文复现请求节点 |
+| `nodes/data_probe_node.py` | 27 | 数据预览/探索节点 |
+
+> 注：V2 架构中节点仅做意图标记和参数传递，实际 LLM 流式调用在 `chat.py` 路由层完成。
+
+#### 4.3.4 独立文献 Agent (literature_agent.py, 158 行)
+
+- 独立 ReAct 模式 Agent
 - 内置 `create_skill_draft` 工具
 - 从学习中心检索文献并生成技能草稿
 
 ### 4.4 API 路由层 (app/api)
 
-共 40 个文件，17,156 行代码。
+共 40+ 个文件，17,595 行代码。
 
 #### 4.4.1 依赖注入 (deps.py)
 
@@ -357,7 +384,7 @@ class AgentState(TypedDict):
 
 用户资料 CRUD、LLM 配置更新、头像上传。
 
-#### 4.4.4 项目路由 (routes/projects.py, 1076 行)
+#### 4.4.4 项目路由 (routes/projects.py, 1104 行)
 
 | 功能 | 端点 |
 |------|------|
@@ -369,7 +396,7 @@ class AgentState(TypedDict):
 
 **安全措施**：路径遍历防护（`..` 和绝对路径检查）、`references/` 目录只读保护。
 
-#### 4.4.5 聊天路由 (routes/chat.py, 471 行)
+#### 4.4.5 聊天路由 (routes/chat.py, 935 行)
 
 **核心流式端点 `POST /api/chat/stream`**：
 
@@ -409,7 +436,7 @@ class AgentState(TypedDict):
 | 资源规格 | GET 可用资源规格及定价 |
 | 管理员操作 | POST 调整余额/暂停/恢复 |
 
-#### 4.4.8 管理员路由 (routes/admin.py, 944 行)
+#### 4.4.8 管理员路由 (routes/admin.py, 968 行)
 
 | 功能 | 说明 |
 |------|------|
@@ -475,7 +502,7 @@ AI 对话式技能创建会话：
 
 ### 4.5 数据模型层 (app/models)
 
-共 18 个文件，2,667 行代码。
+共 20+ 个文件，3,758 行代码。
 
 #### 4.5.1 模型枢纽 (domain.py, 348 行)
 
@@ -573,7 +600,7 @@ AI 对话式技能创建会话：
 | `native_executor.py` | 462 | Native（非 Docker）技能执行，用于官方技能 | 被 `skill_executor.py` 调用 |
 | `blueprint_runner.py` | 379 | Blueprint（多步工作流）DAG 执行器 | 被 `skill_executor.py` 调用 |
 | `terminal_manager.py` | 443 | Web 终端会话管理（Docker PTY） | 被 `routes/terminal.py` 调用 |
-| `pty_manager.py` | 653 | PTY 进程管理 | 被 `terminal_manager.py` 调用 |
+| `pty_manager.py` | 653 | PTY 进程管理 + Claude Code 启动（本地/容器模式） | 被 `terminal_manager.py` 调用 |
 | `package_installer.py` | 630 | Python/R 包安装到用户级目录 | 被 `routes/packages.py` 调用 |
 
 #### 4.6.5 AI 与评估服务
@@ -674,7 +701,7 @@ AI 对话式技能创建会话：
 
 ### 4.9 工具模块 (app/utils)
 
-共 7 个文件，1,827 行代码。
+共 7 个文件，1,817 行代码。
 
 | 文件 | 行数 | 功能 | 关联代码 |
 |------|------|------|----------|
@@ -711,7 +738,7 @@ AI 对话式技能创建会话：
 
 | 文件 | 行数 | 核心模式 |
 |------|------|----------|
-| `chat.py` | 106 | `ChatRequest`（message, project_id, session_id, skill_id, context_files） |
+| `chat.py` | 106 | `ChatRequest`（message, project_id, session_id, skill_id, context_files, images, pasted_files, task_mode, enable_think） |
 | `skill.py` | 88 | `CraftRequest`、`SkillTestRequest`、`SkillTransformRequest` |
 
 ---
@@ -766,6 +793,7 @@ AI 对话式技能创建会话：
 | `dashboard/page.tsx` | 仪表盘 | 钱包概览 + 4 面板：活跃工作流、计费分析、待办事项、最近资产 |
 | `debug-chat/page.tsx` | 调试页 | 调试用聊天页面 |
 | `share/[token]/page.tsx` | 分享页 | 公开分享工作区查看器（只读），显示消息 + 附加数据集 |
+| `skill-market/page.tsx` | 市场页 | 技能市场独立页面 |
 | `api/chat/route.ts` | BFF 代理 | 接收 Vercel AI SDK v5 UIMessage payload，从 `parts[]` 提取最后用户消息，转发到 FastAPI `/api/chat/stream`，处理 402 |
 | `api/chat/queue/route.ts` | BFF 代理 | 队列 API 路由 |
 | `api/chat/queue-actions/route.ts` | BFF 代理 | 队列操作路由（添加/删除/清空/重排） |
@@ -789,7 +817,7 @@ AI 对话式技能创建会话：
 
 ### 5.3 状态管理 (src/store)
 
-共 8 个 Zustand Store。
+共 8 个 Zustand Store，2,515 行代码。
 
 #### 5.3.1 useAuthStore
 
@@ -816,6 +844,7 @@ AI 对话式技能创建会话：
 | `lastBilling` | `object \| null` | 最近计费信息 |
 | `thinkingContent` | `string` | AI 思考内容 |
 | `isThinking` | `boolean` | 是否正在思考 |
+| `enableThink` | `boolean` | 思考模式开关 |
 | `queueItems[]` | `QueueItem[]` | 消息队列 |
 | `searchQuery` / `searchResults` | 搜索状态 | 全文搜索 |
 | `bookmarks[]` / `tags[]` | 书签/标签 | 消息书签和会话标签 |
@@ -902,6 +931,8 @@ AI 对话式技能创建会话：
 
 ### 5.4 自定义 Hooks (src/hooks)
 
+共 11 个文件，1,880 行代码。
+
 | Hook | 文件 | 功能 | 关联代码 |
 |------|------|------|----------|
 | `useChatEventListeners` | `useChatEventListeners.ts` | 全局事件监听：refresh-chat、append-result-message、scroll-to-task-result、shortcut-focus-input | 被 `ChatStage` 调用 |
@@ -974,7 +1005,7 @@ fetchAPI() → 自动注入 JWT、401 重定向 /login、CORS 错误处理
 
 ### 5.7 平台适配层 (src/adapter)
 
-7 个文件，双实现（Web vs Tauri Desktop）。
+7 个文件，1,724 行代码，双实现（Web vs Tauri Desktop）。
 
 | 文件 | 功能 | Web 实现 | Tauri 实现 |
 |------|------|----------|------------|
@@ -989,6 +1020,8 @@ fetchAPI() → 自动注入 JWT、401 重定向 /login、CORS 错误处理
 
 ### 5.8 UI 组件体系 (src/components)
 
+共 28,296 行代码。
+
 #### 5.8.1 布局组件
 
 | 组件 | 文件 | 功能 |
@@ -1002,7 +1035,7 @@ fetchAPI() → 自动注入 JWT、401 重定向 /login、CORS 错误处理
 | 组件 | 文件 | 功能 |
 |------|------|------|
 | `ChatStage` | `chat/ChatStage.tsx` | 主聊天容器（动态导入） |
-| `ChatInputBox` | `chat/ChatInputBox.tsx` | 消息输入：附件、技能选择、任务模式 |
+| `ChatInputBox` | `chat/ChatInputBox.tsx` | 消息输入：附件、技能选择、任务模式、Claude Code 会话标签 |
 | `ChatSearchModal` | `chat/ChatSearchModal.tsx` | 全文聊天搜索模态框 |
 | `BookmarkPanel` | `chat/BookmarkPanel.tsx` | 书签消息面板 |
 | `MemoizedMessageItem` | `chat/MemoizedMessageItem.tsx` | 优化消息渲染 |
@@ -1215,11 +1248,11 @@ fetchAPI() → 自动注入 JWT、401 重定向 /login、CORS 错误处理
     ├── 阶段 1: 关键词匹配 (skill_keywords_indexer)
     │   └── 从 SKILL.md 提取 primary/secondary/context 关键词
     │
-    ├── 阶段 2: 语义匹配 (skill_embedding_service + pgvector)
+    ├── 阶段 2: 语义匹配 (semantic_search + FAISS)
     │   └── 0.4×关键词 + 0.6×语义
     │
-    └── 阶段 3: LLM 精排 (llm_skill_matcher)
-        └── 参数推断 + 置信度评分
+    └── 阶段 3: 回退策略 (skill_matcher_with_fallback)
+        └── 关键词 → 语义 → Live Coding 逐级降级
            │
            ▼
     [SkillRecommendationLog] + [SkillMatchingFeedback]
@@ -1248,6 +1281,25 @@ fetchAPI() → 自动注入 JWT、401 重定向 /login、CORS 错误处理
     │
     ▼
 [TransactionLedger] — 双分录审计日志
+```
+
+### 7.6 Claude Code 集成流
+
+```
+用户触发 Claude Code
+    │
+    ▼
+[ChatInputBox] ──→ 显示 Claude Code 会话标签 (青色)
+    │
+    ▼
+[pty_manager.launch_claude_code()]
+    │
+    ├── 本地模式: 直接启动 claude --print <prompt>
+    └── 容器模式: _launch_claude_code_in_container()
+        └── 在 Docker 沙箱中启动 @anthropic-ai/claude-code
+    │
+    ▼
+[useWorkspaceStore.claudeCodeSessionId] ← 会话状态管理
 ```
 
 ---
@@ -1302,6 +1354,10 @@ UIMessage Stream Protocol，`parts[]` 替代 `content` 字符串，自定义 `da
 
 Celery Worker 处理耗时任务（技能执行、PDF 摄入），Redis pub/sub 将结果推送到 SSE 流。
 
+### 8.13 Claude Code PTY 集成
+
+`pty_manager.py` 支持 Claude Code 本地/容器双模式启动，前端 `useWorkspaceStore` 管理会话状态。
+
 ---
 
 ## 附录：运维脚本
@@ -1313,576 +1369,26 @@ Celery Worker 处理耗时任务（技能执行、PDF 摄入），Redis pub/sub 
 
 ---
 
-## 附录：主页面聊天功能详细代码分析
+## 附录：代码规模统计
 
-### 涉及的代码文件清单
-
-| # | 文件路径 | 层 | 行数 | 职责 |
-|---|----------|-----|------|------|
-| 1 | `autonome-studio/src/app/page.tsx` | 页面层 | 349 | 主 IDE 壳页面，组合 Sidebar + TopHeader + ChatStage + GlobalOverlay |
-| 2 | `autonome-studio/src/components/chat/ChatStage.tsx` | 组件层 | 533 | 聊天主容器，组合 useChat + hooks + 子组件，管理聊天 UI 布局 |
-| 3 | `autonome-studio/src/components/chat/ChatInputBox.tsx` | 组件层 | 387 | 消息输入框（memo），管理 inputValue、附件、技能标签、发送/停止 |
-| 4 | `autonome-studio/src/hooks/useChatSync.ts` | Hook 层 | 164 | useChat → Zustand 单向同步桥接，处理 data-* 自定义事件 |
-| 5 | `autonome-studio/src/hooks/useSmartScroll.ts` | Hook 层 | 298 | 智能滚动：RAF 动画 + easeOutCubic 缓动 + 用户上滚暂停 |
-| 6 | `autonome-studio/src/hooks/useChatEventListeners.ts` | Hook 层 | 156 | 全局事件监听：refresh-chat、append-result-message、scroll-to-task-result |
-| 7 | `autonome-studio/src/store/useChatStore.ts` | 状态层 | 315 | 聊天 Zustand Store：消息、镜像、计费、思考、队列、搜索、书签、标签 |
-| 8 | `autonome-studio/src/store/useWorkspaceStore.ts` | 状态层 | 248 | 工作区 Zustand Store：项目ID、会话ID、附件、技能、任务模式 |
-| 9 | `autonome-studio/src/store/useUIStore.ts` | 状态层 | 323 | UI Zustand Store：activeOverlay 单例、主题、技能过滤模式 |
-| 10 | `autonome-studio/src/app/api/chat/route.ts` | BFF 层 | 90 | Next.js BFF 代理：注入 JWT + 上下文，转发到 FastAPI，透传 SSE |
-| 11 | `autonome-backend/app/api/routes/chat.py` | 后端路由 | 472 | 核心聊天流：计费→会话→意图分类→LLM 流式→持久化→扣费 |
-| 12 | `autonome-backend/app/core/vercel_stream.py` | 协议层 | 124 | Vercel AI SDK v5 UIMessage Stream Protocol SSE 编码器 |
-| 13 | `autonome-backend/app/agent/router/engine.py` | Agent 层 | 87 | 意图路由引擎：L0 规则 → L1 LLM 分类 → L2 槽位提取 |
-| 14 | `autonome-backend/app/core/content_filter.py` | 过滤层 | 497 | StreamContentFilter 有状态流过滤（thinking 标签跨 chunk 处理） |
-
-### 完整工作流程（从用户输入到 AI 回复渲染）
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          前端 (Next.js 16)                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ① 用户在 ChatInputBox 输入消息，按 Enter 或点击发送                       │
-│     │                                                                       │
-│     ├── ChatInputBox.handleInternalSend()                                   │
-│     │   ├── 检查 canSend（无上传中附件 + 有内容）                           │
-│     │   ├── 调用 onSend(inputValue) → ChatStage.handleSendWrapper()        │
-│     │   ├── cleanupPastedAttachments()                                      │
-│     │   └── setInputValue("") 清空输入框                                    │
-│     │                                                                       │
-│  ② ChatStage.handleSendWrapper() 调用 useChat.sendMessage()                │
-│     │                                                                       │
-│  ③ useChat (Vercel AI SDK v5) 构造 HTTP POST 请求                          │
-│     │   ├── transport: DefaultChatTransport                                 │
-│     │   ├── api: '/api/chat' (BFF 代理)                                    │
-│     │   ├── headers: () => { Authorization: Bearer <token> }               │
-│     │   └── body: () => { data: { projectId, sessionId, contextFiles } }   │
-│     │                                                                       │
-│  ④ BFF 代理 (app/api/chat/route.ts) 处理请求                               │
-│     │   ├── 从 req.json() 解构 messages + data                              │
-│     │   ├── 从 messages 最后一条 user 消息的 parts[] 提取文本               │
-│     │   │   (兼容 v4 content 和 v5 parts 两种格式)                         │
-│     │   ├── 注入 Authorization header                                       │
-│     │   └── fetch(`${BACKEND_URL}/api/chat/stream`, { ... })               │
-│     │                                                                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                          后端 (FastAPI)                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ⑤ POST /api/chat/stream (chat.py:chat_stream)                             │
-│     │                                                                       │
-│     ├── [Step 1] 安全校验：project.owner_id == current_user.id             │
-│     │                                                                       │
-│     ├── [Step 2] 计费拦截：BillingService.check_available(wallet, 1.0)     │
-│     │   └── 余额不足 → HTTP 402 PAYMENT_REQUIRED                           │
-│     │                                                                       │
-│     ├── [Step 3] 会话创建/恢复                                              │
-│     │   ├── 有 session_id → 恢复已有会话                                    │
-│     │   └── 无 session_id → 创建新会话，title = message[:15] + "..."       │
-│     │                                                                       │
-│     ├── [Step 4] 持久化用户消息到 ChatMessage 表                             │
-│     │                                                                       │
-│     ├── [Step 5] 加载 LLM 配置                                             │
-│     │   └── get_llm_config(): per-user override → system → env fallback    │
-│     │                                                                       │
-│     ├── [Step 6] 意图分类 (IntentRouterEngine L0+L1+L2)                    │
-│     │   ├── L0 规则拦截 (0ms, ~30-40% 命中率)                              │
-│     │   │   └── 8 条规则: SystemState/ActiveView/ExplicitSkill/            │
-│     │   │       ErrorPattern/Literature/Probe/CodeGen/Chitchat              │
-│     │   ├── L1 LLM 分类 (~200ms)                                            │
-│     │   │   └── 双模式: 结构化输出(OpenAI) / JSON模式(本地模型)            │
-│     │   └── L2 槽位提取 (~200ms, 仅 skill_forge/explicit_skill/data_probe) │
-│     │                                                                       │
-│     ├── [Step 7] 选择系统提示词                                             │
-│     │   ├── skill_forge/explicit_skill/diagnostic → SYSTEM_PROMPT_CODE     │
-│     │   └── chat/literature/data_probe → SYSTEM_PROMPT_CHAT                │
-│     │                                                                       │
-│     ├── [Step 8] 加载对话历史，构建 lc_messages[]                           │
-│     │                                                                       │
-│     └── [Step 9] SSE 流式响应 (vercel_event_generator)                     │
-│         │                                                                   │
-│         ├── yield encoder.from_session_info(session_id, is_new)             │
-│         ├── yield encoder.from_custom_event("intent", intent_data)          │
-│         │                                                                   │
-│         ├── [追问拦截] 如果 requires_followup → 直接返回追问消息            │
-│         │                                                                   │
-│         ├── [LLM 流式调用]                                                  │
-│         │   ├── ChatOpenAI(streaming=True).astream(lc_messages)            │
-│         │   └── 逐 chunk 处理:                                             │
-│         │       ├── StreamContentFilter.filter_chunk(content)               │
-│         │       │   ├── thinking 内容 → encoder.from_thinking()             │
-│         │       │   └── 正常文本 → encoder.text_chunk()                     │
-│         │       └── tool_calls → 进度提示 encoder.text_chunk()             │
-│         │                                                                   │
-│         ├── [持久化 + 扣费]                                                 │
-│         │   ├── filter_thinking_content() 清理最终响应                      │
-│         │   ├── ChatMessage(role=assistant, content=cleaned) → DB          │
-│         │   ├── BillingService.deduct_credits(wallet, cost)                 │
-│         │   └── yield encoder.from_billing(cost, balance)                   │
-│         │                                                                   │
-│         └── yield encoder.text_end() + encoder.finish()                     │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                     SSE 事件协议 (Vercel AI SDK v5)                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  data: {"type":"data-session_info","data":{"session_id":"...","is_new":true}}│
-│  data: {"type":"data-intent","data":{"intent":"chat","confidence":0.95}}    │
-│  data: {"type":"text-start","id":"msg_xxx"}                                │
-│  data: {"type":"text-delta","id":"msg_xxx","delta":"你好"}                  │
-│  data: {"type":"data-thinking","data":{"content":"让我想想..."}}             │
-│  data: {"type":"text-delta","id":"msg_xxx","delta":"这是分析结果..."}       │
-│  data: {"type":"text-end","id":"msg_xxx"}                                  │
-│  data: {"type":"data-ai_message_id","data":{"message_id":"123"}}           │
-│  data: {"type":"data-billing","data":{"cost":1.0,"balance":99.0}}          │
-│  data: {"type":"finish","finishReason":"stop","usage":{...}}               │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                     前端接收与渲染                                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ⑩ BFF 代理透传 SSE 流 → useChat 接收                                     │
-│     │   ├── 402 处理: 转为 SSE error 事件 (status: 200)                    │
-│     │   └── 正常: Response(body, {Content-Type: text/plain})               │
-│     │                                                                       │
-│  ⑪ useChat 内部解析 SSE 事件，更新 aiMessages (UIMessage[])                │
-│     │   ├── text-start/text-delta/text-end → 更新 message.parts[]          │
-│     │   └── data-* 事件 → 添加到 message.parts[] 中                        │
-│     │                                                                       │
-│  ⑫ useChatSync 桥接：UIMessage[] → Zustand useChatStore                   │
-│     │   ├── convertToStoreMessages(): parts[] → content: string            │
-│     │   ├── 处理 data-* 事件 (增量，跟踪 processedDataPartsRef):           │
-│     │   │   ├── data-thinking → setThinkingContent() 累积思考内容          │
-│     │   │   ├── data-session_info → setCurrentSessionId()                  │
-│     │   │   │   └── is_new=true → 同步到 workspaceStore                   │
-│     │   │   ├── data-billing → setLastBilling({cost, balance})             │
-│     │   │   ├── data-ai_message_id → updateMirroredMessageId()            │
-│     │   │   └── data-queue_* → 队列事件占位                               │
-│     │   └── 流结束 → setIsThinking(false)                                   │
-│     │                                                                       │
-│  ⑬ ChatStage 从 aiMessages 直接渲染（不经过 store 中转）                   │
-│     │   ├── useMemo: aiMessages → messages (提取 parts[] 文本)             │
-│     │   └── VirtualizedMessageList 渲染消息列表                            │
-│     │       └── MemoizedMessageItem 逐条渲染                               │
-│     │                                                                       │
-│  ⑭ useSmartScroll 自动滚动                                                 │
-│     │   ├── 新消息到达 → requestAnimationFrame(scrollToBottom)             │
-│     │   ├── 用户上滚 (wheel deltaY<0) → 暂停自动滚动                      │
-│     │   ├── 用户滚到底部 → 恢复自动滚动                                    │
-│     │   └── easeOutCubic 缓动动画                                          │
-│     │                                                                       │
-│  ⑮ useChatEventListeners 监听全局事件                                      │
-│     ├── refresh-chat → 重新加载消息                                         │
-│     ├── append-result-message → 追加任务结果消息                            │
-│     ├── scroll-to-task-result → 滚动到指定消息 + 高亮                      │
-│     └── shortcut-focus-input → 聚焦输入框                                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 各文件详细代码逻辑
-
-#### 1. page.tsx — 主 IDE 壳页面
-
-**核心职责**：组合布局组件，管理认证重定向和项目上下文。
-
-```
-AutonomeStudio()
-  │
-  ├── 状态订阅（精确选择器）
-  │   ├── useAuthStore → token
-  │   ├── useWorkspaceStore → currentProjectId, currentSessionId
-  │   ├── useUIStore → toggleProjectCenter, openSkillCenter
-  │   └── useChatStore → messages
-  │
-  ├── 全局快捷键 (useKeyboardShortcuts)
-  │   ├── focus-search → 聚焦输入框
-  │   ├── open-command-palette / open-skill-center → 打开技能中心
-  │   ├── execute-task → 点击发送按钮
-  │   └── close-modal → 触发 Escape
-  │
-  ├── 初始化 useEffect
-  │   ├── 检查 token，无则重定向 /login
-  │   ├── 有 currentProjectId → fetchProjectName()（带 sessionStorage 缓存）
-  │   └── 无 currentProjectId → 自动打开项目中心
-  │
-  ├── 项目切换 useEffect → 更新项目名称
-  │
-  ├── 渲染布局
-  │   ├── <GlobalOverlay /> — 所有 Overlay 面板（动态导入）
-  │   ├── <Sidebar /> — 左侧导航栏
-  │   ├── <TopHeader /> — 顶部栏（项目名、积分、导出）
-  │   ├── <ChatStage /> — 聊天主容器（动态导入 + 骨架屏）
-  │   └── <MobileNav /> — 移动端底部导航
-  │
-  └── exportToMarkdown() — 导出对话到 .md 文件
-```
-
-**性能优化**：
-- ChatStage、GlobalOverlay、MobileNav 均使用 `next/dynamic` 懒加载
-- ChatStage 有骨架屏 fallback（3 条脉冲动画消息 + 输入框）
-- 项目名称使用 sessionStorage 缓存（1 小时 TTL）
-
-#### 2. ChatStage.tsx — 聊天主容器
-
-**核心职责**：组合 Vercel AI SDK useChat + 各 hooks + 子组件，管理聊天 UI。
-
-```
-ChatStage()
-  │
-  ├── Vercel AI SDK useChat 配置
-  │   ├── transport: DefaultChatTransport (useMemo 稳定化)
-  │   │   ├── api: '/api/chat' (BFF 代理)
-  │   │   ├── headers: () => { Authorization: Bearer <token> }
-  │   │   └── body: () => { data: { projectId, sessionId, contextFiles } }
-  │   │   ⚠️ 不将 sessionId 放入 useMemo 依赖！
-  │   │   原因：session_info → sessionId 变化 → transport 重建 → 消息丢失
-  │   │
-  │   └── 返回: { messages: aiMessages, status, stop, sendMessage, setMessages, error }
-  │
-  ├── useChatSync 桥接
-  │   └── useChatSync({ messages: aiMessages, isLoading })
-  │
-  ├── 消息转换（直接从 aiMessages 渲染，不经 store 中转）
-  │   └── useMemo: aiMessages → messages
-  │       └── msg.parts.filter(type='text').map(text).join('')
-  │
-  ├── Hooks 组合
-  │   ├── useSmartScroll → isAtBottom, isPaused, scrollToBottom, resumeAutoScroll
-  │   ├── useFilePreview → previewData, handlePreviewAsset, closePreview
-  │   ├── usePasteUpload → pastedAttachments, handlePaste, cleanupPastedAttachments
-  │   ├── useMessageActions → handleRetry, handleEditResend, handleInterpret
-  │   └── useChatEventListeners → refresh-chat, append-result-message, etc.
-  │
-  ├── 会话切换加载消息 useEffect
-  │   ├── currentSessionId 变化 → fetch /api/chat/sessions/{id}/messages
-  │   └── ⚠️ 流式输出中 (isLoading) 不重新加载，避免清空正在接收的消息
-  │
-  ├── handleSendWrapper(messageText)
-  │   ├── cleanupPastedAttachments()
-  │   ├── sendMessage({ text: messageText })  ← v5 API
-  │   └── requestAnimationFrame(scrollToBottom)
-  │
-  ├── handleStop() → stop()
-  │
-  └── 渲染逻辑
-      ├── isChatEmpty && !isLoading → 居中欢迎语 + 输入框
-      ├── !isChatEmpty || isLoading → 消息列表 + 输入框
-      │   ├── VirtualizedMessageList (虚拟滚动)
-      │   ├── 滚动到底部按钮 (isAtBottom=false 时显示)
-      │   ├── QueueIndicator (消息队列指示器)
-      │   └── ChatInputBox (输入框)
-      ├── 文件预览弹窗 (image/pdf/table/code/text)
-      ├── AttachmentPicker (附件选择器)
-      └── 代码导入弹窗
-```
-
-**关键设计决策**：
-- **始终渲染消息列表**：不再用 isChatEmpty 切换视图，避免首条消息无 processing 状态
-- **transport 稳定化**：useMemo + 函数式 headers/body，避免 sessionId 变化导致 transport 重建
-- **双消息源**：aiMessages 直接渲染（低延迟），同时通过 useChatSync 同步到 store（供其他组件读取）
-
-#### 3. ChatInputBox.tsx — 消息输入框
-
-**核心职责**：管理用户输入、附件/技能标签、发送/停止操作。
-
-```
-ChatInputBox (memo)
-  │
-  ├── 内部状态
-  │   ├── inputValue (每次按键只触发本组件重渲染)
-  │   └── isToolsMenuOpen
-  │
-  ├── Store 订阅（精确选择器）
-  │   ├── useWorkspaceStore → pendingChatSkill, pendingChatAttachments, pastedAttachments
-  │   └── useUIStore → openSkillCenter
-  │
-  ├── handleInternalSend()
-  │   ├── 检查 hasUploading (粘贴附件上传中 → 阻止发送)
-  │   ├── 检查 canSend (有内容或有附件)
-  │   ├── onSend(inputValue) → 调用父组件 handleSendWrapper
-  │   ├── setInputValue("") → 清空输入框
-  │   └── focus 输入框 (发送后保持焦点)
-  │
-  ├── handleKeyDown(e)
-  │   └── Enter + !shiftKey → handleInternalSend()
-  │
-  └── 渲染
-      ├── 已选技能标签 (紫色, pendingChatSkill)
-      ├── Claude Code 会话标签 (青色, claudeCodeSessionId)
-      ├── 已附加文件标签 (蓝色, pendingChatAttachments)
-      ├── 粘贴附件预览 (绿色图片/橙色文件, pastedAttachments)
-      ├── textarea (输入区域)
-      ├── 底部操作栏
-      │   ├── Plus 按钮 → 选项菜单 (添加附件/选择技能/导入代码)
-      │   ├── Tools 按钮 → 基础分析选项
-      │   ├── 弹性空间
-      │   └── 发送按钮 + 停止按钮 (isTyping 时显示)
-      └── 队列模式：isTyping 时仍可发送，消息自动入队
-```
-
-**性能优化**：`memo` 包裹 + inputValue 内部管理，每次按键不触发父组件和消息列表重渲染。
-
-#### 4. useChatSync.ts — 状态同步桥接
-
-**核心职责**：将 Vercel AI SDK useChat 的 UIMessage[] 单向同步到 Zustand store。
-
-```
-useChatSync({ messages, isLoading })
-  │
-  ├── convertToStoreMessages(aiMessages) → Message[]
-  │   └── 提取 parts[] 中 type='text' 的文本 → content: string
-  │
-  ├── syncFromUseChat(storeMessages, isLoading) → 更新 mirroredMessages/mirroredIsTyping
-  │
-  ├── data-* 事件处理（增量，跟踪 processedDataPartsRef）
-  │   ├── data-thinking → setThinkingContent() 累积 + setIsThinking(true)
-  │   ├── data-session_info → setCurrentSessionId()
-  │   │   └── is_new=true → 同步到 workspaceStore.setCurrentSessionId()
-  │   ├── data-billing → setLastBilling({cost, balance})
-  │   ├── data-ai_message_id → updateMirroredMessageId()
-  │   ├── data-ai_message_content → 已通过 useChat.messages 自动同步
-  │   └── data-queue_* → 队列事件占位
-  │
-  └── 流结束 → isLoading=false → setIsThinking(false)
-```
-
-**关键机制**：
-- **增量处理**：`processedDataPartsRef` 跟踪每个消息已处理的 data parts 数量，只处理新增的
-- **清理**：删除已移除消息的跟踪记录
-- **双向 session 同步**：chatStore + workspaceStore 的 currentSessionId 保持一致
-
-#### 5. useSmartScroll.ts — 智能滚动
-
-**核心职责**：自动滚动 + 用户上滚暂停 + RAF 平滑动画。
-
-```
-useSmartScroll(containerRef, { bottomThreshold, smoothScroll, scrollDuration })
-  │
-  ├── 状态
-  │   ├── isAtBottom / isAtBottomRef — 是否在底部附近
-  │   └── isPaused / isPausedRef — 是否暂停自动滚动
-  │
-  ├── smoothScrollToBottom()
-  │   ├── 取消之前的 animationFrame
-  │   ├── 计算目标 scrollTop = scrollHeight - clientHeight
-  │   └── requestAnimationFrame 循环
-  │       └── easeOutCubic: progress = 1 - (1 - t)^3
-  │
-  ├── handleScroll() — scroll 事件
-  │   └── 滚到底部 → 恢复自动滚动
-  │
-  ├── handleWheel(event) — wheel 事件
-  │   └── deltaY < 0 (向上滚) → 暂停自动滚动
-  │
-  ├── handleTouchStart() — 移动端触摸
-  │   └── 暂停自动滚动
-  │
-  └── handleMouseDown(event) — 鼠标点击
-      └── 仅滚动条区域点击 → 暂停自动滚动
-```
-
-#### 6. useChatEventListeners.ts — 全局事件监听
-
-```
-useChatEventListeners({ messagesEndRef })
-  │
-  ├── refresh-chat → refreshChatMessages()
-  │   └── fetch /api/chat/sessions/{id}/messages → setMessages()
-  │
-  ├── append-result-message → addMessage(role, content)
-  │   └── setTimeout → scrollIntoView({ behavior: "smooth" })
-  │
-  ├── scroll-to-task-result → 查找包含 taskName 的消息
-  │   └── scrollIntoView + 高亮 2s (ring-2 ring-blue-500)
-  │
-  └── shortcut-focus-input → document.getElementById("chat-input-box").focus()
-```
-
-#### 7. useChatStore.ts — 聊天状态管理
-
-```
-useChatStore
-  │
-  ├── 消息状态
-  │   ├── messages: Message[] — 后端 API 历史消息
-  │   ├── mirroredMessages: Message[] — useChat 镜像
-  │   ├── mirroredIsTyping: boolean — useChat isLoading 镜像
-  │   └── syncFromUseChat() — 同步函数
-  │
-  ├── 会话状态
-  │   └── currentSessionId: string | null
-  │
-  ├── 计费状态
-  │   └── lastBilling: { cost, balance } | null
-  │
-  ├── 思考状态
-  │   ├── thinkingContent: string — AI 思考过程累积内容
-  │   └── isThinking: boolean
-  │
-  ├── 队列状态
-  │   ├── queueItems: ChatQueueItem[]
-  │   └── isQueueActive: boolean
-  │
-  ├── 搜索/收藏/标签
-  │   ├── searchQuery, searchResults, isSearching
-  │   ├── bookmarks, showBookmarkPanel
-  │   └── tags, selectedTagId
-  │
-  └── 初始欢迎语 (initialMessage)
-      └── "您好，我是 Autonome Copilot..."
-```
-
-#### 8. BFF 代理 (app/api/chat/route.ts)
-
-```
-POST(req: NextRequest)
-  │
-  ├── 解构 body: { messages, data: contextData }
-  │
-  ├── 提取 token
-  │   └── Authorization header || cookie('autonome_access_token')
-  │
-  ├── 提取上下文
-  │   └── projectId, sessionId, contextFiles, skillId, images
-  │
-  ├── 从最后一条 user 消息提取文本
-  │   ├── v4 兼容: lastUserMsg.content
-  │   └── v5 格式: lastUserMsg.parts.filter(type='text').map(text)
-  │
-  ├── fetch(`${BACKEND_URL}/api/chat/stream`, { ... })
-  │   ├── 注入 Authorization header
-  │   └── body: { project_id, message, context_files, session_id, skill_id, images }
-  │
-  ├── 错误处理
-  │   ├── 402 → SSE error 事件 (status: 200, 避免前端抛异常)
-  │   └── 其他 → JSON error response
-  │
-  └── 成功 → 透传 backendResponse.body (SSE 流)
-```
-
-#### 9. 后端聊天流 (chat.py:chat_stream)
-
-```
-POST /api/chat/stream
-  │
-  ├── [1] 安全校验: project.owner_id == current_user.id
-  │
-  ├── [2] 计费拦截: BillingService.check_available(wallet, 1.0)
-  │   └── 余额不足 → HTTPException(402)
-  │
-  ├── [3] 会话创建/恢复
-  │   ├── 有 session_id → session.get(ChatSession, session_id)
-  │   └── 无 → ChatSession(project_id, title=message[:15])
-  │
-  ├── [4] 持久化用户消息: ChatMessage(session_id, role=user, content=message)
-  │
-  ├── [5] LLM 配置: get_llm_config(session, user_id)
-  │   └── per-user override → system config → env fallback
-  │
-  ├── [6] 意图分类: IntentRouterEngine.route(query, context)
-  │   ├── L0 规则拦截 (0ms)
-  │   ├── L1 LLM 分类 (~200ms)
-  │   └── L2 槽位提取 (~200ms)
-  │
-  ├── [7] 选择系统提示词
-  │   ├── skill_forge/explicit_skill/diagnostic → SYSTEM_PROMPT_CODE
-  │   └── chat/literature/data_probe → SYSTEM_PROMPT_CHAT
-  │
-  ├── [8] 加载对话历史 → lc_messages[]
-  │
-  └── [9] vercel_event_generator()
-      │
-      ├── yield session_info (session_id, is_new)
-      ├── yield intent (意图识别结果)
-      │
-      ├── [追问拦截] requires_followup → 直接返回追问消息
-      │
-      ├── [LLM 流式] ChatOpenAI.astream(lc_messages)
-      │   ├── StreamContentFilter.filter_chunk(content)
-      │   │   ├── thinking → encoder.from_thinking()
-      │   │   └── text → encoder.text_chunk()
-      │   └── tool_calls → 进度提示 text_chunk()
-      │
-      ├── [持久化 + 扣费]
-      │   ├── filter_thinking_content() 清理最终响应
-      │   ├── ChatMessage(role=assistant) → DB
-      │   ├── BillingService.deduct_credits()
-      │   └── yield billing (cost, balance)
-      │
-      └── yield text_end + finish
-```
-
-#### 10. VercelDataStreamEncoder — SSE 协议编码器
-
-```
-VercelDataStreamEncoder
-  │
-  ├── _message_id: "msg_{uuid4[:12]}" (固定 ID，text-start/delta/end 共用)
-  │
-  ├── 核心方法
-  │   ├── text_start() → {"type":"text-start","id":"msg_xxx"}
-  │   ├── text_chunk(text) → {"type":"text-delta","id":"msg_xxx","delta":"..."}
-  │   ├── text_end() → {"type":"text-end","id":"msg_xxx"}
-  │   ├── tool_call() → {"type":"tool-call","id":"...","toolName":"...","args":{}}
-  │   ├── tool_result() → {"type":"tool-result","id":"...","result":...}
-  │   ├── finish() → {"type":"finish","finishReason":"stop","usage":{...}}
-  │   └── error() → {"type":"error","error":"..."}
-  │
-  ├── 自定义数据事件 (v5 要求 type 以 "data-" 开头)
-  │   └── data_event(data, event_name) → {"type":"data-{name}","data":{...}}
-  │
-  └── 便捷方法
-      ├── from_thinking(content) → data-thinking
-      ├── from_session_info(session_id, is_new) → data-session_info
-      ├── from_billing(cost, balance) → data-billing
-      ├── from_ai_message_id(message_id) → data-ai_message_id
-      ├── from_ai_message_content(content) → data-ai_message_content
-      ├── from_queue_event(event_type, payload) → data-queue_*
-      └── from_custom_event(event_type, payload) → data-{event_type}
-```
-
-#### 11. IntentRouterEngine — 意图路由引擎
-
-```
-IntentRouterEngine(session, user_id, confidence_threshold=0.7)
-  │
-  ├── __init__
-  │   ├── self.l0 = L0RuleEngine() — 8 条规则
-  │   ├── self.l1 = L1Classifier(session, user_id) — LLM 分类
-  │   └── self.l2 = L2SlotExtractor() — 槽位提取
-  │
-  └── route(query, context) → IntentExtraction
-      │
-      ├── Step 1: L0 极速拦截
-      │   └── result = self.l0.evaluate(query, context)
-      │       └── 命中 → 直接返回 (0ms)
-      │
-      ├── Step 2: L1 LLM 分类
-      │   └── result = await self.l1.classify(query, context)
-      │       └── 输出: IntentExtraction(intent, confidence, entities)
-      │
-      ├── Step 3: L2 槽位提取 (仅 EXTRACTION_INTENTS)
-      │   └── slot_result = await self.l2.extract(query, context, intent, llm)
-      │       └── 合并 slots + context_enrichments 到 result.entities
-      │
-      ├── Step 4: 置信度降级保护
-      │   └── confidence < 0.7 → 降级为 IntentType.CHAT
-      │
-      └── Step 5: 计算 routing_target
-          └── INTENT_NODE_MAP[intent] → 节点名
-```
-
-### 关键设计模式总结
-
-| 模式 | 实现位置 | 说明 |
-|------|----------|------|
-| **双消息模型** | ChatStage + useChatSync | aiMessages 直接渲染（低延迟），同时同步到 store（供其他组件读取） |
-| **transport 稳定化** | ChatStage (useMemo) | 不将 sessionId 放入依赖，用函数式 headers/body 获取最新值 |
-| **增量 data 事件处理** | useChatSync (processedDataPartsRef) | 跟踪每个消息已处理的 data parts 数量，只处理新增的 |
-| **有状态流过滤** | StreamContentFilter | 处理跨 SSE chunk 的 thinking 标签拆分 |
-| **智能滚动** | useSmartScroll | RAF + easeOutCubic + 用户上滚暂停 + 触摸/鼠标检测 |
-| **输入框隔离** | ChatInputBox (memo) | inputValue 内部管理，每次按键不触发父组件重渲染 |
-| **BFF 代理** | app/api/chat/route.ts | 注入 JWT + 上下文，透传 SSE，402 转为 SSE error |
-| **3 层意图路由** | IntentRouterEngine | L0 规则(免费) → L1 LLM($0.001) → L2 提取($0.001) |
-| **预授权计费** | chat.py | 检查余额 → 执行 → 扣费，402 拦截余额不足 |
-| **Overlay 单例** | useUIStore | activeOverlay 联合类型，同一时间只有一个面板打开 |
+| 模块 | 文件数 | 行数 |
+|------|--------|------|
+| 后端 app/core | 12 | 3,028 |
+| 后端 app/agent | 15 | 1,405 |
+| 后端 app/api/routes | 40+ | 17,595 |
+| 后端 app/models | 20+ | 3,758 |
+| 后端 app/services | 30+ | 18,888 |
+| 后端 app/tools | 4 | 1,890 |
+| 后端 app/mcp | 2 | 755 |
+| 后端 app/utils | 7 | 1,817 |
+| 后端 app/tasks | 4 | 1,390 |
+| 后端 app/schemas | 2 | 226 |
+| **后端总计** | **178** | **55,227** |
+| 前端 src/store | 8 | 2,515 |
+| 前端 src/hooks | 11 | 1,880 |
+| 前端 src/lib | — | 3,694 |
+| 前端 src/services | — | 3,601 |
+| 前端 src/adapter | 7 | 1,724 |
+| 前端 src/components | — | 28,296 |
+| 前端 src/app | — | 10,660 |
+| **前端总计** | **190+** | **52,404** |
