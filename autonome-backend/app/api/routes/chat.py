@@ -257,13 +257,15 @@ async def chat_stream(
         if msg.role == RoleEnum.user:
             lc_messages.append({"role": "user", "content": msg.content})
         elif msg.role == RoleEnum.assistant:
-            # ✨ 修复：跳过空内容的助手消息
-            # 空助手消息会导致对话历史中出现连续的 user 消息，
-            # 违反 LLM API 的 user/assistant 交替要求，使后续回复混乱
+            # ✨ 修复：空助手消息不跳过，而是插入占位消息
+            # 跳过会导致连续 user 消息，LLM API 要求 user/assistant 交替
+            # 插入占位消息保持交替结构，确保追问场景中每条 user 消息独立
+            # 新消息作为 current message，历史消息明确作为上下文供 AI 理解
             if not msg.content or not msg.content.strip():
-                log.warning(f"[Chat] 跳过空助手消息 (id={msg.id}, session_id={session_id_for_ai})")
-                continue
-            lc_messages.append({"role": "assistant", "content": msg.content})
+                log.warning(f"[Chat] 空助手消息插入占位 (id={msg.id}, session_id={session_id_for_ai})")
+                lc_messages.append({"role": "assistant", "content": "（此回复为空）"})
+            else:
+                lc_messages.append({"role": "assistant", "content": msg.content})
 
     # ✨ 追加当前用户消息（在历史之后，确保顺序正确）
     # ✨ 支持多模态：图片消息包含 images 字段（Ollama）或 image_url blocks（LangChain）
@@ -298,26 +300,14 @@ async def chat_stream(
         lc_messages.append({"role": "user", "content": pdf_context_text})
         lc_messages.append({"role": "assistant", "content": "好的，我已经阅读了您上传的PDF文档内容，请继续提问。"})
 
-    # ✨ 修复：确保 LLM 消息列表中没有连续的 user 消息
-    # 跳过空助手消息后可能出现 user→user 序列，
-    # 大多数 LLM API 要求 user/assistant 交替，连续 user 会导致 API 报错或回复混乱
-    # ✨ 修复：将连续的 user 消息合并为一条（而非丢弃），保留完整上下文
-    # 追问场景中前一条 user 消息可能包含图片和完整问题，丢弃会导致丢失关键上下文
-    sanitized_messages = [lc_messages[0]]  # 保留 system 消息
-    for msg in lc_messages[1:]:
-        if (msg["role"] == "user" and
-            sanitized_messages and
-            sanitized_messages[-1]["role"] == "user"):
-            # 连续 user 消息：合并为一条，保留所有内容
-            prev_msg = sanitized_messages[-1]
-            merged_content = prev_msg["content"]
-            if msg["content"]:
-                merged_content = f"{prev_msg['content']}\n{msg['content']}" if prev_msg["content"] else msg["content"]
-            log.info(f"[Chat] 合并连续 user 消息: '{prev_msg['content'][:30]}...' + '{msg['content'][:30]}...'")
-            sanitized_messages[-1] = {**prev_msg, "content": merged_content}
-        else:
-            sanitized_messages.append(msg)
-    lc_messages = sanitized_messages
+    # ✨ 消息列表完整性校验：确保 user/assistant 交替
+    # 根因修复：空助手消息已在上游插入占位，正常情况下不会出现连续 user 消息
+    # 此处仅做防御性检查，如发现异常则插入占位 assistant 消息
+    for i in range(1, len(lc_messages)):
+        if (lc_messages[i]["role"] == "user" and lc_messages[i - 1]["role"] == "user"):
+            log.warning(f"[Chat] 防御性修复：在消息 [{i-1}] 和 [{i}] 之间插入占位 assistant 消息")
+            lc_messages.insert(i, {"role": "assistant", "content": "（此回复为空）"})
+            break  # 一次修复一轮，下轮循环继续检查
 
     # ✨ 调试日志：打印提交给 LLM 的完整提示词
     log.info(f"[Chat] 提交给 LLM 的完整提示词 (共 {len(lc_messages)} 条消息):")
