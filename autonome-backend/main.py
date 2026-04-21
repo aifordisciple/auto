@@ -94,10 +94,16 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     # 检查是否是 HTTPException，如果是则保留其状态码和详情
     from fastapi import HTTPException
+    # 从请求 Origin 推断 CORS 允许的源
+    origin = request.headers.get("origin", "")
+    cors_origin = origin if origin in _cors_origins else ""
+    cors_headers = {"Access-Control-Allow-Origin": cors_origin, "Access-Control-Allow-Credentials": "true"} if cors_origin else {}
+
     if isinstance(exc, HTTPException):
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
+            headers=cors_headers,
         )
 
     # 其他异常返回 500
@@ -105,6 +111,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error"},
+        headers=cors_headers,
     )
 
 @app.on_event("startup")
