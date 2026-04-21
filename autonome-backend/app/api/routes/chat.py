@@ -238,14 +238,15 @@ async def chat_stream(
         system_prompt = SYSTEM_PROMPT_CHAT
 
     # 7. 加载对话历史
-    # ✨ 修复：只加载当前用户消息之前的历史，避免重复包含当前消息
-    # 当前用户消息已在步骤 4 持久化（id=user_msg.id），
-    # 如果不过滤，历史中会包含当前消息，导致 LLM 上下文中出现重复
+    # ✨ 修复：使用 created_at 而非 id 做过滤和排序
+    # 消息 ID 格式为 msg_{uuid}，UUID 的字典序与时间序无关，
+    # 字符串比较会导致大量历史消息被错误排除
+    # 使用 created_at 时间戳确保按真实时间顺序加载历史
     history_messages = session.exec(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id_for_ai)
-        .where(ChatMessage.id < user_msg.id)
-        .order_by(ChatMessage.id)
+        .where(ChatMessage.created_at < user_msg.created_at)
+        .order_by(ChatMessage.created_at)
     ).all()
 
     # 构建 LangChain 消息列表（根据意图使用不同的系统提示词）
