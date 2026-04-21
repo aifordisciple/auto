@@ -26,6 +26,24 @@ export const BASE_URL = process.env.NEXT_PUBLIC_API_URL
 // API_BASE_URL: 含 /api 前缀的完整 API 基地址
 const API_BASE_URL = `${BASE_URL.replace(/\/$/, '')}/api`;
 
+/**
+ * 规范化 API 端点路径
+ *
+ * 根本原因：API_BASE_URL 已包含 /api 前缀，
+ * 但部分调用方传入 '/api/xxx'（旧代码），部分传入 '/xxx'（新代码）。
+ * 此函数统一剥离多余的 /api 前缀，避免产生 /api/api/xxx 的双重前缀问题。
+ */
+function normalizeEndpoint(endpoint: string): string {
+  // 剥离开头的 /api 前缀（API_BASE_URL 已包含）
+  if (endpoint.startsWith('/api/')) {
+    return endpoint.slice(4); // '/api/projects' → '/projects'
+  }
+  if (endpoint.startsWith('/api')) {
+    return endpoint.slice(4); // '/api' → ''
+  }
+  return endpoint;
+}
+
 // ==========================================
 // 并发刷新锁
 // ==========================================
@@ -98,7 +116,7 @@ export async function fetchAPI(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<any> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_BASE_URL}${normalizeEndpoint(endpoint)}`;
 
   // 构建请求头
   const headers: Record<string, string> = {
@@ -215,7 +233,7 @@ export function createSSEUrl(endpoint: string): string {
    * 后端需支持 ?token=xxx 参数验证
    */
   const { token } = useAuthStore.getState();
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_BASE_URL}${normalizeEndpoint(endpoint)}`;
   if (token) {
     const separator = url.includes('?') ? '&' : '?';
     return `${url}${separator}token=${encodeURIComponent(token)}`;
@@ -250,7 +268,7 @@ export async function uploadFile(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${API_BASE_URL}${normalizeEndpoint(endpoint)}`, {
     method: 'POST',
     headers,
     body: formData,
