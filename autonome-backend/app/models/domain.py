@@ -66,6 +66,8 @@ from app.models.uuid import get_utc_now
 # ==========================================
 from app.models.user import (
     User,
+    OAuthAccount,
+    ActiveSession,
     BillingAccount,
 )
 

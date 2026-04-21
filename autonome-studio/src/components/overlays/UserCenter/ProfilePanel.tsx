@@ -26,7 +26,7 @@ interface UserProfile {
   full_name: string | null;
   avatar_url: string | null;
   organization: string | null;
-  phone: string | null;
+  phone_number: string | null;
   bio: string | null;
   is_superuser: boolean;
   created_at: string;
@@ -52,7 +52,7 @@ export function ProfilePanel() {
   const [formData, setFormData] = useState({
     full_name: '',
     organization: '',
-    phone: '',
+    phone_number: '',
     bio: ''
   });
 
@@ -68,7 +68,7 @@ export function ProfilePanel() {
       setFormData({
         full_name: data.full_name || '',
         organization: data.organization || '',
-        phone: data.phone || '',
+        phone_number: data.phone_number || '',
         bio: data.bio || ''
       });
     } catch (error) {
@@ -246,8 +246,8 @@ export function ProfilePanel() {
               </label>
               <input
                 type="tel"
-                value={formData.phone}
-                onChange={(e) => handleChange('phone', e.target.value)}
+                value={formData.phone_number}
+                onChange={(e) => handleChange('phone_number', e.target.value)}
                 placeholder="输入您的手机号码"
                 className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
               />

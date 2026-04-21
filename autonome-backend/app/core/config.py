@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""  # 必须在 .env 中设置，启动时校验非空
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    # Refresh Token 有效期（天），用于长效会话保持
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # Cookie 安全配置：生产环境必须设为 True（要求 HTTPS）
+    SECURE_COOKIES: bool = False
 
     # OpenAI 默认 Base URL（作为数据库中未配置时的回退值）
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"

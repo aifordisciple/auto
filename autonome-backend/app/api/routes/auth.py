@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Optional
+from datetime import datetime
 
 from app.core.database import get_session
 from app.core.security import get_password_hash, verify_password, create_access_token
@@ -9,6 +11,10 @@ from app.models.domain import User, BillingAccount
 from app.api.deps import get_current_user
 
 router = APIRouter()
+
+# ============================================================
+# 原有 Schemas
+# ============================================================
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -18,6 +24,43 @@ class UserCreate(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+# ============================================================
+# 新增 Schemas：手机号登录 & 会话管理（阶段1仅定义，不实现路由）
+# ============================================================
+
+class UserCreateWithPhone(BaseModel):
+    """手机号 + 验证码注册/登录请求"""
+    phone_number: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="中国大陆 11 位手机号")
+    otp_code: str = Field(..., min_length=6, max_length=6, description="6 位短信验证码")
+    captcha_token: Optional[str] = Field(None, description="人机验证通过凭证")
+
+class UserLoginWithPhone(BaseModel):
+    """手机号登录请求：支持验证码或密码两种方式"""
+    phone_number: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="中国大陆 11 位手机号")
+    otp_code: Optional[str] = Field(None, min_length=6, max_length=6, description="免密登录验证码")
+    password: Optional[str] = Field(None, min_length=8, description="传统密码登录")
+
+    @field_validator('password')
+    @classmethod
+    def check_password_or_otp(cls, v, info):
+        """必须提供验证码或密码中的至少一种"""
+        if not v and not info.data.get('otp_code'):
+            raise ValueError('必须提供验证码或密码')
+        return v
+
+class ActiveSessionOut(BaseModel):
+    """活跃会话输出 Schema（供前端设备管理面板渲染）"""
+    session_id: int
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
+    device_type: Optional[str] = None
+    created_at: datetime
+    last_active_at: datetime
+    is_revoked: bool
+
+    class Config:
+        from_attributes = True
 
 @router.post("/register")
 async def register_user(user_in: UserCreate, session: Session = Depends(get_session)):
@@ -85,5 +128,9 @@ async def read_users_me(
         "email": current_user.email,
         "full_name": current_user.full_name,
         "is_superuser": current_user.is_superuser,
-        "credits_balance": credits_balance
+        "credits_balance": credits_balance,
+        # 阶段1新增字段：手机号、邮箱验证状态、2FA 状态
+        "phone_number": getattr(current_user, 'phone_number', None),
+        "is_email_verified": getattr(current_user, 'is_email_verified', False),
+        "is_2fa_enabled": getattr(current_user, 'is_2fa_enabled', False),
     }

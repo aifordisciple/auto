@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Union
 from jose import jwt
 import bcrypt
+import secrets
+import hashlib
 
 from app.core.config import settings
 
@@ -34,3 +36,22 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
     to_encode = {"exp": expire, "sub": str(subject)}
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+# ============================================================
+# Refresh Token 工具函数
+# ============================================================
+
+def generate_refresh_token() -> str:
+    """生成高熵 refresh token（64 字节 = 86 字符 base64url）"""
+    return secrets.token_urlsafe(64)
+
+
+def hash_refresh_token(token: str) -> str:
+    """对 refresh token 做 SHA-256 摘要，用于数据库存储（不存明文，防脱库泄露）"""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def get_refresh_token_expires_at() -> datetime:
+    """计算 refresh token 的过期时间点"""
+    return datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)

@@ -38,7 +38,7 @@ class UserProfileResponse(BaseModel):
     full_name: Optional[str]
     avatar_url: Optional[str]
     organization: Optional[str]
-    phone: Optional[str]
+    phone_number: Optional[str]
     bio: Optional[str]
     is_superuser: bool
     created_at: Optional[datetime] = None
@@ -52,7 +52,7 @@ class UserProfileUpdate(BaseModel):
     """用户资料更新请求"""
     full_name: Optional[str] = None
     organization: Optional[str] = None
-    phone: Optional[str] = None
+    phone_number: Optional[str] = None
     bio: Optional[str] = None
 
 
@@ -87,7 +87,7 @@ async def get_user_profile(
         full_name=current_user.full_name,
         avatar_url=current_user.avatar_url,
         organization=current_user.organization,
-        phone=current_user.phone,
+        phone_number=current_user.phone_number,
         bio=current_user.bio,
         is_superuser=current_user.is_superuser,
         created_at=current_user.created_at,
