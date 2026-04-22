@@ -110,6 +110,29 @@ SYSTEM_PROMPT_DATA_PROBE_TEMPLATE = """你是一个专业的生物信息学数�
 - 当且仅当用户明确询问"你是谁"时，简洁回答"我是 Autonome 生物信息学AI助手"
 - 其他任何情况下，不要提及身份，直接使用工具回答用户的问题"""
 
+# 视觉微调模式：SCI 级图表输出约束
+SYSTEM_PROMPT_VISUAL = """你是一个专业的生物信息学可视化助手，名为 Autonome。你的核心职责是帮助用户调整和优化科研图表。
+
+核心输出协议 (SCI Protocol)：
+1. 【视觉专业性】：应用专业配色方案（如 ggsci 的 npg/jco/lancet），分辨率至少 300 DPI
+2. 【双格式输出】：同步生成 .pdf（矢量编辑）和 .png（网页预览）
+3. 【数据对称性（最高红线）】：严禁仅输出图像！必须同步产出底层坐标/阈值 .tsv 数据文件
+
+核心原则：
+- 用中文回答问题
+- 不启动全量计算型沙箱，仅重载视图配置或执行轻量级绘图环境
+- 直接进入正题，不要自我介绍"""
+
+# 工作流编排模式：Nextflow 流程设计
+SYSTEM_PROMPT_ORCHESTRATE = """你是一个专业的生物信息学流程编排助手，名为 Autonome。你的核心职责是帮助用户设计和生成 Nextflow 分析流程。
+
+核心原则：
+- 用中文解释设计思路
+- 生成的 Nextflow 代码必须包含完整的 processes、channels 和 workflow 定义
+- 通过多轮对话确认通道（Channels）和进程（Processes）
+- 仅负责"调度"和"串联"，不负责单一脚本的具体实现
+- 直接进入正题，不要自我介绍"""
+
 
 # ==========================================
 # 核心聊天流 API
@@ -192,13 +215,15 @@ async def chat_stream(
 
     # 6. 意图分类：使用 Intent Router Engine 2.0 (L0+L1+L2 漏斗式架构)
     # 替换旧的 SkillMatcher 关键词匹配，支持规则拦截 + LLM 语义分类 + 槽位提取
-    intent_data = {}  # 意图识别引擎的完整结果
+    # V2.0 升级：route() 返回 RouteResult(dag=TaskDAG, probing=Optional[ProbingRequest])
+    intent_data = {}  # 意图识别引擎的完整结果（序列化后的 DAG + probing）
+    route_result = None  # RouteResult 原始对象，供后续 Active Probing 逻辑使用
     try:
         from app.agent.router.engine import IntentRouterEngine
         from app.agent.router.schemas import IntentType as NewIntentType
 
         router_engine = IntentRouterEngine(session=session, user_id=current_user.id)
-        intent_result = await router_engine.route(
+        route_result = await router_engine.route(
             query=request.message,
             context={
                 "project_id": request.project_id,
@@ -207,31 +232,46 @@ async def chat_stream(
                 "context_files": request.context_files,
             }
         )
-        intent_data = intent_result.model_dump()
-        log.info(f"[Chat] 意图分类 2.0: intent={intent_result.intent.value}, "
-                 f"confidence={intent_result.confidence}, target={intent_result.routing_target}")
+        intent_data = route_result.dag.model_dump()
+        # 提取首个任务的意图信息（兼容下游 SSE 流逻辑）
+        first_intent = route_result.dag.nodes[0].intent if route_result.dag.nodes else NewIntentType.GENERAL_CHAT
+        log.info(f"[Chat] 意图分类 2.0: intent={first_intent.value}, "
+                 f"nodes={len(route_result.dag.nodes)}, probing={route_result.probing is not None}")
 
-        # 根据新意图类型选择系统提示词
-        # skill_forge / explicit_skill / diagnostic → 代码生成模式
+        # 根据新意图类型选择系统提示词 (V2.0 12 原子意图映射)
+        # skill_forge / explicit_exec / diagnostic_recovery → 代码生成模式
         # data_probe → 数据探查模式（绑定探针工具）
-        # chat / literature → 一般问答模式
-        if intent_result.intent in (NewIntentType.SKILL_FORGE, NewIntentType.EXPLICIT_SKILL, NewIntentType.DIAGNOSTIC):
+        # visual_perception_and_tweak → 视觉微调模式
+        # workflow_orchestrate → 工作流编排模式
+        # chat / literature_mining / 其他 → 一般问答模式
+        if first_intent in (
+            NewIntentType.SKILL_FORGE,
+            NewIntentType.EXPLICIT_EXEC,
+            NewIntentType.DIAGNOSTIC_RECOVERY,
+        ):
             system_prompt = SYSTEM_PROMPT_CODE
-            log.info(f"[Chat] 使用代码生成模式 (intent={intent_result.intent.value})")
-        elif intent_result.intent == NewIntentType.DATA_PROBE:
+            log.info(f"[Chat] 使用代码生成模式 (intent={first_intent.value})")
+        elif first_intent == NewIntentType.DATA_PROBE:
             # ✨ 注入当前项目的工作区路径，确保 scan_workspace 只扫描当前项目
-            # 项目目录格式：UPLOAD_DIR/project_{project_id}（如 /workspace/project_proj_xxx）
             from app.core.config import settings
             project_workspace = str(Path(settings.UPLOAD_DIR) / f"project_{request.project_id}")
             system_prompt = SYSTEM_PROMPT_DATA_PROBE_TEMPLATE.format(workspace_path=project_workspace)
-            log.info(f"[Chat] 使用数据探查模式 (intent={intent_result.intent.value}, workspace={project_workspace})")
+            log.info(f"[Chat] 使用数据探查模式 (intent={first_intent.value}, workspace={project_workspace})")
+        elif first_intent == NewIntentType.VISUAL_PERCEPTION_AND_TWEAK:
+            system_prompt = SYSTEM_PROMPT_VISUAL
+            log.info(f"[Chat] 使用视觉微调模式 (intent={first_intent.value})")
+        elif first_intent == NewIntentType.WORKFLOW_ORCHESTRATE:
+            system_prompt = SYSTEM_PROMPT_ORCHESTRATE
+            log.info(f"[Chat] 使用工作流编排模式 (intent={first_intent.value})")
         else:
             system_prompt = SYSTEM_PROMPT_CHAT
-            log.info(f"[Chat] 使用一般问答模式 (intent={intent_result.intent.value})")
+            log.info(f"[Chat] 使用一般问答模式 (intent={first_intent.value})")
 
-        # 追问拦截：意图引擎认为缺少关键参数，直接返回追问消息
-        if intent_result.requires_followup and intent_result.followup_question:
-            log.info(f"[Chat] 追问拦截: {intent_result.followup_question}")
+        # Active Probing：参数缺失时通过 SSE 流发送 ToolCall 事件
+        # 实际发送逻辑在 vercel_event_generator() 中，此处仅做标记
+        if route_result.probing and route_result.probing.is_missing:
+            log.info(f"[Chat] Active Probing: 缺失参数={route_result.probing.missing_params}, "
+                     f"追问={route_result.probing.message_to_user}")
 
     except Exception as e:
         log.warning(f"[Chat] 意图分类 2.0 失败，回退到一般问答模式: {e}")
@@ -345,15 +385,24 @@ async def chat_stream(
                 return encoder.text_start()
             return None
 
-        # 追问拦截：如果意图引擎要求追问，直接返回追问消息而不调用 LLM
-        if intent_data.get("requires_followup") and intent_data.get("followup_question"):
-            followup = intent_data["followup_question"]
-            ai_full_response = followup
-            start = ensure_text_started()
-            if start:
-                yield start
-            yield encoder.text_chunk(followup)
-            # 跳过 LLM 调用，直接进入持久化
+        # Active Probing: 参数缺失时发送 ToolCall 事件（V2.0 升级）
+        # 替代旧的追问拦截逻辑，改用 Vercel AI SDK 兼容的 ToolCall 格式，
+        # 前端 ParameterProbingCard 组件接收后渲染动态表单
+        if route_result and route_result.probing and route_result.probing.is_missing:
+            # 发送 request_parameters ToolCall（Vercel AI SDK 兼容格式）
+            tool_call_event = {
+                "type": "data-tool-call",
+                "toolCallId": f"call_probe_0",
+                "toolName": "request_parameters",
+                "args": {
+                    "message": route_result.probing.message_to_user,
+                    "schema": route_result.probing.ui_schema,
+                },
+            }
+            yield encoder.from_custom_event("tool_call", tool_call_event)
+            # 参数缺失时不调用 LLM，直接结束流
+            yield encoder.finish()
+            return
         else:
             # 检查 API Key
             if not is_local_model and not api_key:
@@ -379,7 +428,12 @@ async def chat_stream(
 
             try:
                 # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）
-                is_data_probe = intent_data.get("intent") == "data_probe"
+                # V2.0 升级：intent_data 结构为 TaskDAG.model_dump()，意图在 nodes[0].intent 中
+                is_data_probe = (
+                    intent_data.get("nodes")
+                    and len(intent_data["nodes"]) > 0
+                    and intent_data["nodes"][0].get("intent") == "INTENT_DATA_PROBE"
+                )
                 # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
                 data_probe_project_dir = ""
                 if is_data_probe:
@@ -749,7 +803,7 @@ async def chat_stream(
                     ai_full_response += remaining_content
                     yield encoder.text_chunk(remaining_content)
 
-        # 持久化助手消息 + 扣费（追问拦截和 LLM 调用都会到达此处）
+        # 持久化助手消息 + 扣费（Active Probing 提前 return，此处仅 LLM 正常回复到达）
         with Session(engine) as final_db_session:
             cleaned_response = filter_thinking_content(ai_full_response, model_name=model_name)
 
