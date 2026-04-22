@@ -55,21 +55,16 @@ export default function LoginPage() {
   const [bindToken, setBindToken] = useState('');
   const [bindProviderName, setBindProviderName] = useState('');
 
-  // 检测 OAuth 回调参数：绑定手机号 / 错误信息
+  // 检测 OAuth 回调参数：绑定手机号
   useEffect(() => {
     const requiresBinding = searchParams.get('requires_binding');
     const token = searchParams.get('bind_token');
     const providerName = searchParams.get('provider_name');
-    const oauthError = searchParams.get('oauth_error');
 
     if (requiresBinding === 'true' && token) {
       setBindToken(token);
       setBindProviderName(providerName || '');
       setShowBindModal(true);
-    }
-
-    if (oauthError) {
-      setLoginError(oauthError);
     }
   }, [searchParams]);
 

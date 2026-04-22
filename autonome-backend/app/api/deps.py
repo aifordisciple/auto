@@ -18,7 +18,7 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.config import settings
-from app.core.security import verify_token, ALGORITHM
+from app.core.security import verify_access_token, ALGORITHM
 from app.models.domain import User
 
 # FastAPI OAuth2 密码流配置（告知 Swagger UI 登录接口在哪里）
@@ -50,8 +50,8 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 验证 JWT
-    payload = verify_token(actual_token)
+    # 验证 JWT（拒绝 scoped token，仅接受业务 access_token）
+    payload = verify_access_token(actual_token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

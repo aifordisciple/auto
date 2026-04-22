@@ -82,9 +82,29 @@ def create_short_access_token(data: dict) -> str:
 def verify_token(token: str) -> Optional[dict]:
     """
     验证 JWT Token，返回载荷或 None
+
+    注意：此函数接受所有合法的 JWT（包括 scoped token）。
+    对于业务 API 鉴权，请使用 verify_access_token() 以拒绝 scoped token。
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
+def verify_access_token(token: str) -> Optional[dict]:
+    """
+    验证业务访问 Token，拒绝 scoped token（bind_only / reset_password / verify_email）
+
+    仅用于 deps.py 中的 get_current_user 依赖，防止 scoped token
+    被当作普通 access_token 使用而绕过授权。
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        # 拒绝任何带 scope 声明的 token（它们仅用于特定流程，不能用于业务 API）
+        if payload.get("scope") is not None:
+            return None
         return payload
     except JWTError:
         return None

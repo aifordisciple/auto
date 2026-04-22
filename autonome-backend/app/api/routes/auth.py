@@ -162,7 +162,7 @@ class ResetPasswordRequest(BaseModel):
 
 class BindEmailRequest(BaseModel):
     """绑定安全邮箱请求"""
-    email: str = Field(..., description="邮箱地址")
+    email: EmailStr = Field(..., description="邮箱地址")
     current_password: str = Field(..., min_length=1, description="当前密码（本人校验）")
 
 
@@ -791,17 +791,17 @@ async def forgot_password_send(
         select(User).where(User.phone_number == request.phone)
     ).first()
 
-    # 生成 OTP 并发送（即使用户不存在也发送，防止枚举攻击）
+    # 仅对已注册号码发送真实短信（节省短信成本），未注册号码仅记录 OTP 但不发送
     otp = generate_otp(request.phone)
     record_sms_sent(request.phone, client_ip)
 
-    sms_service = get_sms_service()
-    success = await sms_service.send_verification_code(request.phone, otp)
-
-    if not success:
-        release_sms_lock(request.phone)
-        # 不暴露发送失败细节，防止信息泄露
-        pass
+    if user:
+        sms_service = get_sms_service()
+        success = await sms_service.send_verification_code(request.phone, otp)
+        if not success:
+            release_sms_lock(request.phone)
+            # 不暴露发送失败细节，防止信息泄露
+            pass
 
     # 无论用户是否存在，统一返回成功（防枚举）
     return {"status": "success", "message": "如果该手机号已注册，验证码已发送"}
@@ -988,6 +988,14 @@ async def verify_email(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户不存在",
+        )
+
+    # 防止竞态：检查邮箱是否已被其他用户占用（从 bind-email 到 verify-email 之间有 15 分钟窗口）
+    existing = session.exec(select(User).where(User.email == email)).first()
+    if existing and existing.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该邮箱已被其他用户使用，请重新绑定",
         )
 
     # 更新邮箱和验证状态
