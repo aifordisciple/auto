@@ -15,7 +15,7 @@ from app.models.domain import SystemConfig
 from app.models.billing import Wallet, ComputeRecord, TransactionLedger, ResourceFlavor  # noqa: F401
 
 # ✨ 导入路由模块（已移除所有 AI/Agent 路由）
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard, learning, oauth
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard, learning, oauth, rbac
 # ✨ 导入拆分后的 chat 子模块路由
 from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_search, chat_queue
 
@@ -214,6 +214,7 @@ def on_shutdown():
 # ==========================================
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(oauth.router, prefix="/api/oauth", tags=["OAuth"])
+app.include_router(rbac.router, prefix="/api/rbac", tags=["RBAC"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
 app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
