@@ -1,22 +1,24 @@
 /**
- * 登录页面 - 双通道认证
+ * 登录页面 - 双通道认证 + OAuth 第三方登录
  *
  * 设计日期: 2026-03-22
- * 更新日期: 2026-04-21（阶段2：新增短信验证码登录 + Cookie 模式）
+ * 更新日期: 2026-04-22（阶段3：新增 GitHub/微信 OAuth 登录）
  *
  * 功能：
  * - 三 Tab 登录：短信验证码 / 手机号密码 / 邮箱密码
+ * - OAuth 第三方登录：GitHub / 微信扫码
  * - 60 秒倒计时发送按钮
  * - Cookie 模式：登录成功后 Cookie 自动设置，无需手动管理 Token
+ * - OAuth 回调错误提示（URL query 参数）
  */
 
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { fetchAPI } from '@/lib/api';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { fetchAPI, BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
-import { Phone, Mail, Lock, MessageSquare, Send, Loader2, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Phone, Mail, Lock, MessageSquare, Send, Loader2, Eye, EyeOff, ArrowRight, Github, QrCode } from 'lucide-react';
 
 // ==========================================
 // 类型定义
@@ -44,6 +46,7 @@ interface LoginResponse {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { setUser } = useAuthStore();
 
   // Tab 状态
@@ -68,6 +71,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // OAuth 回调错误（从 URL 参数读取）
+  useEffect(() => {
+    const oauthError = searchParams.get('oauth_error');
+    if (oauthError) {
+      setError(decodeURIComponent(oauthError));
+    }
+  }, [searchParams]);
+
   // ==========================================
   // 倒计时逻辑
   // ==========================================
@@ -83,7 +94,6 @@ export default function LoginPage() {
   // ==========================================
 
   const handleSendSMS = async () => {
-    // 手机号格式校验
     if (!/^1[3-9]\d{9}$/.test(smsPhone)) {
       setError('请输入正确的手机号码');
       return;
@@ -97,10 +107,9 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ phone_number: smsPhone }),
       });
-      // 发送成功，开始 60 秒倒计时
       setCountdown(60);
-    } catch (err: any) {
-      setError(err.message || '验证码发送失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '验证码发送失败');
     } finally {
       setSmsSending(false);
     }
@@ -129,8 +138,6 @@ export default function LoginPage() {
         body: JSON.stringify({ phone_number: smsPhone, otp_code: otpCode }),
       }) as LoginResponse;
 
-      // Cookie 模式：Token 已通过 httpOnly Cookie 设置
-      // 仅需更新前端用户状态
       setUser({
         id: data.user.id,
         email: data.user.email,
@@ -142,8 +149,8 @@ export default function LoginPage() {
       });
 
       router.push('/');
-    } catch (err: any) {
-      setError(err.message || '登录失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '登录失败');
     } finally {
       setLoading(false);
     }
@@ -183,8 +190,8 @@ export default function LoginPage() {
       });
 
       router.push('/');
-    } catch (err: any) {
-      setError(err.message || '登录失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '登录失败');
     } finally {
       setLoading(false);
     }
@@ -208,7 +215,6 @@ export default function LoginPage() {
     setError('');
 
     try {
-      // 使用 OAuth2PasswordRequestForm 格式
       const formData = new URLSearchParams();
       formData.append('username', email);
       formData.append('password', emailPassword);
@@ -219,20 +225,52 @@ export default function LoginPage() {
         body: formData,
       }) as { access_token: string; token_type: string };
 
-      // 旧端点不设置 Cookie，手动设置 Token（兼容模式）
-      // 后续 /auth/me 会通过 Bearer Token 验证
       const { setToken } = useAuthStore.getState();
       setToken(data.access_token);
 
-      // 获取用户信息
       const userInfo = await fetchAPI('/auth/me');
       setUser(userInfo);
 
       router.push('/');
-    } catch (err: any) {
-      setError(err.message || '登录失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '登录失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // GitHub OAuth 登录
+  // ==========================================
+
+  const handleGitHubLogin = async () => {
+    setError('');
+    try {
+      // 获取 GitHub 授权 URL，直接跳转
+      const data = await fetchAPI('/oauth/github/authorize-url');
+      if (data.authorize_url) {
+        window.location.href = data.authorize_url;
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'GitHub 登录初始化失败');
+    }
+  };
+
+  // ==========================================
+  // 微信扫码登录（预留）
+  // ==========================================
+
+  const handleWeChatLogin = async () => {
+    setError('');
+    try {
+      const data = await fetchAPI('/oauth/wechat/qr-url');
+      if (data.qr_url) {
+        window.location.href = data.qr_url;
+      } else {
+        setError('微信登录暂未配置');
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '微信登录初始化失败');
     }
   };
 
@@ -434,6 +472,30 @@ export default function LoginPage() {
             </button>
           </div>
         )}
+
+        {/* ── OAuth 第三方登录 ── */}
+        <div className="mt-6 pt-6 border-t border-neutral-800">
+          <p className="text-center text-xs text-neutral-500 mb-4 uppercase tracking-wider">第三方登录</p>
+          <div className="flex justify-center gap-4">
+            {/* GitHub 登录 */}
+            <button
+              onClick={handleGitHubLogin}
+              className="flex items-center gap-2 px-5 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-neutral-300 hover:text-white hover:border-neutral-500 transition-colors text-sm font-medium"
+            >
+              <Github size={18} />
+              GitHub
+            </button>
+
+            {/* 微信登录（预留）*/}
+            <button
+              onClick={handleWeChatLogin}
+              className="flex items-center gap-2 px-5 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-neutral-300 hover:text-white hover:border-neutral-500 transition-colors text-sm font-medium"
+            >
+              <QrCode size={18} />
+              微信
+            </button>
+          </div>
+        </div>
 
         {/* 底部提示 */}
         <p className="mt-6 text-center text-xs text-neutral-600">

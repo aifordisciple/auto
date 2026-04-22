@@ -2,16 +2,18 @@
  * 安全设置面板组件
  *
  * 设计日期: 2026-03-23
+ * 更新日期: 2026-04-22（阶段3：新增 OAuth 账号绑定/解绑管理）
  *
  * 功能：
  * - 修改密码（原密码验证 + 新密码强度验证）
  * - 双因素认证 (2FA) UI 占位（即将推出）
+ * - OAuth 第三方账号绑定/解绑（GitHub / 微信）
  * - 显示上次密码修改时间
  */
 
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchAPI } from '@/lib/api';
 import {
   Lock,
@@ -23,7 +25,10 @@ import {
   CheckCircle,
   Loader2,
   Clock,
-  Smartphone
+  Smartphone,
+  Github,
+  Link2,
+  Unlink,
 } from 'lucide-react';
 
 // ==========================================
@@ -89,6 +94,82 @@ export function SecurityPanel() {
 
   // 上次密码修改时间（模拟数据，实际应从后端获取）
   const [lastPasswordChange] = useState<string | null>(null);
+
+  // ── OAuth 账号管理状态 ──
+  const [oauthAccounts, setOauthAccounts] = useState<Array<{
+    provider: string;
+    provider_name: string;
+    provider_avatar_url: string;
+    created_at: string | null;
+  }>>([]);
+  const [oauthError, setOauthError] = useState('');
+  const [unbindLoading, setUnbindLoading] = useState<string | null>(null);
+
+  // 加载 OAuth 账号列表
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fetchAPI('/oauth/accounts');
+        setOauthAccounts(data.accounts || []);
+      } catch {
+        // 未登录或接口不可用，静默处理
+      }
+    })();
+  }, []);
+
+  // 绑定 GitHub OAuth
+  const handleBindGithub = async () => {
+    setOauthError('');
+    try {
+      const data = await fetchAPI('/oauth/github/authorize-url');
+      if (data.authorize_url) {
+        window.location.href = data.authorize_url;
+      }
+    } catch (err: unknown) {
+      setOauthError(err instanceof Error ? err.message : 'GitHub 绑定失败');
+    }
+  };
+
+  // 绑定微信 OAuth
+  const handleBindWechat = async () => {
+    setOauthError('');
+    try {
+      const data = await fetchAPI('/oauth/wechat/qr-url');
+      if (data.qr_url) {
+        window.location.href = data.qr_url;
+      } else {
+        setOauthError('微信登录暂未配置');
+      }
+    } catch (err: unknown) {
+      setOauthError(err instanceof Error ? err.message : '微信绑定失败');
+    }
+  };
+
+  // 解绑 OAuth 账号
+  const handleUnbind = async (provider: string) => {
+    setOauthError('');
+    setUnbindLoading(provider);
+    try {
+      const data = await fetchAPI('/oauth/unbind', {
+        method: 'POST',
+        body: JSON.stringify({ provider }),
+      });
+      if (data.success) {
+        // 刷新列表
+        const refreshed = await fetchAPI('/oauth/accounts');
+        setOauthAccounts(refreshed.accounts || []);
+      } else {
+        setOauthError(data.message || '解绑失败');
+      }
+    } catch (err: unknown) {
+      setOauthError(err instanceof Error ? err.message : '解绑失败');
+    } finally {
+      setUnbindLoading(null);
+    }
+  };
+
+  // 检查是否已绑定某 OAuth
+  const isBound = (provider: string) => oauthAccounts.some(a => a.provider === provider);
 
   // 表单字段变更
   const handlePasswordChange = (field: keyof PasswordForm, value: string) => {
@@ -362,6 +443,94 @@ export function SecurityPanel() {
           <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-2">
             <Smartphone size={16} className="text-blue-400" />
             <span className="text-sm text-blue-400">此功能即将推出，敬请期待</span>
+          </div>
+        </div>
+
+        {/* 卡片三：OAuth 第三方账号绑定 */}
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <Link2 size={20} className="text-blue-400" />
+            第三方账号绑定
+          </h2>
+
+          <p className="text-sm text-neutral-400 mb-4">
+            绑定第三方账号可快速登录，且不影响原有登录方式
+          </p>
+
+          {oauthError && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+              {oauthError}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {/* GitHub */}
+            <div className="flex items-center justify-between p-3 bg-neutral-800/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <Github size={20} className="text-white" />
+                <div>
+                  <p className="text-sm font-medium text-neutral-200">GitHub</p>
+                  {isBound('github') && (
+                    <p className="text-xs text-neutral-500">
+                      已绑定{oauthAccounts.find(a => a.provider === 'github')?.provider_name ? `：${oauthAccounts.find(a => a.provider === 'github')?.provider_name}` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {isBound('github') ? (
+                <button
+                  onClick={() => handleUnbind('github')}
+                  disabled={unbindLoading === 'github'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {unbindLoading === 'github' ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+                  解绑
+                </button>
+              ) : (
+                <button
+                  onClick={handleBindGithub}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg transition-colors"
+                >
+                  <Link2 size={12} />
+                  绑定
+                </button>
+              )}
+            </div>
+
+            {/* 微信 */}
+            <div className="flex items-center justify-between p-3 bg-neutral-800/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 text-green-400" fill="currentColor">
+                  <path d="M8.691 2.619C4.891 2.619 1.8 5.56 1.8 9.119c0 1.95.98 3.69 2.52 4.83l-.64 2.28 2.64-1.34c.76.24 1.56.37 2.37.37.28 0 .56-.02.83-.05-.17-.56-.26-1.15-.26-1.76 0-3.41 3.09-6.18 6.91-6.18.43 0 .85.04 1.26.11C16.92 4.87 13.08 2.62 8.69 2.62zm-2.52 4.24a.99.99 0 1 1 0 1.98.99.99 0 0 1 0-1.98zm5.04 0a.99.99 0 1 1 0 1.98.99.99 0 0 1 0-1.98zM15.57 8.2c-3.27 0-5.93 2.41-5.93 5.38 0 2.97 2.66 5.38 5.93 5.38.68 0 1.34-.11 1.96-.31l2.08 1.06-.5-1.79c1.22-.97 2-2.41 2-4.04 0-2.97-2.66-5.38-5.93-5.38h-.61zm-2.52 3.04a.84.84 0 1 1 0 1.68.84.84 0 0 1 0-1.68zm4.56 0a.84.84 0 1 1 0 1.68.84.84 0 0 1 0-1.68z"/>
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-neutral-200">微信</p>
+                  {isBound('wechat') && (
+                    <p className="text-xs text-neutral-500">
+                      已绑定{oauthAccounts.find(a => a.provider === 'wechat')?.provider_name ? `：${oauthAccounts.find(a => a.provider === 'wechat')?.provider_name}` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {isBound('wechat') ? (
+                <button
+                  onClick={() => handleUnbind('wechat')}
+                  disabled={unbindLoading === 'wechat'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {unbindLoading === 'wechat' ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+                  解绑
+                </button>
+              ) : (
+                <button
+                  onClick={handleBindWechat}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg transition-colors"
+                >
+                  <Link2 size={12} />
+                  绑定
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

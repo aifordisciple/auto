@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     ALIYUN_SMS_SIGN_NAME: str = "Autonome"
     ALIYUN_SMS_TEMPLATE_CODE: str = ""
 
+    # OAuth 第三方登录配置
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    WECHAT_APP_ID: str = ""
+    WECHAT_APP_SECRET: str = ""
+
     # OpenAI 默认 Base URL（作为数据库中未配置时的回退值）
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
