@@ -179,7 +179,8 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
         # 意图分类
         intent_type = "general_question"
         try:
-            from app.services.skill_matcher import SkillMatcher, IntentType
+            from app.services.skill_matcher import SkillMatcher
+            from app.agent.router.schemas import IntentType
             matcher = SkillMatcher()
             # 同步调用 match（在 Celery worker 中运行）
             import asyncio
@@ -187,15 +188,15 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
             match_result = loop.run_until_complete(
                 matcher.match(item.message, context={"project_id": item.project_id})
             )
-            intent_type = match_result.get("intent_type", IntentType.GENERAL_QUESTION)
+            intent_type = match_result.get("intent_type", IntentType.GENERAL_CHAT)
         except Exception as e:
             log.warning(f"意图分类失败: {e}")
 
         # 选择系统提示词
         from app.api.routes.chat import SYSTEM_PROMPT_CHAT, SYSTEM_PROMPT_CODE
         try:
-            from app.services.skill_matcher import IntentType
-            if intent_type in (IntentType.LIVE_CODING, IntentType.IMPLICIT_SKILL, IntentType.EXPLICIT_SKILL):
+            from app.agent.router.schemas import IntentType
+            if intent_type in (IntentType.SKILL_FORGE, IntentType.EXPLICIT_EXEC):
                 system_prompt = SYSTEM_PROMPT_CODE
             else:
                 system_prompt = SYSTEM_PROMPT_CHAT

@@ -21,7 +21,7 @@
 |---------------|-----------|----------------------------|
 | 高置信度      | >= 0.85   | 直接返回规则匹配结果        |
 | 中置信度      | 0.3-0.85  | 返回规则结果+操作菜单       |
-| 低置信度      | < 0.3     | 返回 Live Coding 兜底       |
+| 低置信度      | < 0.3     | 返回 SKILL_FORGE 兜底       |
 
 缓存策略:
 - 推荐结果缓存: L1 TTL=5min, L2 TTL=10min
@@ -44,16 +44,9 @@ from app.services.skill_matcher_config import (
     get_compatible_categories, FILE_TYPE_COMPATIBILITY  # 文件类型兼容性
 )
 
+from app.agent.router.schemas import IntentType
 from app.core.skill_parser import get_combined_skills
 from app.services.cache_service import get_cache_service
-
-
-class IntentType:
-    """意图类型"""
-    EXPLICIT_SKILL = "explicit_skill"      # 明确提及技能
-    IMPLICIT_SKILL = "implicit_skill"      # 隐式技能需求
-    LIVE_CODING = "live_coding"            # 需要实时编码
-    GENERAL_QUESTION = "general_question"  # 一般问题
 
 
 class MatchMode:
@@ -79,7 +72,7 @@ class SkillMatcher:
     决策逻辑:
     - 高置信度 (>=0.85): 直接返回规则结果
     - 中置信度 (0.3-0.85): 返回规则结果+操作菜单
-    - 低置信度 (<0.3): 返回 Live Coding 兜底
+    - 低置信度 (<0.3): 返回 SKILL_FORGE 兜底
     """
 
     # 置信度阈值
@@ -339,11 +332,11 @@ class SkillMatcher:
         keywords_indexer = self._get_keywords_indexer()
 
         # ✨ 优先级最高：检查是否为代码生成请求
-        # 编程请求（用户要代码）应该走 live_coding 路径，而不是技能匹配
+        # 编程请求（用户要代码）应该走 SKILL_FORGE 路径，而不是技能匹配
         if is_code_generation_request(user_query):
             log.info(f"[SkillMatcher] 检测到代码生成请求，跳过技能匹配: '{user_query[:50]}...'")
             return {
-                "intent_type": IntentType.LIVE_CODING,
+                "intent_type": IntentType.SKILL_FORGE,
                 "matched_skills": [],
                 "confidence": 0.85,
                 "parameters_suggestion": {},
@@ -355,7 +348,7 @@ class SkillMatcher:
         explicit_match = self._check_explicit_trigger(query_lower)
         if explicit_match:
             return {
-                "intent_type": IntentType.EXPLICIT_SKILL,
+                "intent_type": IntentType.EXPLICIT_EXEC,
                 "matched_skills": explicit_match,
                 "confidence": 0.95,
                 "parameters_suggestion": {},
@@ -368,20 +361,20 @@ class SkillMatcher:
 
         if not keyword_matches["skills"]:
             # 没有匹配到技能时，需要区分"闲聊/问候"和"需要代码实现的需求"
-            # 问候、闲聊等对话性输入应走 GENERAL_QUESTION，而非 LIVE_CODING
+            # 问候、闲聊等对话性输入应走 GENERAL_CHAT，而非 SKILL_FORGE
             if self._is_conversational_input(query_lower):
                 return {
-                    "intent_type": IntentType.GENERAL_QUESTION,
+                    "intent_type": IntentType.GENERAL_CHAT,
                     "matched_skills": [],
                     "confidence": 0.9,
                     "parameters_suggestion": {},
                     "match_source": "rule",
                     "reason": "检测到对话性输入（问候/闲聊），无需代码生成"
                 }
-            # 一般性问题（知识问答）也应走 GENERAL_QUESTION
+            # 一般性问题（知识问答）也应走 GENERAL_CHAT
             if self._is_general_question(query_lower):
                 return {
-                    "intent_type": IntentType.GENERAL_QUESTION,
+                    "intent_type": IntentType.GENERAL_CHAT,
                     "matched_skills": [],
                     "confidence": 0.7,
                     "parameters_suggestion": {},
@@ -389,7 +382,7 @@ class SkillMatcher:
                     "reason": "检测到知识问答型需求"
                 }
             return {
-                "intent_type": IntentType.LIVE_CODING,
+                "intent_type": IntentType.SKILL_FORGE,
                 "matched_skills": [],
                 "confidence": 0.3,
                 "parameters_suggestion": {},
@@ -400,7 +393,7 @@ class SkillMatcher:
         # 3. 检查是否为一般问题
         if self._is_general_question(query_lower):
             return {
-                "intent_type": IntentType.GENERAL_QUESTION,
+                "intent_type": IntentType.GENERAL_CHAT,
                 "matched_skills": keyword_matches["skills"],
                 "confidence": max(0.3, keyword_matches["confidence"] - 0.2),
                 "parameters_suggestion": {},
@@ -437,7 +430,7 @@ class SkillMatcher:
                 log.info(f"[SkillMatcher] 文件类型加成: extensions={file_extensions}, boost={file_type_boost:.2f}, final_confidence={base_confidence:.2f}")
 
         return {
-            "intent_type": IntentType.IMPLICIT_SKILL,
+            "intent_type": IntentType.EXPLICIT_EXEC,
             "matched_skills": keyword_matches["skills"],
             "confidence": base_confidence,
             "parameters_suggestion": {},
@@ -647,7 +640,7 @@ class SkillMatcher:
         """
         判断是否为对话性输入（问候、闲聊、感谢等）
 
-        这类输入不需要代码生成或技能执行，应走 GENERAL_QUESTION 路径，
+        这类输入不需要代码生成或技能执行，应走 GENERAL_CHAT 路径，
         由 LLM 以对话方式自然回复。
 
         Args:
