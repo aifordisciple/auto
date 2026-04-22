@@ -2,34 +2,38 @@
 
 import { useState, ReactNode } from 'react';
 import { useUIStore } from "@/store/useUIStore";
-import { X, User, Shield, Keyboard, Wallet, Bot } from "lucide-react";
+import { useAuthStore } from "@/store/useAuthStore";
+import { X, User, Shield, Keyboard, Wallet, Bot, ShieldCheck } from "lucide-react";
 import { ProfilePanel } from './ProfilePanel';
 import { SecurityPanel } from './SecurityPanel';
 import { ShortcutsPanel } from './ShortcutsPanel';
 import { WalletPanel } from './WalletPanel';
 import { AIModelPanel } from './AIModelPanel';
+import { RbacPanel } from './RbacPanel';
 
 // Tab 类型定义
-type TabType = 'profile' | 'security' | 'ai-model' | 'wallet' | 'shortcuts';
+type TabType = 'profile' | 'security' | 'ai-model' | 'wallet' | 'shortcuts' | 'rbac';
 
 // ==========================================
 // 主组件：用户中心（统一入口）
 // ==========================================
 export function UserCenter() {
   const { isUserCenterOpen, closeAllOverlays } = useUIStore();
+  const { user } = useAuthStore();
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState<TabType>('profile');
 
   if (!isUserCenterOpen) return null;
 
-  // Tab 配置
+  // Tab 配置（管理员额外显示 RBAC Tab）
   const tabs: { id: TabType; label: string; icon: ReactNode; color: string }[] = [
     { id: 'profile', label: '个人资料', icon: <User size={14} />, color: 'blue' },
     { id: 'security', label: '安全设置', icon: <Shield size={14} />, color: 'red' },
     { id: 'ai-model', label: 'AI 模型', icon: <Bot size={14} />, color: 'purple' },
     { id: 'wallet', label: '钱包', icon: <Wallet size={14} />, color: 'amber' },
     { id: 'shortcuts', label: '快捷键', icon: <Keyboard size={14} />, color: 'green' },
+    ...(user?.is_superuser ? [{ id: 'rbac' as TabType, label: 'RBAC', icon: <ShieldCheck size={14} />, color: 'orange' }] : []),
   ];
 
   // 获取 Tab 样式
@@ -42,6 +46,7 @@ export function UserCenter() {
       purple: 'bg-purple-500/20 text-purple-400 border border-purple-500/30',
       amber: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
       green: 'bg-green-500/20 text-green-400 border border-green-500/30',
+      orange: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
     };
     return colorMap[tab.color] || colorMap.blue;
   };
@@ -89,6 +94,7 @@ export function UserCenter() {
           {activeTab === 'ai-model' && <AIModelPanel />}
           {activeTab === 'wallet' && <WalletPanel />}
           {activeTab === 'shortcuts' && <ShortcutsPanel />}
+          {activeTab === 'rbac' && <RbacPanel />}
         </div>
       </div>
     </div>

@@ -384,3 +384,11 @@ export {
   type ChatQueueItem,
   type QueueItemStatus,
 } from './api/chatQueue';
+
+export {
+  rbacApi,
+  type RoleOut,
+  type PermissionOut,
+  type AuditLogOut,
+  type UserRolesOut,
+} from './api/rbac';

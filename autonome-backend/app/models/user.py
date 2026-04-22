@@ -54,6 +54,8 @@ class User(SQLModel, table=True):
     # 双因素认证：预留 TOTP 支持
     is_2fa_enabled: bool = Field(default=False, description="是否开启了 2FA")
     two_factor_secret: Optional[str] = Field(default=None, max_length=255, description="TOTP 密钥")
+    # RBAC 主角色外键
+    role_id: Optional[int] = Field(default=None, foreign_key="roles.id")
 
     created_at: datetime = Field(default_factory=get_utc_now)
     updated_at: datetime = Field(default_factory=get_utc_now)
@@ -72,6 +74,11 @@ class User(SQLModel, table=True):
     oauth_accounts: List["OAuthAccount"] = Relationship(back_populates="user")
     # 关系：一个用户可以有多个活跃会话 (用于 Refresh Token 管控)
     sessions: List["ActiveSession"] = Relationship(back_populates="user")
+    # RBAC 主角色（通过 role_id 外键关联）
+    primary_role: Optional["Role"] = Relationship(
+        back_populates="users_primary",
+        sa_relationship_kwargs={"foreign_keys": "[User.role_id]", "lazy": "selectin"},
+    )
 
 
 # ==========================================

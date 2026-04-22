@@ -21,7 +21,8 @@ from typing import List
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_current_user
+from app.core.database import get_session
 from app.models.user import User
 from app.models.rbac import Role, Permission, user_roles
 
@@ -96,7 +97,7 @@ def require_permission(code: str):
     """
     async def _check_permission(
         current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db),
+        db: Session = Depends(get_session),
     ):
         if current_user.is_superuser:
             return  # is_superuser 兼容旧逻辑
@@ -117,7 +118,7 @@ def require_role(name: str):
     """
     async def _check_role(
         current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db),
+        db: Session = Depends(get_session),
     ):
         if current_user.is_superuser:
             return  # is_superuser 兼容旧逻辑

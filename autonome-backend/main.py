@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, select, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
@@ -140,6 +140,110 @@ def on_startup():
     # ✨ 首先创建所有数据库表
     create_db_and_tables()
     log.info("✅ 数据库表结构已创建")
+
+    # ✨ 初始化 RBAC 预设数据（角色、权限、关联）
+    try:
+        from app.models.rbac import Role, Permission, role_permissions
+        from app.models.user import User
+        with Session(engine) as session:
+            # 预设角色
+            role_admin = session.exec(select(Role).where(Role.name == "admin")).first()
+            if not role_admin:
+                role_admin = Role(name="admin", description="超级管理员，拥有所有权限")
+                session.add(role_admin)
+                session.commit()
+                session.refresh(role_admin)
+                log.info("✅ 已创建 admin 角色")
+
+            role_researcher = session.exec(select(Role).where(Role.name == "researcher")).first()
+            if not role_researcher:
+                role_researcher = Role(name="researcher", description="研究员，默认角色", is_default=True)
+                session.add(role_researcher)
+                session.commit()
+                session.refresh(role_researcher)
+                log.info("✅ 已创建 researcher 角色")
+
+            role_viewer = session.exec(select(Role).where(Role.name == "viewer")).first()
+            if not role_viewer:
+                role_viewer = Role(name="viewer", description="只读观察者")
+                session.add(role_viewer)
+                session.commit()
+                session.refresh(role_viewer)
+                log.info("✅ 已创建 viewer 角色")
+
+            # 预设权限
+            preset_permissions = [
+                ("project:read", "查看项目", "project"),
+                ("project:create", "创建项目", "project"),
+                ("project:update", "更新项目", "project"),
+                ("project:delete", "删除项目", "project"),
+                ("skill:read", "查看技能", "skill"),
+                ("skill:execute", "执行技能", "skill"),
+                ("skill:create", "创建技能", "skill"),
+                ("skill:manage", "管理技能", "skill"),
+                ("data:read", "查看数据", "data"),
+                ("data:export", "导出数据", "data"),
+                ("admin:user_manage", "用户管理", "admin"),
+                ("admin:role_manage", "角色管理", "admin"),
+                ("admin:system_config", "系统配置", "admin"),
+            ]
+            perm_objects = {}
+            for code, name, module in preset_permissions:
+                existing = session.exec(select(Permission).where(Permission.code == code)).first()
+                if not existing:
+                    perm = Permission(code=code, name=name, module=module)
+                    session.add(perm)
+                    session.commit()
+                    session.refresh(perm)
+                    perm_objects[code] = perm
+                else:
+                    perm_objects[code] = existing
+
+            # admin 角色拥有所有权限
+            all_perm_ids = [p.id for p in session.exec(select(Permission)).all()]
+            if role_admin and all_perm_ids:
+                # 清除旧关联再重新设置
+                session.execute(role_permissions.delete().where(role_permissions.c.role_id == role_admin.id))
+                for pid in all_perm_ids:
+                    session.execute(role_permissions.insert().values(role_id=role_admin.id, permission_id=pid))
+                session.commit()
+
+            # researcher 角色拥有项目+技能+数据权限
+            researcher_perm_codes = [
+                "project:read", "project:create", "project:update",
+                "skill:read", "skill:execute", "skill:create",
+                "data:read", "data:export",
+            ]
+            if role_researcher:
+                session.execute(role_permissions.delete().where(role_permissions.c.role_id == role_researcher.id))
+                for code in researcher_perm_codes:
+                    if code in perm_objects:
+                        session.execute(role_permissions.insert().values(
+                            role_id=role_researcher.id, permission_id=perm_objects[code].id
+                        ))
+                session.commit()
+
+            # viewer 角色只有只读权限
+            viewer_perm_codes = ["project:read", "skill:read", "data:read"]
+            if role_viewer:
+                session.execute(role_permissions.delete().where(role_permissions.c.role_id == role_viewer.id))
+                for code in viewer_perm_codes:
+                    if code in perm_objects:
+                        session.execute(role_permissions.insert().values(
+                            role_id=role_viewer.id, permission_id=perm_objects[code].id
+                        ))
+                session.commit()
+
+            # 迁移现有用户：is_superuser=True → admin 角色，其余 → researcher 角色
+            all_users = session.exec(select(User)).all()
+            for u in all_users:
+                if u.role_id is None:
+                    u.role_id = role_admin.id if u.is_superuser else role_researcher.id
+            session.commit()
+
+            log.info("✅ RBAC 预设数据初始化完成")
+    except Exception as e:
+        log.warning(f"⚠️ RBAC 初始化失败: {e}")
 
     # SaaS 模式下不自动创建项目，由用户注册后自行创建
     with Session(engine) as session:

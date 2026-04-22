@@ -14,11 +14,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_current_user
 from app.api.deps_rbac import require_role, has_role, get_user_roles, get_user_permissions
 from app.models.user import User
 from app.models.rbac import Role, Permission, AuditLog, role_permissions, user_roles
-from app.core.database import get_db as _get_db
+from app.core.database import get_session
 
 router = APIRouter(tags=["RBAC"])
 
@@ -104,7 +104,7 @@ async def audit_log(
 # ──────────────────────────────────────────────
 
 @router.get("/roles", dependencies=[Depends(require_role("admin"))])
-async def list_roles(db: Session = Depends(get_db)):
+async def list_roles(db: Session = Depends(get_session)):
     """角色列表"""
     roles = db.query(Role).order_by(Role.id).all()
     return {
@@ -129,7 +129,7 @@ async def list_roles(db: Session = Depends(get_db)):
 async def create_role(
     body: RoleCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """创建角色"""
@@ -161,7 +161,7 @@ async def update_role(
     role_id: int,
     body: RoleUpdate,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """更新角色"""
@@ -196,7 +196,7 @@ async def update_role(
 async def delete_role(
     role_id: int,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """删除角色（admin 角色不可删除）"""
@@ -225,7 +225,7 @@ async def delete_role(
 # ──────────────────────────────────────────────
 
 @router.get("/permissions", dependencies=[Depends(require_role("admin"))])
-async def list_permissions(db: Session = Depends(get_db)):
+async def list_permissions(db: Session = Depends(get_session)):
     """权限列表"""
     perms = db.query(Permission).order_by(Permission.module, Permission.code).all()
     return {
@@ -247,7 +247,7 @@ async def set_role_permissions(
     role_id: int,
     body: RolePermissionSet,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """设置角色权限（全量替换）"""
@@ -279,7 +279,7 @@ async def set_role_permissions(
 # ──────────────────────────────────────────────
 
 @router.get("/users/{user_id}/roles", dependencies=[Depends(require_role("admin"))])
-async def get_user_roles_api(user_id: int, db: Session = Depends(get_db)):
+async def get_user_roles_api(user_id: int, db: Session = Depends(get_session)):
     """查询用户角色"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -307,7 +307,7 @@ async def set_user_roles_api(
     user_id: int,
     body: UserRoleSet,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """设置用户角色（主角色取第一个，其余为附加角色）"""
@@ -356,7 +356,7 @@ async def list_audit_logs(
     resource_type: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
 ):
     """审计日志查询（分页）"""
     query = db.query(AuditLog)
