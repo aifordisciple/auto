@@ -1,8 +1,9 @@
 """
-L1 LLM 分类层 - 大模型结构化意图分类。
+L1 LLM 解构层 - 大模型结构化意图解构与任务图谱生成。
 
 使用用户配置的 LLM（通过 get_llm_config 三级 fallback 解析），
-以结构化输出方式完成意图分类和初步实体提取。
+将用户输入解构为 TaskDAG（有向无环图），支持多任务分解、
+依赖标注和指代消解。
 
 双模式：
 - 本地模型（Ollama）: 采用原生异步客户端 (AsyncClient)，支持 think 模式控制和强制 JSON 输出。
@@ -16,51 +17,80 @@ from json_repair import repair_json
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from app.agent.router.schemas import IntentExtraction, IntentType
+from app.agent.router.schemas import TaskDAG, TaskNode, IntentType
 from app.core.logger import log
 from app.utils.llm_config import get_llm_config, _is_local_model
 
 
-# L1 意图分类系统提示词（v2: 合并 L1+L2 为单次调用）
-INTENT_CLASSIFICATION_PROMPT = """你是一个生物信息学 IDE (Autonome Studio) 的中央路由网关。
-你的任务是根据用户的输入和当前工作区上下文，精准分类用户的意图，并提取关键的生物学或工程参数。
+# L1 意图解构系统提示词（v3: 输出 TaskDAG，支持多任务分解）
+L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责将用户的自然语言输入解析为结构化的任务图谱（TaskDAG）。
 
-可选的意图分类：
-1. 'diagnostic': 用户遇到代码报错，或者请求修复 bug、环境配置问题。
-2. 'literature': 用户提供文献/DOI，或请求复现某篇论文的方法论和图表。
-3. 'data_probe': 用户请求查看、预览、统计当前的数据集特征（如 h5ad 结构、fastq 质量），或者探索工作区的文件结构（如"有哪些文件"、"目录结构"、"文件列表"）。
-4. 'skill_forge': 用户要求在 IDE 中真正执行/运行生信分析或 Pipeline，需要系统调度代码执行环境。关键标志：用户明确要求"跑/运行/执行/做"分析，且期望得到实际运行结果。
-5. 'explicit_skill': 用户直接指定了某个技能的名称或 ID 来执行。
-6. 'chat': 通用的闲聊、基础概念解释、代码示例展示。⚠️ 重要：仅请求代码/脚本/示例但不要求执行的情况（如"写一个PCA脚本"、"给我一个Seurat流程"、"怎么用Scanpy做聚类"）属于 chat，不是 skill_forge。
+## 可用意图类型（11 种原子意图）
 
-分析规则：
-- 结合用户提供的 Context（当前选中的文件、UI 状态）进行综合判断。
-- 提取明确提及的生信实体（基因名、算法包、阈值参数）。
-- ⚠️ 追问条件收紧：仅当用户明确要求"执行/运行"分析（skill_forge），且同时缺失输入数据文件路径时，才将 requires_followup 设为 true。仅请求代码示例或理论解释时，即使未提及输入文件，也不追问。
-- 保持客观和科学严谨，禁止主观臆测。
-- confidence 反映你对意图判断的确信程度，0.0 表示完全不确定，1.0 表示绝对确定。
+| 意图 | 枚举值 | 触发场景 |
+|------|--------|----------|
+| 工作流编排 | INTENT_WORKFLOW_ORCHESTRATE | 多步骤流程编排、Nextflow 工作流 |
+| 技能锻造 | INTENT_SKILL_FORGE | 创建/修改技能、代码生成 |
+| 显式执行 | INTENT_EXPLICIT_EXEC | 明确调用已注册技能 |
+| 版本控制 | INTENT_VERSION_CONTROL | 回滚、版本对比、历史查看 |
+| 视觉微调 | INTENT_VISUAL_PERCEPTION_AND_TWEAK | 配色、阈值、DPI、样式调整 |
+| 数据探查 | INTENT_DATA_PROBE | 数据查询、统计分析、可视化 |
+| 文献挖掘 | INTENT_LITERATURE_MINING | 文献检索、知识提取 |
+| 系统资产 | INTENT_SYSTEM_ASSET_OPS | 资源调度、计费、配额管理 |
+| 团队协作 | INTENT_COLLABORATION | 共享、评论、权限管理 |
+| 诊断恢复 | INTENT_DIAGNOSTIC_RECOVERY | 错误诊断、自愈、日志分析 |
+| 通用问答 | INTENT_GENERAL_CHAT | 闲聊、常识问答、兜底 |
 
-槽位提取规则（仅当意图为 skill_forge/explicit_skill/data_probe 时执行）：
-- skill_forge: 提取 analysis_type(分析类型如DEG/clustering/trajectory), input_file(输入数据路径), tool(分析工具如Seurat/Scanpy), species(物种如human/mouse)
-- explicit_skill: 提取技能执行所需的参数键值对
-- data_probe: 提取 file_path(数据文件路径), probe_type(探查类型如structure/quality/statistics/workspace_scan), file_format(文件格式如h5ad/fastq/bam)。当用户询问工作区文件结构时，probe_type 为 workspace_scan
-- 未提及的必需参数加入 missing_slots
-- chat/diagnostic/literature 意图时 slots 和 missing_slots 留空"""
+## 工作区上下文
+
+{workspace_context}
+
+## 指令
+
+1. 分析用户输入，识别其中包含的一个或多个原子意图
+2. 对于复杂查询，将其拆解为多个 TaskNode，按执行顺序排列
+3. 如果多个任务之间有依赖关系，在 dependencies 中标注前置 task_id
+4. 对指代词（"这个文件"、"上面的结果"等）进行消解，填入 resolved_assets
+5. 从用户输入中提取关键参数，填入 parameters
+
+## 输出格式
+
+返回一个 TaskDAG JSON 对象，格式如下：
+
+```json
+{{
+  "nodes": [
+    {{
+      "task_id": "task_1",
+      "intent": "INTENT_EXPLICIT_EXEC",
+      "raw_instruction": "运行 FastQC 对 sample.fastq 进行质量控制",
+      "dependencies": [],
+      "resolved_assets": ["file_id_123"],
+      "parameters": {{"skill_name": "fastqc", "input_file": "sample.fastq"}}
+    }}
+  ],
+  "is_conditional": false
+}}
+```
+
+对于简单查询，只需返回包含单个节点的 DAG。"""
 
 
 class L1Classifier:
     """
-    L1 LLM 结构化意图分类器。
+    L1 LLM 结构化意图解构器。
 
     从用户中心配置解析 LLM，支持本地原生模型和第三方 API 双模式。
+    将用户查询解构为 TaskDAG，支持多任务分解与依赖标注。
+    保留类名 L1Classifier 以兼容已有导入，实际功能已升级为 DAG 解构器。
     """
 
     def __init__(self, session, user_id: str):
         """
-        初始化分类器。
+        初始化解构器。
 
         程序说明：
-        根据用户配置初始化分类器参数，构建针对第三方 API 的 ChatOpenAI 实例。
+        根据用户配置初始化解构器参数，构建针对第三方 API 的 ChatOpenAI 实例。
         本地模式的客户端将在具体调用时动态生成。
 
         Args:
@@ -69,7 +99,6 @@ class L1Classifier:
         """
         self.llm_config = get_llm_config(session, user_id)
         self.is_local = _is_local_model(self.llm_config.base_url)
-        self.confidence_threshold = 0.7
 
         # 构建第三方 API 使用的 LLM 实例
         api_key = self.llm_config.api_key or "not-needed"
@@ -81,90 +110,111 @@ class L1Classifier:
         )
 
         # 构建提示词模板 (仅供第三方 API 模式使用)
+        # v3: 使用 L1_DECOMPOSER_PROMPT_TEMPLATE，包含 workspace_context 占位符
         self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", INTENT_CLASSIFICATION_PROMPT),
-            ("human", "Context (Workspace State): {context}\n\nUser Query: {query}")
+            ("system", L1_DECOMPOSER_PROMPT_TEMPLATE),
+            ("human", "User Query: {query}")
         ])
 
         log.info(
-            f"[L1] 初始化分类器: model={self.llm_config.model_name}, "
+            f"[L1] 初始化解构器: model={self.llm_config.model_name}, "
             f"base_url={self.llm_config.base_url}, is_local={self.is_local}, "
             f"source={self.llm_config.source}"
         )
 
-    async def classify(
+    async def decompose(
         self,
         query: str,
-        context: Dict[str, Any],
+        context: Dict[str, Any] = None,
         enable_think: bool = False,
         temperature: float = 0.0
-    ) -> IntentExtraction:
+    ) -> TaskDAG:
         """
-        执行意图分类。
+        执行意图解构，生成 TaskDAG。
 
         程序说明：
-        作为分类任务的主入口，根据配置的 LLM 环境自动路由到对应的处理引擎。
+        作为解构任务的主入口，根据配置的 LLM 环境自动路由到对应的处理引擎。
+        将用户查询解构为包含一个或多个 TaskNode 的 TaskDAG。
         包含参数系统，支持向下透传推理模式开关及采样温度设定。
 
         Args:
             query (str): 用户自然语言输入。
-            context (Dict[str, Any]): 工作区上下文。
+            context (Dict[str, Any]): 工作区上下文。默认值为 None。
             enable_think (bool): 是否开启大模型的推理思考模式。默认值为 False。
             temperature (float): 采样温度，控制输出稳定性。默认值为 0.0。
 
         Returns:
-            IntentExtraction: 结构化意图提取结果
+            TaskDAG: 解构后的任务图谱，包含一个或多个 TaskNode
         """
-        log.info(f"[L1] 正在调用 LLM 分类: query='{query[:50]}...'")
+        log.info(f"[L1] 正在调用 LLM 解构: query='{query[:50]}...'")
+
+        # 构建工作区上下文字符串，供提示词模板填充
+        workspace_context = str(context) if context else "无可用上下文"
 
         try:
             if self.is_local:
-                result = await self._classify_with_json_mode(
+                result = await self._decompose_with_json_mode(
                     query=query,
                     context=context,
                     enable_think=enable_think,
                     temperature=temperature
                 )
             else:
-                result = await self._classify_with_structured_output(query, context)
+                result = await self._decompose_with_structured_output(
+                    query=query,
+                    workspace_context=workspace_context
+                )
 
-            # 置信度降级保护
-            if result.confidence < self.confidence_threshold:
-                log.warning(f"[L1] 置信度过低 ({result.confidence})，降级为 chat")
-                result.intent = IntentType.CHAT
+            # 验证解构结果：至少包含一个节点
+            if not result.nodes:
+                log.warning("[L1] DAG 节点为空，降级为通用问答单节点")
+                return TaskDAG(nodes=[
+                    TaskNode(
+                        task_id="task_1",
+                        intent=IntentType.GENERAL_CHAT,
+                        raw_instruction=query
+                    )
+                ])
 
             return result
 
         except Exception as e:
-            log.error(f"[L1] 分类失败: {str(e)}")
-            return IntentExtraction(
-                intent=IntentType.CHAT,
-                confidence=0.0,
-                entities={},
-                requires_followup=False
-            )
+            log.error(f"[L1] 解构失败: {str(e)}")
+            # 异常兜底：返回通用问答单节点 DAG
+            return TaskDAG(nodes=[
+                TaskNode(
+                    task_id="task_1",
+                    intent=IntentType.GENERAL_CHAT,
+                    raw_instruction=query
+                )
+            ])
 
-    async def _classify_with_structured_output(
-        self, query: str, context: Dict[str, Any]
-    ) -> IntentExtraction:
+    async def _decompose_with_structured_output(
+        self, query: str, workspace_context: str
+    ) -> TaskDAG:
         """
         第三方 API 模式：使用 with_structured_output (function calling)。
+
+        程序说明：
+        通过 LangChain 的 with_structured_output 方法，将 LLM 输出
+        直接约束为 TaskDAG 结构，确保类型安全和格式正确。
+        workspace_context 已在 decompose() 中格式化，此处直接传入模板。
         """
-        llm_with_schema = self.primary_llm.with_structured_output(IntentExtraction)
+        llm_with_schema = self.primary_llm.with_structured_output(TaskDAG)
         chain = self.prompt_template | llm_with_schema
         result = await chain.ainvoke({
-            "context": str(context),
+            "workspace_context": workspace_context,
             "query": query
         })
         return result
 
-    async def _classify_with_json_mode(
+    async def _decompose_with_json_mode(
         self,
         query: str,
         context: Dict[str, Any],
         enable_think: bool = False,
         temperature: float = 0.0
-    ) -> IntentExtraction:
+    ) -> TaskDAG:
         """
         本地模型模式：原生 Ollama API + JSON mode + 手动解析。
 
@@ -192,20 +242,30 @@ class L1Classifier:
 
         # 在提示词中追加严格的 JSON 格式要求
         # 注意：使用原生客户端时，不再需要处理 LangChain ChatPromptTemplate 的双括号转义问题
+        # v3: JSON 格式要求更新为 TaskDAG 结构
         json_instruction = (
             "\n\n请严格按照以下 JSON 格式输出，不要输出任何其他内容：\n"
-            '{"intent": "chat|skill_forge|explicit_skill|diagnostic|literature|data_probe", '
-            '"confidence": 0.0-1.0, '
-            '"entities": {"key": "value"}, '
-            '"skill_id": null, '
-            '"requires_followup": false, '
-            '"followup_question": null, '
-            '"slots": {"key": "value"}, '
-            '"missing_slots": []}'
+            '{\n'
+            '  "nodes": [\n'
+            '    {\n'
+            '      "task_id": "task_1",\n'
+            '      "intent": "INTENT_GENERAL_CHAT|INTENT_WORKFLOW_ORCHESTRATE|INTENT_SKILL_FORGE|INTENT_EXPLICIT_EXEC|INTENT_VERSION_CONTROL|INTENT_VISUAL_PERCEPTION_AND_TWEAK|INTENT_DATA_PROBE|INTENT_LITERATURE_MINING|INTENT_SYSTEM_ASSET_OPS|INTENT_COLLABORATION|INTENT_DIAGNOSTIC_RECOVERY",\n'
+            '      "raw_instruction": "用户的具体指令",\n'
+            '      "dependencies": [],\n'
+            '      "resolved_assets": [],\n'
+            '      "parameters": {}\n'
+            '    }\n'
+            '  ],\n'
+            '  "is_conditional": false\n'
+            '}'
         )
 
-        system_msg = INTENT_CLASSIFICATION_PROMPT + json_instruction
-        user_msg = f"Context (Workspace State): {str(context)}\n\nUser Query: {query}"
+        # 填充工作区上下文到提示词模板
+        workspace_context = str(context) if context else "无可用上下文"
+        system_msg = L1_DECOMPOSER_PROMPT_TEMPLATE.format(
+            workspace_context=workspace_context
+        ) + json_instruction
+        user_msg = f"User Query: {query}"
 
         messages = [
             {'role': 'system', 'content': system_msg},
@@ -227,29 +287,63 @@ class L1Classifier:
 
             raw_content = response['message']['content'].strip()
 
-            # 手动解析 JSON 响应为 IntentExtraction
+            # 手动解析 JSON 响应为 TaskDAG
             repaired = repair_json(raw_content)
             parsed = json.loads(repaired)
-            return IntentExtraction(**parsed)
+            return TaskDAG(**parsed)
 
         except Exception as parse_err:
             log.warning(f"[L1] 本地 API 调用或 JSON 解析失败: {parse_err}, 原始响应: {raw_content[:200]}")
             return self._fallback_intent_from_text(raw_content)
 
-    def _fallback_intent_from_text(self, text: str) -> IntentExtraction:
-        """从 LLM 原始文本响应中提取意图（JSON 解析失败时的兜底）"""
+    def _fallback_intent_from_text(self, text: str) -> TaskDAG:
+        """
+        从 LLM 原始文本响应中提取意图（JSON 解析失败时的兜底）。
+
+        程序说明：
+        当 JSON 解析失败时，遍历文本寻找匹配的 IntentType 枚举值，
+        返回包含单个 TaskNode 的 TaskDAG 作为降级结果。
+        支持 v2 旧枚举值到 v3 新枚举值的映射，确保向后兼容。
+        """
+        # v2 旧意图值 → v3 新 IntentType 的映射表，兼容旧模型输出
+        legacy_intent_map: Dict[str, IntentType] = {
+            "diagnostic": IntentType.DIAGNOSTIC_RECOVERY,
+            "literature": IntentType.LITERATURE_MINING,
+            "data_probe": IntentType.DATA_PROBE,
+            "skill_forge": IntentType.SKILL_FORGE,
+            "explicit_skill": IntentType.EXPLICIT_EXEC,
+            "chat": IntentType.GENERAL_CHAT,
+        }
+
         text_lower = text.lower()
+
+        # 优先匹配 v3 新枚举值（INTENT_ 前缀格式）
         for intent in IntentType:
             if intent.value in text_lower:
-                return IntentExtraction(
-                    intent=intent,
-                    confidence=0.5,
-                    entities={},
-                    requires_followup=False
-                )
-        return IntentExtraction(
-            intent=IntentType.CHAT,
-            confidence=0.3,
-            entities={},
-            requires_followup=False
-        )
+                return TaskDAG(nodes=[
+                    TaskNode(
+                        task_id="task_1",
+                        intent=intent,
+                        raw_instruction=text[:200]
+                    )
+                ])
+
+        # 其次匹配 v2 旧枚举值（兼容旧模型）
+        for legacy_key, mapped_intent in legacy_intent_map.items():
+            if legacy_key in text_lower:
+                return TaskDAG(nodes=[
+                    TaskNode(
+                        task_id="task_1",
+                        intent=mapped_intent,
+                        raw_instruction=text[:200]
+                    )
+                ])
+
+        # 最终兜底：通用问答
+        return TaskDAG(nodes=[
+            TaskNode(
+                task_id="task_1",
+                intent=IntentType.GENERAL_CHAT,
+                raw_instruction=text[:200]
+            )
+        ])
