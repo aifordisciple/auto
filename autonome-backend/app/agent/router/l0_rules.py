@@ -5,6 +5,13 @@ L0 规则拦截层 - 零成本极速意图分发。
 未命中任何规则的查询返回 None，放行至 L1 LLM 分类层。
 
 规则按优先级顺序执行，首个命中即返回。
+
+V2.0 升级要点：
+- 更新所有 IntentType 映射至 V2.0 12 种原子意图
+- 新增 SystemMacroRule (优先级 0.5): 系统宏指令拦截
+- 新增 VersionControlRule (优先级 4.5): 版本控制意图识别
+- 新增 VisualTweakRule (优先级 6.5): 视觉微调意图识别
+- ActiveViewRule 视图映射扩展
 """
 import re
 from abc import ABC, abstractmethod
@@ -32,11 +39,36 @@ class Rule(ABC):
         ...
 
 
+class SystemMacroRule(Rule):
+    """
+    优先级 0.5: 系统宏指令拦截（最高优先级）。
+
+    检测 /status、/clear、/help、/version、/reset 等系统命令，
+    直接路由至 SYSTEM_MACRO 意图，置信度 1.0（确定性命令，无需 LLM 确认）。
+    """
+
+    # 系统宏指令正则：匹配 /status、/clear、/help、/version、/reset
+    MACRO_PATTERN = re.compile(r'^/(status|clear|help|version|reset)\b')
+
+    def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        stripped = query.strip()
+        if self.MACRO_PATTERN.match(stripped):
+            command = stripped.split()[0][1:]  # 提取命令名（去掉 /）
+            log.debug(f"[L0] SystemMacroRule 命中: command=/{command}")
+            return IntentExtraction(
+                intent=IntentType.SYSTEM_MACRO,
+                confidence=1.0,
+                entities={"macro_command": command},
+                requires_followup=False
+            )
+        return None
+
+
 class SystemStateRule(Rule):
     """
     优先级 1: 系统状态拦截。
 
-    当上下文存在明确的沙箱报错退出码时，直接路由至诊断，
+    当上下文存在明确的沙箱报错退出码时，直接路由至诊断恢复，
     置信度 1.0（确定性状态，无需 LLM 确认）。
     """
 
@@ -44,7 +76,7 @@ class SystemStateRule(Rule):
         if context.get("last_execution_status") == "failed":
             log.debug("[L0] SystemStateRule 命中: last_execution_status=failed")
             return IntentExtraction(
-                intent=IntentType.DIAGNOSTIC,
+                intent=IntentType.DIAGNOSTIC_RECOVERY,
                 confidence=1.0,
                 entities={"error_source": "execution_failure"},
                 requires_followup=False
@@ -60,9 +92,12 @@ class ActiveViewRule(Rule):
     直接路由到对应意图。
     """
 
-    # 视图 → 意图映射
+    # 视图 → 意图映射（V2.0 扩展）
     VIEW_INTENT_MAP = {
-        "literature_upload": IntentType.LITERATURE,
+        "literature_upload": IntentType.LITERATURE_MINING,
+        "workflow_editor": IntentType.WORKFLOW_ORCHESTRATE,
+        "version_history": IntentType.VERSION_CONTROL,
+        "visual_settings": IntentType.VISUAL_PERCEPTION_AND_TWEAK,
     }
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
@@ -98,7 +133,7 @@ class ExplicitSkillRule(Rule):
         if skill_id:
             log.debug(f"[L0] ExplicitSkillRule 命中: skill_id={skill_id}")
             return IntentExtraction(
-                intent=IntentType.EXPLICIT_SKILL,
+                intent=IntentType.EXPLICIT_EXEC,
                 confidence=0.95,
                 entities={"skill_id": skill_id},
                 skill_id=skill_id,
@@ -109,7 +144,7 @@ class ExplicitSkillRule(Rule):
         if self.SKILL_TRIGGER_PATTERNS.search(query):
             log.debug("[L0] ExplicitSkillRule 命中: 技能触发模式")
             return IntentExtraction(
-                intent=IntentType.EXPLICIT_SKILL,
+                intent=IntentType.EXPLICIT_EXEC,
                 confidence=0.90,
                 entities={},
                 requires_followup=False
@@ -122,7 +157,7 @@ class ErrorPatternRule(Rule):
     """
     优先级 4: 错误关键词模式拦截。
 
-    检测中英文错误关键词，路由到诊断意图。
+    检测中英文错误关键词，路由到诊断恢复意图。
     """
 
     ERROR_PATTERN = re.compile(
@@ -134,9 +169,35 @@ class ErrorPatternRule(Rule):
         if self.ERROR_PATTERN.search(query):
             log.debug("[L0] ErrorPatternRule 命中")
             return IntentExtraction(
-                intent=IntentType.DIAGNOSTIC,
+                intent=IntentType.DIAGNOSTIC_RECOVERY,
                 confidence=0.90,
                 entities={"error_type": "keyword_detected"},
+                requires_followup=False
+            )
+        return None
+
+
+class VersionControlRule(Rule):
+    """
+    优先级 4.5: 版本控制意图识别规则。
+
+    检测回滚、版本对比、历史、撤销等关键词，
+    路由到 VERSION_CONTROL 意图。
+    """
+
+    # 版本控制关键词正则
+    VERSION_PATTERN = re.compile(
+        r'(回滚|版本|对比|rollback|version|diff\s+版本|历史版本|撤销)',
+        re.IGNORECASE
+    )
+
+    def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        if self.VERSION_PATTERN.search(query):
+            log.debug("[L0] VersionControlRule 命中")
+            return IntentExtraction(
+                intent=IntentType.VERSION_CONTROL,
+                confidence=0.85,
+                entities={},
                 requires_followup=False
             )
         return None
@@ -156,7 +217,7 @@ class LiteraturePatternRule(Rule):
         if self.DOI_PATTERN.search(query) or self.LITERATURE_KEYWORDS.search(query):
             log.debug("[L0] LiteraturePatternRule 命中")
             return IntentExtraction(
-                intent=IntentType.LITERATURE,
+                intent=IntentType.LITERATURE_MINING,
                 confidence=0.90,
                 entities={},
                 requires_followup=False
@@ -216,6 +277,32 @@ class ProbePatternRule(Rule):
         return None
 
 
+class VisualTweakRule(Rule):
+    """
+    优先级 6.5: 视觉微调意图识别规则。
+
+    检测调色、配色、阈值、DPI、分辨率、颜色等视觉微调关键词，
+    路由到 VISUAL_PERCEPTION_AND_TWEAK 意图。
+    """
+
+    # 视觉微调关键词正则
+    VISUAL_TWEAK_PATTERN = re.compile(
+        r'(调色|配色|阈值|DPI|分辨率|颜色|palette|theme|tweak|调整.*图|微调.*视觉|修改.*样式)',
+        re.IGNORECASE
+    )
+
+    def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        if self.VISUAL_TWEAK_PATTERN.search(query):
+            log.debug("[L0] VisualTweakRule 命中")
+            return IntentExtraction(
+                intent=IntentType.VISUAL_PERCEPTION_AND_TWEAK,
+                confidence=0.85,
+                entities={},
+                requires_followup=False
+            )
+        return None
+
+
 class CodeGenPatternRule(Rule):
     """
     优先级 7: 代码生成模式拦截。
@@ -223,7 +310,7 @@ class CodeGenPatternRule(Rule):
     检测"跑流程/做分析/运行分析"等需要真正执行代码的关键词模式。
 
     ⚠️ 关键区分：
-    - "写一个PCA脚本" / "给我一个代码示例" → 纯理论请求，属于 chat
+    - "写一个PCA脚本" / "给我一个代码示例" → 纯理论请求，属于 general_chat
     - "跑PCA分析" / "做差异表达分析" / "运行这个pipeline" → 需要执行，属于 skill_forge
 
     仅匹配明确包含"执行/运行/跑/做/进行"等动作词的模式，
@@ -251,7 +338,7 @@ class ChitchatRule(Rule):
     """
     优先级 8: 闲聊拦截。
 
-    检测问候语、感谢等短文本，路由到 chat。
+    检测问候语、感谢等短文本，路由到通用闲聊。
     仅匹配短文本（<=10 字符）或明确的社交用语。
     """
 
@@ -266,7 +353,7 @@ class ChitchatRule(Rule):
         if len(stripped) <= 10 and self.CHITCHAT_PATTERN.match(stripped):
             log.debug("[L0] ChitchatRule 命中")
             return IntentExtraction(
-                intent=IntentType.CHAT,
+                intent=IntentType.GENERAL_CHAT,
                 confidence=0.90,
                 entities={},
                 requires_followup=False
@@ -283,15 +370,19 @@ class L0RuleEngine:
     """
 
     def __init__(self):
+        # 按优先级排序（数值越小优先级越高），首个命中即返回
         self.rules: List[Rule] = [
-            SystemStateRule(),        # 优先级 1: 系统状态
-            ActiveViewRule(),         # 优先级 2: 活跃视图
-            ExplicitSkillRule(),      # 优先级 3: 显式技能
-            ErrorPatternRule(),       # 优先级 4: 错误关键词
-            LiteraturePatternRule(),  # 优先级 5: 文献模式
-            ProbePatternRule(),       # 优先级 6: 数据探查
-            CodeGenPatternRule(),     # 优先级 7: 代码生成
-            ChitchatRule(),           # 优先级 8: 闲聊
+            SystemMacroRule(),       # 优先级 0.5: 系统宏指令（最高优先级）
+            SystemStateRule(),       # 优先级 1: 系统状态
+            ActiveViewRule(),        # 优先级 2: 活跃视图
+            ExplicitSkillRule(),     # 优先级 3: 显式技能
+            ErrorPatternRule(),      # 优先级 4: 错误关键词
+            VersionControlRule(),    # 优先级 4.5: 版本控制
+            LiteraturePatternRule(), # 优先级 5: 文献模式
+            ProbePatternRule(),      # 优先级 6: 数据探查
+            VisualTweakRule(),       # 优先级 6.5: 视觉微调
+            CodeGenPatternRule(),    # 优先级 7: 代码生成
+            ChitchatRule(),          # 优先级 8: 闲聊
         ]
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
