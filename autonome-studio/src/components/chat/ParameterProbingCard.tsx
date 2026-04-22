@@ -49,12 +49,17 @@ export function ParameterProbingCard({ message, schema, onSubmit }: ParameterPro
     return defaults
   })
 
+  // ✨ Active Probing：提交加载状态，防止重复提交
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
   const handleChange = (key: string, value: unknown) => {
     setValues(prev => ({ ...prev, [key]: value }))
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return // 防止重复提交
+    setIsSubmitting(true)
     onSubmit(values)
   }
 
@@ -131,9 +136,16 @@ export function ParameterProbingCard({ message, schema, onSubmit }: ParameterPro
         {/* 提交按钮 */}
         <button
           type="submit"
-          className="mt-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
+          disabled={isSubmitting}
+          className="mt-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:bg-orange-600/50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-zinc-900 flex items-center justify-center gap-2"
         >
-          确认提交
+          {isSubmitting && (
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
+          {isSubmitting ? '提交中...' : '确认并继续执行'}
         </button>
       </form>
     </div>

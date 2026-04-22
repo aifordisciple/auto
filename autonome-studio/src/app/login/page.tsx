@@ -41,6 +41,28 @@ interface LoginResponse {
   };
 }
 
+/** 登录接口返回 2FA 挑战时的响应结构 */
+interface MFAChallengeResponse {
+  status: 'requires_2fa';
+  mfa_token: string;
+  message?: string;
+}
+
+/** 2FA 验证完成后的响应（与 LoginResponse 相同） */
+interface TwoFALoginResponse {
+  access_token: string;
+  token_type: string;
+  user: {
+    id: number;
+    email: string;
+    full_name: string | null;
+    phone_number: string | null;
+    is_superuser: boolean;
+    is_email_verified: boolean;
+    is_2fa_enabled: boolean;
+  };
+}
+
 // ==========================================
 // 登录页面组件
 // ==========================================
@@ -90,6 +112,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // 2FA 验证状态
+  const [show2FA, setShow2FA] = useState(false);
+  const [mfaToken, setMfaToken] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [twoFALoading, setTwoFALoading] = useState(false);
+  const [twoFAError, setTwoFAError] = useState('');
+
   // OAuth 回调错误（从 URL 参数读取）
   useEffect(() => {
     const oauthError = searchParams.get('oauth_error');
@@ -97,6 +126,69 @@ export default function LoginPage() {
       setError(decodeURIComponent(oauthError));
     }
   }, [searchParams]);
+
+  // ==========================================
+  // 登录响应处理：检测 2FA 挑战
+  // ==========================================
+
+  /**
+   * 处理登录接口返回数据：
+   * - 如果返回 status=requires_2fa，弹出 TOTP 验证框
+   * - 否则正常完成登录流程
+   */
+  const handleLoginResponse = (data: LoginResponse | MFAChallengeResponse): data is LoginResponse => {
+    if ('status' in data && data.status === 'requires_2fa') {
+      // 进入 2FA 验证流程
+      setMfaToken((data as MFAChallengeResponse).mfa_token);
+      setTotpCode('');
+      setTwoFAError('');
+      setShow2FA(true);
+      setLoading(false);
+      return false;
+    }
+    return true;
+  };
+
+  /** 完成登录：设置用户信息并跳转首页 */
+  const completeLogin = (data: LoginResponse | TwoFALoginResponse) => {
+    setUser({
+      id: data.user.id,
+      email: data.user.email,
+      full_name: data.user.full_name,
+      is_superuser: data.user.is_superuser,
+      phone_number: data.user.phone_number,
+      is_email_verified: data.user.is_email_verified,
+      is_2fa_enabled: data.user.is_2fa_enabled,
+    });
+    router.push('/');
+  };
+
+  // ==========================================
+  // 2FA 验证提交
+  // ==========================================
+
+  const handle2FAVerify = async () => {
+    if (!/^\d{6}$/.test(totpCode)) {
+      setTwoFAError('请输入 6 位验证码');
+      return;
+    }
+
+    setTwoFALoading(true);
+    setTwoFAError('');
+
+    try {
+      const data = await fetchAPI('/auth/2fa/login', {
+        method: 'POST',
+        body: JSON.stringify({ mfa_token: mfaToken, totp_code: totpCode }),
+      }) as TwoFALoginResponse;
+
+      completeLogin(data);
+    } catch (err: unknown) {
+      setTwoFAError(err instanceof Error ? err.message : '验证码错误，请重试');
+    } finally {
+      setTwoFALoading(false);
+    }
+  };
 
   // ==========================================
   // 倒计时逻辑
@@ -155,19 +247,11 @@ export default function LoginPage() {
       const data = await fetchAPI('/auth/login/sms', {
         method: 'POST',
         body: JSON.stringify({ phone_number: smsPhone, otp_code: otpCode }),
-      }) as LoginResponse;
+      }) as LoginResponse | MFAChallengeResponse;
 
-      setUser({
-        id: data.user.id,
-        email: data.user.email,
-        full_name: data.user.full_name,
-        is_superuser: data.user.is_superuser,
-        phone_number: data.user.phone_number,
-        is_email_verified: data.user.is_email_verified,
-        is_2fa_enabled: data.user.is_2fa_enabled,
-      });
-
-      router.push('/');
+      if (handleLoginResponse(data)) {
+        completeLogin(data);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '登录失败');
     } finally {
@@ -196,19 +280,11 @@ export default function LoginPage() {
       const data = await fetchAPI('/auth/login/password', {
         method: 'POST',
         body: JSON.stringify({ phone_number: pwdPhone, password: pwdPassword }),
-      }) as LoginResponse;
+      }) as LoginResponse | MFAChallengeResponse;
 
-      setUser({
-        id: data.user.id,
-        email: data.user.email,
-        full_name: data.user.full_name,
-        is_superuser: data.user.is_superuser,
-        phone_number: data.user.phone_number,
-        is_email_verified: data.user.is_email_verified,
-        is_2fa_enabled: data.user.is_2fa_enabled,
-      });
-
-      router.push('/');
+      if (handleLoginResponse(data)) {
+        completeLogin(data);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '登录失败');
     } finally {
@@ -242,8 +318,19 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
-      }) as { access_token: string; token_type: string };
+      });
 
+      // 检测 2FA 挑战
+      if ('status' in data && data.status === 'requires_2fa') {
+        setMfaToken(data.mfa_token);
+        setTotpCode('');
+        setTwoFAError('');
+        setShow2FA(true);
+        setLoading(false);
+        return;
+      }
+
+      // 正常邮箱登录流程
       const { setToken } = useAuthStore.getState();
       setToken(data.access_token);
 
@@ -542,6 +629,63 @@ export default function LoginPage() {
             router.push('/');
           }}
         />
+      )}
+
+      {/* 2FA TOTP 验证模态框 */}
+      {show2FA && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="w-full max-w-sm mx-4 bg-neutral-900 border border-neutral-700 rounded-xl p-6">
+            <div className="text-center mb-5">
+              <div className="w-12 h-12 mx-auto mb-3 bg-blue-500/10 rounded-full flex items-center justify-center">
+                <Lock size={24} className="text-blue-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-white">两步验证</h3>
+              <p className="text-sm text-neutral-400 mt-1">请输入身份验证器中的 6 位验证码</p>
+            </div>
+
+            {twoFAError && (
+              <div className="mb-4 p-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm text-center">
+                {twoFAError}
+              </div>
+            )}
+
+            <div className="mb-5">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6 位验证码"
+                maxLength={6}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handle2FAVerify()}
+                className="w-full px-4 py-3 bg-neutral-800 border border-neutral-600 rounded-lg text-white text-center text-2xl tracking-[0.5em] placeholder-neutral-500 placeholder-tracking-normal placeholder-text-base focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShow2FA(false);
+                  setMfaToken('');
+                  setTotpCode('');
+                  setTwoFAError('');
+                }}
+                className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm font-medium transition-colors"
+              >
+                返回
+              </button>
+              <button
+                onClick={handle2FAVerify}
+                disabled={twoFALoading || totpCode.length !== 6}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                {twoFALoading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                验证
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

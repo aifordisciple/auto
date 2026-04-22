@@ -161,6 +161,37 @@ class RouteResult(BaseModel):
     probing: Optional[ProbingRequest] = Field(default=None, description="L2 探查结果（仅当参数缺失时有值）")
 
 
+class WorkspaceContext(BaseModel):
+    """
+    结构化工作区上下文 - 供 L1 解构器消费。
+
+    将前端注入的原始 context 字典转换为类型化的结构化模型，
+    确保 L1 提示词中的上下文信息格式一致、可解析。
+    支持指代消解：active_file 对应"这个文件"，last_execution_result 对应"上面的结果"。
+    """
+    active_file: Optional[str] = Field(
+        None, description="当前打开的文件路径或 ID"
+    )
+    active_file_type: Optional[str] = Field(
+        None, description="文件类型 (h5ad, csv, fastq, bam, etc.)"
+    )
+    recent_files: List[Dict[str, str]] = Field(
+        default_factory=list, description="最近使用的文件 [{id, name, type}]"
+    )
+    active_skills: List[Dict[str, str]] = Field(
+        default_factory=list, description="工作区中可用的技能 [{id, name, category}]"
+    )
+    last_execution_status: Optional[str] = Field(
+        None, description="上次执行状态 (success/failed)"
+    )
+    last_execution_result: Optional[str] = Field(
+        None, description="上次执行结果摘要"
+    )
+    workspace_summary: Optional[str] = Field(
+        None, description="工作区自然语言摘要"
+    )
+
+
 class AgentState(TypedDict):
     """
     LangGraph 多 Agent 编排状态 (V2.0)。

@@ -24,9 +24,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import Optional, List
 from datetime import datetime, timezone
+from typing import Optional
 
 from app.core.database import get_session
 from app.core.security import (
@@ -37,6 +36,7 @@ from app.core.security import (
     create_bind_token, verify_bind_token,
     create_reset_token, verify_reset_token,
     create_email_verification_token, verify_email_verification_token,
+    create_mfa_token, verify_mfa_token,
 )
 from app.core.config import settings
 from app.models.domain import User, ActiveSession
@@ -47,135 +47,44 @@ from app.services.auth_risk_control import (
     check_login_risk, record_login_failure, clear_login_failure,
 )
 from app.services.sms_service import get_sms_service
+from app.schemas.auth import (
+    UserCreate, SMSLoginRequest, PasswordLoginRequest,
+    SendSMSRequest, LoginResponse, RefreshResponse,
+    BindPhoneRequest, ForgotPasswordSendRequest, ForgotPasswordVerifyRequest,
+    ResetPasswordRequest, BindEmailRequest, VerifyEmailRequest,
+    ChangePasswordRequest, ChangePhoneRequest,
+    TwoFASetupResponse, TwoFAVerifyRequest, TwoFADisableRequest, TwoFALoginRequest,
+)
 
 router = APIRouter()
 
 
 # ==========================================
-# 请求/响应模型
+# 内部工具：用户信息构建
 # ==========================================
 
-# --- 旧端点模型（保持不变）---
-
-class UserCreate(BaseModel):
-    """邮箱注册请求"""
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-
-
-class Token(BaseModel):
-    """JWT Token 响应"""
-    access_token: str
-    token_type: str = "bearer"
-
-
-class UserInfo(BaseModel):
-    """用户信息响应"""
-    id: int
-    email: str
-    full_name: Optional[str] = None
-    avatar_url: Optional[str] = None
-    organization: Optional[str] = None
-    phone_number: Optional[str] = None
-    bio: Optional[str] = None
-    is_superuser: bool = False
-    is_email_verified: bool = False
-    is_2fa_enabled: bool = False
-    created_at: Optional[datetime] = None
-
-
-# --- 新端点模型（阶段2新增）---
-
-class SendSMSRequest(BaseModel):
-    """发送验证码请求"""
-    phone_number: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号码")
-
-
-class SMSLoginRequest(BaseModel):
-    """验证码登录请求"""
-    phone_number: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号码")
-    otp_code: str = Field(..., min_length=6, max_length=6, description="6 位验证码")
-
-
-class PasswordLoginRequest(BaseModel):
-    """手机号+密码登录请求"""
-    phone_number: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号码")
-    password: str = Field(..., min_length=8, description="密码")
-
-
-class RefreshResponse(BaseModel):
-    """Token 刷新响应"""
-    access_token: str
-    token_type: str = "bearer"
-
-
-class ActiveSessionOut(BaseModel):
-    """活跃会话信息"""
-    session_id: int
-    user_agent: Optional[str] = None
-    ip_address: Optional[str] = None
-    device_type: Optional[str] = None
-    created_at: datetime
-    last_active_at: datetime
-    is_revoked: bool
-
-    class Config:
-        from_attributes = True
-
-
-class LoginResponse(BaseModel):
-    """登录成功响应（包含 access_token，Cookie 自动设置 refresh_token）"""
-    access_token: str
-    token_type: str = "bearer"
-    user: UserInfo
-
-
-# --- OAuth 绑定手机号模型 ---
-
-class BindPhoneRequest(BaseModel):
-    """OAuth 绑定手机号请求 — 前端提交手机号 + 验证码 + bind_ref（Redis 引用键）"""
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
-    otp_code: str = Field(..., min_length=4, max_length=6, description="短信验证码")
-    bind_ref: str = Field(..., min_length=1, description="OAuth 绑定引用键（替代 bind_token，防 URL 泄露）")
-
-
-# --- 忘记密码模型 ---
-
-class ForgotPasswordSendRequest(BaseModel):
-    """忘记密码 — 发送验证码请求"""
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
-
-
-class ForgotPasswordVerifyRequest(BaseModel):
-    """忘记密码 — 验证码校验请求"""
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
-    otp_code: str = Field(..., min_length=4, max_length=6, description="短信验证码")
-
-
-class ResetPasswordRequest(BaseModel):
-    """忘记密码 — 重置密码请求"""
-    reset_token: str = Field(..., min_length=1, description="密码重置凭证")
-    new_password: str = Field(..., min_length=8, max_length=128, description="新密码")
-
-
-# --- 邮箱绑定模型 ---
-
-class BindEmailRequest(BaseModel):
-    """绑定安全邮箱请求"""
-    email: EmailStr = Field(..., description="邮箱地址")
-    current_password: str = Field(..., min_length=1, description="当前密码（本人校验）")
-
-
-class VerifyEmailRequest(BaseModel):
-    """验证邮箱请求"""
-    token: str = Field(..., min_length=1, description="邮箱验证凭证")
+def _build_user_info(user: User) -> dict:
+    """从 User 模型构建统一格式的用户信息字典"""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "avatar_url": user.avatar_url,
+        "organization": user.organization,
+        "phone_number": user.phone_number,
+        "bio": user.bio,
+        "is_superuser": user.is_superuser,
+        "is_email_verified": user.is_email_verified,
+        "is_2fa_enabled": user.is_2fa_enabled,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
 
 
 # ==========================================
 # 旧端点实现（保持不变）
 # ==========================================
 
-@router.post("/register", response_model=Token)
+@router.post("/register")
 async def register(
     user_create: UserCreate,
     session: Session = Depends(get_session)
@@ -204,10 +113,10 @@ async def register(
 
     # 生成 Token
     access_token = create_access_token(data={"sub": str(user.id)})
-    return Token(access_token=access_token)
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session)
@@ -228,10 +137,10 @@ async def login(
 
     # 签发长命 JWT（7天，向后兼容旧端点）
     access_token = create_access_token(data={"sub": str(user.id)})
-    return Token(access_token=access_token)
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/me", response_model=UserInfo)
+@router.get("/me")
 async def get_current_user_info(
     current_user: User = Depends(get_current_user)
 ):
@@ -240,19 +149,7 @@ async def get_current_user_info(
 
     返回用户基础信息，包含阶段1新增的安全字段
     """
-    return UserInfo(
-        id=current_user.id,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        avatar_url=current_user.avatar_url,
-        organization=current_user.organization,
-        phone_number=current_user.phone_number,
-        bio=current_user.bio,
-        is_superuser=current_user.is_superuser,
-        is_email_verified=current_user.is_email_verified,
-        is_2fa_enabled=current_user.is_2fa_enabled,
-        created_at=current_user.created_at,
-    )
+    return _build_user_info(current_user)
 
 
 # ==========================================
@@ -350,6 +247,16 @@ async def login_with_sms(
         session.commit()
         session.refresh(user)
 
+    # 2FA 检查：如果用户已启用 2FA，不下发正式 Token，返回 MFA 挑战
+    if user.is_2fa_enabled:
+        mfa_token = create_mfa_token(user_id=user.id)
+        return LoginResponse(
+            access_token="",
+            user=_build_user_info(user),
+            status="requires_2fa",
+            mfa_token=mfa_token,
+        )
+
     # 签发双 Token
     access_token, refresh_token_val = _issue_tokens(
         user_id=user.id,
@@ -362,19 +269,7 @@ async def login_with_sms(
 
     return LoginResponse(
         access_token=access_token,
-        user=UserInfo(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            avatar_url=user.avatar_url,
-            organization=user.organization,
-            phone_number=user.phone_number,
-            bio=user.bio,
-            is_superuser=user.is_superuser,
-            is_email_verified=user.is_email_verified,
-            is_2fa_enabled=user.is_2fa_enabled,
-            created_at=user.created_at,
-        ),
+        user=_build_user_info(user),
     )
 
 
@@ -430,6 +325,16 @@ async def login_with_password(
     # 登录成功，清除失败记录
     clear_login_failure(request.phone_number)
 
+    # 2FA 检查：如果用户已启用 2FA，不下发正式 Token，返回 MFA 挑战
+    if user.is_2fa_enabled:
+        mfa_token = create_mfa_token(user_id=user.id)
+        return LoginResponse(
+            access_token="",
+            user=_build_user_info(user),
+            status="requires_2fa",
+            mfa_token=mfa_token,
+        )
+
     # 签发双 Token
     access_token, refresh_token_val = _issue_tokens(
         user_id=user.id,
@@ -442,19 +347,7 @@ async def login_with_password(
 
     return LoginResponse(
         access_token=access_token,
-        user=UserInfo(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            avatar_url=user.avatar_url,
-            organization=user.organization,
-            phone_number=user.phone_number,
-            bio=user.bio,
-            is_superuser=user.is_superuser,
-            is_email_verified=user.is_email_verified,
-            is_2fa_enabled=user.is_2fa_enabled,
-            created_at=user.created_at,
-        ),
+        user=_build_user_info(user),
     )
 
 
@@ -765,19 +658,7 @@ async def bind_phone(
 
     return LoginResponse(
         access_token=access_token,
-        user=UserInfo(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            avatar_url=user.avatar_url,
-            organization=user.organization,
-            phone_number=user.phone_number,
-            bio=user.bio,
-            is_superuser=user.is_superuser,
-            is_email_verified=user.is_email_verified,
-            is_2fa_enabled=user.is_2fa_enabled,
-            created_at=user.created_at,
-        ),
+        user=_build_user_info(user),
     )
 
 
@@ -1029,6 +910,220 @@ async def verify_email(
     session.commit()
 
     return {"status": "success", "message": "邮箱绑定成功"}
+
+
+# ==========================================
+# 2FA / TOTP 双因素认证（工作流 C 步骤5）
+# ==========================================
+
+@router.post("/2fa/setup", response_model=TwoFASetupResponse)
+async def setup_2fa(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    生成 TOTP 密钥（2FA 设置第一步）
+
+    流程：
+    1. 生成随机 TOTP 密钥
+    2. 暂存到 Redis（5分钟TTL，防止用户放弃设置导致脏数据）
+    3. 返回密钥和 QR 码 URI，前端渲染 QR 码供用户扫描
+    """
+    if current_user.is_2fa_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA 已启用，如需重新设置请先禁用",
+        )
+
+    import pyotp
+    from app.services.cache_service import RedisCache
+
+    # 生成随机 TOTP 密钥
+    secret = pyotp.random_base32()
+
+    # 构建 QR 码 URI（Authenticator App 扫码识别）
+    totp = pyotp.TOTP(secret)
+    qr_uri = totp.provisioning_uri(
+        name=current_user.email or str(current_user.id),
+        issuer_name="Autonome Studio",
+    )
+
+    # 暂存到 Redis，5 分钟 TTL（不直接写入数据库，防止用户放弃设置导致脏数据）
+    cache = RedisCache()
+    cache.set(f"2fa:setup:{current_user.id}", secret, ttl=300)
+
+    return TwoFASetupResponse(secret=secret, qr_uri=qr_uri)
+
+
+@router.post("/2fa/verify")
+async def verify_and_enable_2fa(
+    request: TwoFAVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    验证并启用 2FA（2FA 设置第二步）
+
+    流程：
+    1. 从 Redis 取出暂存的 TOTP 密钥
+    2. 验证用户输入的 6 位 TOTP 码
+    3. 验证通过：写入数据库，启用 2FA
+    4. 生成备用恢复码（10 个随机 8 位码）
+    """
+    import pyotp
+    from app.services.cache_service import RedisCache
+
+    # 从 Redis 取出暂存密钥
+    cache = RedisCache()
+    stored_secret = cache.get(f"2fa:setup:{current_user.id}")
+    if not stored_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="设置凭证已过期，请重新获取",
+        )
+
+    # 校验密钥一致性（防止用户篡改）
+    if stored_secret != request.secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密钥不匹配，请重新获取",
+        )
+
+    # 验证 TOTP 码
+    totp = pyotp.TOTP(request.secret)
+    if not totp.verify(request.totp_code, valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证码错误，请重试",
+        )
+
+    # 验证通过：写入数据库，启用 2FA
+    current_user.two_factor_secret = request.secret
+    current_user.is_2fa_enabled = True
+    session.add(current_user)
+    session.commit()
+
+    # 删除 Redis 暂存密钥
+    cache.delete(f"2fa:setup:{current_user.id}")
+
+    # 生成备用恢复码（10 个随机 8 位码，用户应保存）
+    import secrets as _secrets
+    recovery_codes = [_secrets.token_hex(4).upper() for _ in range(10)]
+
+    # 将恢复码哈希存入 Redis（用于后续验证）
+    from app.core.security import get_password_hash
+    hashed_codes = [get_password_hash(code) for code in recovery_codes]
+    # 存储为 JSON 列表，TTL 无限期（直到用户重新生成或禁用 2FA）
+    import json
+    cache.set(f"2fa:recovery:{current_user.id}", json.dumps(hashed_codes), ttl=86400 * 365)
+
+    return {
+        "status": "success",
+        "message": "2FA 已启用",
+        "recovery_codes": recovery_codes,
+    }
+
+
+@router.post("/2fa/disable")
+async def disable_2fa(
+    request: TwoFADisableRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    禁用 2FA
+
+    安全要求：必须验证当前 TOTP 码，防止他人未经授权禁用
+    """
+    import pyotp
+
+    if not current_user.is_2fa_enabled or not current_user.two_factor_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA 未启用",
+        )
+
+    # 验证 TOTP 码
+    totp = pyotp.TOTP(current_user.two_factor_secret)
+    if not totp.verify(request.totp_code, valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证码错误，无法禁用 2FA",
+        )
+
+    # 禁用 2FA
+    current_user.is_2fa_enabled = False
+    current_user.two_factor_secret = None
+    session.add(current_user)
+    session.commit()
+
+    # 清除恢复码
+    from app.services.cache_service import RedisCache
+    cache = RedisCache()
+    cache.delete(f"2fa:recovery:{current_user.id}")
+
+    return {"status": "success", "message": "2FA 已禁用"}
+
+
+@router.post("/2fa/login", response_model=LoginResponse)
+async def login_with_2fa(
+    request: TwoFALoginRequest,
+    http_request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+):
+    """
+    2FA 登录验证
+
+    流程：
+    1. 验证 MFA Token（5 分钟临时凭证）
+    2. 查找用户并验证 TOTP 码
+    3. 验证通过：签发正式双 Token
+    """
+    import pyotp
+
+    # 验证 MFA Token
+    mfa_payload = verify_mfa_token(request.mfa_token)
+    if not mfa_payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="MFA 凭证无效或已过期，请重新登录",
+        )
+
+    user_id = int(mfa_payload["sub"])
+    user = session.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在或已禁用",
+        )
+
+    if not user.is_2fa_enabled or not user.two_factor_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该用户未启用 2FA",
+        )
+
+    # 验证 TOTP 码
+    totp = pyotp.TOTP(user.two_factor_secret)
+    if not totp.verify(request.totp_code, valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证码错误",
+        )
+
+    # 验证通过：签发正式双 Token
+    access_token, refresh_token_val = _issue_tokens(
+        user_id=user.id,
+        http_request=http_request,
+        session=session,
+    )
+    set_auth_cookies(response, access_token, refresh_token_val)
+
+    return LoginResponse(
+        access_token=access_token,
+        user=_build_user_info(user),
+    )
 
 
 # ==========================================

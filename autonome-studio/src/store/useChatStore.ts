@@ -248,9 +248,10 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   //   如果不保留，thinkingContent 会被 convertToStoreMessages 生成的新消息覆盖掉）
   syncFromUseChat: (messages: Message[], isLoading: boolean) =>
     set((state) => {
-      // 构建已有 thinkingContent 和 attachments 的索引：key=message.id
+      // 构建已有 thinkingContent、attachments 和 toolInvocationParts 的索引：key=message.id
       const thinkingMap = new Map<string, string>();
       const attachmentsMap = new Map<string, MessageAttachments>();
+      const toolPartsMap = new Map<string, Message['toolInvocationParts']>();
       for (const msg of state.mirroredMessages) {
         if (msg.thinkingContent) {
           thinkingMap.set(msg.id, msg.thinkingContent);
@@ -258,15 +259,21 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
         if (msg.attachments) {
           attachmentsMap.set(msg.id, msg.attachments);
         }
+        // ✨ Active Probing：保留已有的 toolInvocationParts，防止合并时丢失
+        if (msg.toolInvocationParts) {
+          toolPartsMap.set(msg.id, msg.toolInvocationParts);
+        }
       }
-      // 合并：新消息优先，但保留已有的 thinkingContent 和 attachments
+      // 合并：新消息优先，但保留已有的 thinkingContent、attachments 和 toolInvocationParts
       const merged = messages.map(msg => {
         const existingThinking = thinkingMap.get(msg.id);
         const existingAttachments = attachmentsMap.get(msg.id);
+        const existingToolParts = toolPartsMap.get(msg.id);
         return {
           ...msg,
           thinkingContent: msg.thinkingContent || existingThinking,
           attachments: msg.attachments || existingAttachments,
+          toolInvocationParts: msg.toolInvocationParts ?? existingToolParts,
         };
       });
       return { mirroredMessages: merged, mirroredIsTyping: isLoading };

@@ -18,6 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from app.agent.router.schemas import TaskDAG, TaskNode, IntentType
+from app.agent.router.context_builder import build_workspace_context, format_workspace_context_for_prompt
 from app.core.logger import log
 from app.utils.llm_config import get_llm_config, _is_local_model
 
@@ -52,6 +53,22 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 3. 如果多个任务之间有依赖关系，在 dependencies 中标注前置 task_id
 4. 对指代词（"这个文件"、"上面的结果"等）进行消解，填入 resolved_assets
 5. 从用户输入中提取关键参数，填入 parameters
+
+## 指代消解规则 (Coreference Resolution)
+
+当用户输入包含指代词时，必须将其映射到工作区上下文中的具体实体，并填入 resolved_assets：
+
+| 指代词模式 | 映射目标 | resolved_assets 填写 |
+|-----------|---------|---------------------|
+| "这个文件"、"这个数据"、"它" | 当前活跃文件 | [active_file ID] |
+| "上面的结果"、"上次的结果" | 上次执行结果 | [result ID] |
+| "那个技能"、"XX技能" | 可用技能中匹配项 | [skill_id] |
+| "左侧文件"、"文件列表中的XX" | 最近文件中匹配项 | [file_id] |
+
+**关键约束**：
+1. 如果指代词可以消解，必须在 resolved_assets 中填入具体的 ID
+2. 如果指代词无法消解（上下文中无匹配实体），保留 raw_instruction 中的原始指代词，不要猜测或编造 ID
+3. 多个指代词指向同一实体时，resolved_assets 中只保留一个 ID
 
 ## 输出格式
 
@@ -148,8 +165,11 @@ class L1Classifier:
         """
         log.info(f"[L1] 正在调用 LLM 解构: query='{query[:50]}...'")
 
-        # 构建工作区上下文字符串，供提示词模板填充
-        workspace_context = str(context) if context else "无可用上下文"
+        # V2.1: 使用结构化上下文替代 str(context) 原始注入
+        # build_workspace_context 将原始字典转换为 WorkspaceContext 模型
+        # format_workspace_context_for_prompt 将模型格式化为 L1 提示词文本
+        ws_ctx = build_workspace_context(context or {})
+        workspace_context = format_workspace_context_for_prompt(ws_ctx)
 
         try:
             if self.is_local:
@@ -260,8 +280,10 @@ class L1Classifier:
             '}'
         )
 
-        # 填充工作区上下文到提示词模板
-        workspace_context = str(context) if context else "无可用上下文"
+        # V2.1: 使用结构化上下文替代 str(context) 原始注入
+        # 与 decompose() 保持一致，确保本地模型和第三方 API 使用相同的上下文格式
+        ws_ctx = build_workspace_context(context or {})
+        workspace_context = format_workspace_context_for_prompt(ws_ctx)
         system_msg = L1_DECOMPOSER_PROMPT_TEMPLATE.format(
             workspace_context=workspace_context
         ) + json_instruction

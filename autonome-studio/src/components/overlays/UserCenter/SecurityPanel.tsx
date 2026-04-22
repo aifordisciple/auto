@@ -95,8 +95,19 @@ export function SecurityPanel() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // 2FA 状态（MVP 占位）
-  const [twoFAEnabled, setTwoFAEnabled] = useState(false);
+  // 2FA 状态
+  const [twoFAEnabled, setTwoFAEnabled] = useState(user?.is_2fa_enabled ?? false);
+  // 2FA 设置流程状态
+  const [twoFASetupStep, setTwoFASetupStep] = useState<'idle' | 'setup' | 'verify' | 'recovery'>('idle');
+  const [twoFASecret, setTwoFASecret] = useState('');
+  const [twoFAQRUri, setTwoFAQRUri] = useState('');
+  const [twoFAVerifyCode, setTwoFAVerifyCode] = useState('');
+  const [twoFARecoveryCodes, setTwoFARecoveryCodes] = useState<string[]>([]);
+  const [twoFALoading, setTwoFALoading] = useState(false);
+  const [twoFAMessage, setTwoFAMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // 2FA 禁用流程状态
+  const [twoFADisableCode, setTwoFADisableCode] = useState('');
+  const [twoFADisableLoading, setTwoFADisableLoading] = useState(false);
 
   // 上次密码修改时间（模拟数据，实际应从后端获取）
   const [lastPasswordChange] = useState<string | null>(null);
@@ -198,6 +209,71 @@ export function SecurityPanel() {
 
   // 检查是否已绑定某 OAuth
   const isBound = (provider: string) => oauthAccounts.some(a => a.provider === provider);
+
+  // ── 2FA 设置流程 ──
+  const handle2FASetup = async () => {
+    setTwoFALoading(true);
+    setTwoFAMessage(null);
+    try {
+      const data = await fetchAPI('/auth/2fa/setup', { method: 'POST' });
+      setTwoFASecret(data.secret);
+      setTwoFAQRUri(data.qr_uri);
+      setTwoFASetupStep('setup');
+    } catch (err: unknown) {
+      setTwoFAMessage({ type: 'error', text: err instanceof Error ? err.message : '2FA 设置失败' });
+    } finally {
+      setTwoFALoading(false);
+    }
+  };
+
+  const handle2FAVerify = async () => {
+    if (!twoFAVerifyCode || twoFAVerifyCode.length !== 6) {
+      setTwoFAMessage({ type: 'error', text: '请输入 6 位验证码' });
+      return;
+    }
+    setTwoFALoading(true);
+    setTwoFAMessage(null);
+    try {
+      const data = await fetchAPI('/auth/2fa/verify', {
+        method: 'POST',
+        body: JSON.stringify({ secret: twoFASecret, totp_code: twoFAVerifyCode }),
+      });
+      if (data.recovery_codes) {
+        setTwoFARecoveryCodes(data.recovery_codes);
+        setTwoFASetupStep('recovery');
+        setTwoFAEnabled(true);
+        await fetchProfile(); // 刷新用户信息
+      }
+    } catch (err: unknown) {
+      setTwoFAMessage({ type: 'error', text: err instanceof Error ? err.message : '验证码错误' });
+    } finally {
+      setTwoFALoading(false);
+    }
+  };
+
+  const handle2FADisable = async () => {
+    if (!twoFADisableCode || twoFADisableCode.length !== 6) {
+      setTwoFAMessage({ type: 'error', text: '请输入 6 位验证码以确认禁用' });
+      return;
+    }
+    setTwoFADisableLoading(true);
+    setTwoFAMessage(null);
+    try {
+      await fetchAPI('/auth/2fa/disable', {
+        method: 'POST',
+        body: JSON.stringify({ totp_code: twoFADisableCode }),
+      });
+      setTwoFAEnabled(false);
+      setTwoFADisableCode('');
+      setTwoFASetupStep('idle');
+      setTwoFAMessage({ type: 'success', text: '2FA 已禁用' });
+      await fetchProfile(); // 刷新用户信息
+    } catch (err: unknown) {
+      setTwoFAMessage({ type: 'error', text: err instanceof Error ? err.message : '验证码错误，无法禁用 2FA' });
+    } finally {
+      setTwoFADisableLoading(false);
+    }
+  };
 
   // ── 安全邮箱绑定 ──
   const handleBindEmail = async () => {

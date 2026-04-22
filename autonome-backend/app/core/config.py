@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     
     # 前端 URL
     FRONTEND_URL: str = "http://localhost:3000"
+
+    # 后端 API Base URL（OAuth 回调地址构造使用）
+    BASE_URL: str = "http://localhost:8000"
     
     # 读取 .env 文件，忽略额外的环境变量
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

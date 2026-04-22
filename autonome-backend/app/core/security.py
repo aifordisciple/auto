@@ -273,6 +273,45 @@ def verify_email_verification_token(token: str) -> dict | None:
 
 
 # ==========================================
+# MFA Token（2FA 登录挑战凭证）
+# ==========================================
+
+def create_mfa_token(user_id: int) -> str:
+    """
+    创建 MFA 挑战 Token
+
+    当用户已启用 2FA 时，登录验证密码/OTP 成功后不下发正式 Token，
+    而是签发此临时 Token。前端收到后弹出 2FA 验证码输入框，
+    用户提交 TOTP 码 + 此 Token 完成二次验证。
+
+    Token 有效期 5 分钟，scope=mfa_challenge。
+    """
+    data = {
+        "sub": str(user_id),
+        "scope": "mfa_challenge",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    return jwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_mfa_token(token: str) -> dict | None:
+    """
+    验证 MFA 挑战 Token
+
+    Returns:
+        解析后的载荷字典，包含 sub(user_id)；
+        若 Token 无效、过期或 scope 不是 mfa_challenge，返回 None
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("scope") != "mfa_challenge":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+# ==========================================
 # Cookie 辅助函数
 # ==========================================
 

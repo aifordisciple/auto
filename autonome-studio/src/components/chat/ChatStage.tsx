@@ -124,6 +124,10 @@ export function ChatStage() {
     addToolResult,
   } = useChat({
     transport: chatTransport,
+    // ✨ Active Probing：启用多步工具调用流程
+    // 当用户通过 addToolResult 提交参数后，SDK 需要继续对话循环，
+    // 让后端处理工具结果并恢复 LangGraph 状态机
+    maxSteps: 5,
     onError: (error) => {
       console.error('[useChat] Stream error:', error);
       // 根据错误类型提供用户友好提示
@@ -355,12 +359,31 @@ export function ChatStage() {
           // 同步给 Vercel AI SDK 的 aiMessages
           // 构造完整的 UIMessage 格式，包含 parts 字段（text part 从 content 重建），
           // 避免 Vercel AI SDK 因缺少 parts 导致内部状态不一致
-          setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string }) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            parts: m.content ? [{ type: 'text' as const, text: m.content }] : [],
-          })));
+          // ✨ Active Probing：如果历史消息包含 tool_calls，重建 tool invocation parts
+          setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string; tool_calls?: any }) => {
+            const parts = m.content ? [{ type: 'text' as const, text: m.content }] : [];
+            // ✨ 从后端 tool_calls 数据重建工具调用 parts（用于 Active Probing 历史回显）
+            // 后端 AIMessage 的 tool_calls 字段包含工具调用信息，
+            // 重建为 Vercel AI SDK v5 的 tool invocation parts 格式
+            if (m.tool_calls && Array.isArray(m.tool_calls)) {
+              for (const tc of m.tool_calls) {
+                parts.push({
+                  type: `tool-${tc.name}`,
+                  toolCallId: tc.id || `call_${m.id}`,
+                  toolName: tc.name,
+                  state: 'output-available', // 历史消息的工具调用已完成
+                  input: tc.args || {},
+                  output: { status: 'completed' },
+                });
+              }
+            }
+            return {
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              parts,
+            };
+          }));
 
           // 标记已拉取，避免重复
           lastFetchedSessionIdRef.current = currentSessionId;

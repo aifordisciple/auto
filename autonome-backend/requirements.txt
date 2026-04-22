@@ -28,6 +28,7 @@ requests==2.31.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
+pyotp>=2.9.0
 
 # Aliyun SMS SDK
 alibabacloud-dysmsapi20170525>=3.0.0
