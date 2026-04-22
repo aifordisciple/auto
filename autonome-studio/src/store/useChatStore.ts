@@ -33,6 +33,21 @@ export interface Message {
   queueItemId?: string;
   /** ✨ 深度思考内容：流式结束后保留在消息上，不会随全局状态清空而消失 */
   thinkingContent?: string;
+  /**
+   * ✨ Active Probing：工具调用 parts
+   * 从 Vercel AI SDK UIMessage.parts 中提取的 tool-invocation / dynamic-tool 部分，
+   * 用于在 MemoizedMessageItem 中渲染 ParameterProbingCard 参数探查表单
+   */
+  toolInvocationParts?: Array<{
+    type: string;
+    toolCallId?: string;
+    toolName?: string;
+    state?: string;
+    input?: unknown;
+    output?: unknown;
+    errorText?: string;
+    [key: string]: unknown;
+  }>;
 }
 
 export interface Bookmark {

@@ -5,7 +5,7 @@ import { useState } from 'react'
 /**
  * JSON Schema 属性定义（简化版，仅支持 L2 探查所需的类型）
  */
-interface SchemaProperty {
+export interface SchemaProperty {
   type: 'string' | 'number' | 'boolean'
   title?: string
   description?: string
@@ -16,7 +16,7 @@ interface SchemaProperty {
   step?: number
 }
 
-interface ParameterProbingCardProps {
+export interface ParameterProbingCardProps {
   /** 追问提示语 */
   message: string
   /** JSON Schema 定义（包含 properties 和 required） */

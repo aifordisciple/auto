@@ -120,6 +120,8 @@ export function ChatStage() {
     sendMessage,
     setMessages: setAiMessages,
     error: chatError,
+    // ✨ Active Probing：提交工具调用结果（如用户填写的参数）回传给 LLM
+    addToolResult,
   } = useChat({
     transport: chatTransport,
     onError: (error) => {
@@ -191,6 +193,14 @@ export function ChatStage() {
       // ✨ 判断是否为最后一条用户消息（用于关联 pendingAttachments）
       const isLastUserMsg = msg.role === 'user' && idx === aiMessages.length - 1;
 
+      // ✨ Active Probing：提取 toolInvocation 类型的 parts
+      // Vercel AI SDK v5 中工具调用以 parts 形式存储，type 为 "tool-xxx" 或 "dynamic-tool"
+      // 这里提取所有与工具调用相关的 parts，供 MemoizedMessageItem 渲染 ParameterProbingCard
+      const toolInvocationParts = msg.parts?.filter(
+        (p): p is typeof p & { type: string; toolCallId?: string; toolName?: string } =>
+          (p.type.startsWith('tool-') || p.type === 'dynamic-tool')
+      ) || [];
+
       return {
         id: msg.id,
         role: msg.role as 'user' | 'assistant' | 'system',
@@ -200,6 +210,8 @@ export function ChatStage() {
         thinkingContent: thinkingMap.get(msg.id),
         attachments: attachmentsMap.get(msg.id)
           || (isLastUserMsg && pendingAttachments ? pendingAttachments : undefined),
+        // ✨ Active Probing：工具调用 parts，用于渲染参数探查表单
+        toolInvocationParts: toolInvocationParts.length > 0 ? toolInvocationParts : undefined,
       };
     });
   }, [aiMessages, mirroredMessages]);
@@ -484,6 +496,8 @@ export function ChatStage() {
               onInterpret={(files, code, userMsg) => handleInterpret(files, code, userMsg, handleSendWrapper)}
               onRetry={handleRetry}
               onEditResend={handleEditResend}
+              // ✨ Active Probing：传递 addToolResult 供 ParameterProbingCard 提交参数
+              addToolResult={addToolResult}
               scrollContainerRef={scrollContainerRef}
               messagesEndRef={messagesEndRef}
             />

@@ -1,13 +1,14 @@
 "use client";
 
 import { memo, useState, useMemo } from "react";
-import { User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, ChevronDown, ChevronRight, RefreshCw, Edit3, X, Send, CheckCircle } from "lucide-react";
+import { User, FileText, Image as ImageIcon, Box, Copy, Check, Sparkles, Eye, Download, ChevronDown, ChevronRight, RefreshCw, Edit3, X, Send, CheckCircle, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { Message, MessageAttachments } from "@/store/useChatStore";
 import { useChatStore } from "@/store/useChatStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
+import { ParameterProbingCard, type ParameterProbingCardProps } from "./ParameterProbingCard";
 import { BASE_URL, getToken } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
 import { buildAssetTreeFromFiles, AssetTreeNode } from "@/components/chat/shared/AssetTree";
@@ -165,6 +166,14 @@ interface MemoizedMessageItemProps {
   // 新增：重试和编辑回调
   onRetry?: (messageId: string) => void;
   onEditResend?: (messageId: string, newContent: string, attachments?: MessageAttachments) => void;
+  /**
+   * ✨ Active Probing：提交工具调用结果
+   * 来自 Vercel AI SDK useChat 的 addToolResult，
+   * 供 ParameterProbingCard 将用户填写的参数回传给 LLM
+   * 使用宽松类型避免与 SDK 内部泛型不兼容
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addToolResult: any;
 }
 
 const MemoizedMessageItem = memo(function MemoizedMessageItem({
@@ -178,6 +187,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
   onInterpret,
   onRetry,
   onEditResend,
+  addToolResult,
 }: MemoizedMessageItemProps) {
   // ✨ 复制按钮状态
   const [copied, setCopied] = useState(false);
@@ -498,6 +508,76 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                 // 简化版：返回普通 Markdown 渲染
                 return <MarkdownBlock content={displayContent} projectId={currentProjectId} />;
               })()}
+
+              {/* ✨ Active Probing：渲染工具调用（ParameterProbingCard 参数探查表单）
+                  Vercel AI SDK v5 中，工具调用以 parts 形式存储在 UIMessage 上。
+                  当后端 L2 层检测到参数缺失时，通过 ToolCall 发送 JSON Schema，
+                  前端使用 ParameterProbingCard 动态渲染表单，用户补全后参数合并回 TaskNode。 */}
+              {msg.toolInvocationParts && msg.toolInvocationParts.length > 0 && (
+                <div className="space-y-3">
+                  {msg.toolInvocationParts.map((part) => {
+                    // 提取工具名称：Vercel AI SDK v5 中 type 为 "tool-xxx" 或 "dynamic-tool"
+                    const toolName = part.type === 'dynamic-tool'
+                      ? (part as { toolName: string }).toolName
+                      : part.type.replace('tool-', '');
+                    const toolCallId = part.toolCallId || '';
+                    const toolState = part.state || '';
+                    const toolInput = part.input as Record<string, unknown> | undefined;
+
+                    // ✨ request_parameters 工具：渲染 ParameterProbingCard 参数探查表单
+                    if (toolName === 'request_parameters' && toolState !== 'output-available' && toolState !== 'output-error') {
+                      // 从 input 中提取 schema 和 message
+                      const schema = (toolInput?.schema || {}) as ParameterProbingCardProps['schema'];
+                      const message = (toolInput?.message || '') as string;
+
+                      return (
+                        <ParameterProbingCard
+                          key={toolCallId}
+                          message={message}
+                          schema={schema}
+                          onSubmit={(values) => {
+                            // 将用户填写的参数通过 addToolResult 回传给 LLM
+                            addToolResult({
+                              tool: toolName,
+                              toolCallId,
+                              output: values,
+                            });
+                          }}
+                        />
+                      );
+                    }
+
+                    // ✨ 工具调用已完成（output-available）：显示绿色勾号"参数已补全"
+                    if (toolState === 'output-available') {
+                      return (
+                        <div
+                          key={toolCallId}
+                          className="flex items-center gap-1.5 text-xs text-emerald-500"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>参数已补全</span>
+                        </div>
+                      );
+                    }
+
+                    // ✨ 工具调用出错（output-error）：显示错误提示
+                    if (toolState === 'output-error') {
+                      return (
+                        <div
+                          key={toolCallId}
+                          className="flex items-center gap-1.5 text-xs text-red-400"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>参数提交失败</span>
+                        </div>
+                      );
+                    }
+
+                    // 其他工具调用状态不渲染（如 input-streaming）
+                    return null;
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

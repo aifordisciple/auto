@@ -38,6 +38,14 @@ export interface VirtualizedMessageListProps {
   onRetry: (messageId: string) => void;
   /** 编辑重发回调 */
   onEditResend: (messageId: string, newContent: string, attachments?: any) => void;
+  /**
+   * ✨ Active Probing：提交工具调用结果
+   * 来自 Vercel AI SDK useChat 的 addToolResult，
+   * 供 ParameterProbingCard 将用户填写的参数回传给 LLM
+   * 使用宽松类型避免与 SDK 内部泛型不兼容
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addToolResult: any;
   /** 滚动容器引用 */
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   /** 消息底部引用 */
@@ -59,6 +67,7 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
   onInterpret,
   onRetry,
   onEditResend,
+  addToolResult,
   scrollContainerRef,
   messagesEndRef,
   footer,
@@ -152,6 +161,8 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
             onInterpret={onInterpret}
             onRetry={onRetry}
             onEditResend={onEditResend}
+            // ✨ Active Probing：传递 addToolResult 供 ParameterProbingCard 提交参数
+            addToolResult={addToolResult}
           />
         ))}
       </AnimatePresence>
