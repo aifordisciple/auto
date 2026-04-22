@@ -133,10 +133,10 @@ class LoginResponse(BaseModel):
 # --- OAuth 绑定手机号模型 ---
 
 class BindPhoneRequest(BaseModel):
-    """OAuth 绑定手机号请求 — 前端提交手机号 + 验证码 + bind_token"""
+    """OAuth 绑定手机号请求 — 前端提交手机号 + 验证码 + bind_ref（Redis 引用键）"""
     phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
     otp_code: str = Field(..., min_length=4, max_length=6, description="短信验证码")
-    bind_token: str = Field(..., min_length=1, description="OAuth 绑定凭证")
+    bind_ref: str = Field(..., min_length=1, description="OAuth 绑定引用键（替代 bind_token，防 URL 泄露）")
 
 
 # --- 忘记密码模型 ---
@@ -572,34 +572,45 @@ async def logout(
     return {"status": "success", "message": "已登出"}
 
 
-@router.get("/sessions", response_model=List[ActiveSessionOut])
+@router.get("/sessions")
 async def list_sessions(
+    request: Request,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     """
-    查看当前用户的在线设备列表
+    列出当前用户的所有活跃会话（设备管理）
 
-    返回所有未撤销且未过期的会话
+    通过比对当前请求的 refresh_token Cookie 哈希值，
+    标记 is_current 字段以区分当前设备和其他设备。
     """
     now = datetime.now(timezone.utc)
     sessions = session.exec(
         select(ActiveSession).where(
             ActiveSession.user_id == current_user.id,
-            ActiveSession.is_revoked == False,
+            ActiveSession.is_revoked == False,  # noqa: E712
             ActiveSession.expires_at > now,
-        )
+        ).order_by(ActiveSession.last_active_at.desc())
     ).all()
 
-    return [ActiveSessionOut(
-        session_id=s.session_id,
-        user_agent=s.user_agent,
-        ip_address=s.ip_address,
-        device_type=s.device_type,
-        created_at=s.created_at,
-        last_active_at=s.last_active_at,
-        is_revoked=s.is_revoked,
-    ) for s in sessions]
+    # 从 Cookie 中提取 refresh_token，计算哈希以匹配当前会话
+    current_rt_hash = None
+    rt_cookie = request.cookies.get("refresh_token")
+    if rt_cookie:
+        current_rt_hash = hash_refresh_token(rt_cookie)
+
+    return [
+        {
+            "session_id": s.session_id,
+            "user_agent": s.user_agent,
+            "ip_address": s.ip_address,
+            "device_type": s.device_type,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "last_active_at": s.last_active_at.isoformat() if s.last_active_at else None,
+            "is_current": s.refresh_token_hash == current_rt_hash,
+        }
+        for s in sessions
+    ]
 
 
 @router.post("/sessions/{session_id}/revoke")
@@ -659,8 +670,20 @@ async def bind_phone(
     """
     from app.models.user import OAuthAccount
 
-    # 1. 验证 bind_token
-    bind_payload = verify_bind_token(request.bind_token)
+    # 1. 从 Redis 取出 bind_token（bind_ref 是不透明引用键，防 URL 泄露）
+    from app.services.cache_service import RedisCache
+    cache = RedisCache()
+    bind_token = cache.get(f"auth:bind_ref:{request.bind_ref}")
+    if not bind_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="绑定凭证无效或已过期，请重新登录",
+        )
+    # 一次性使用：取出后立即删除引用键
+    cache.delete(f"auth:bind_ref:{request.bind_ref}")
+
+    # 2. 验证 bind_token
+    bind_payload = verify_bind_token(bind_token)
     if not bind_payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

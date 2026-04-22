@@ -204,7 +204,7 @@ async def github_callback(
             return _oauth_bind_redirect(bind_token, github_name)
 
     # ── 4. 签发 Token + 设置 Cookie + 重定向 ──
-    return _issue_tokens_and_redirect(user, db)
+    return _issue_tokens_and_redirect(user, db, request)
 
 
 # ──────────────────────────────────────────────
@@ -333,7 +333,7 @@ async def wechat_callback(
         )
         return _oauth_bind_redirect(bind_token, wechat_nickname)
 
-    return _issue_tokens_and_redirect(user, db)
+    return _issue_tokens_and_redirect(user, db, request)
 
 
 # ──────────────────────────────────────────────
@@ -471,22 +471,34 @@ def _oauth_error_redirect(error: str):
 
 def _oauth_bind_redirect(bind_token: str, provider_name: str = ""):
     """
-    OAuth 需要绑定手机号时，重定向到前端登录页，携带 bind_token
+    OAuth 需要绑定手机号时，将 bind_token 存入 Redis 并重定向到前端
 
-    前端检测到 requires_binding 参数后，弹出不可关闭的绑定手机号模态框
+    安全设计：bind_token 不直接暴露在 URL 中（防浏览器历史/日志泄露），
+    而是生成一个短随机引用键存入 Redis（10 分钟 TTL），前端仅接收引用键。
+    绑定手机号时，前端发送引用键，后端从 Redis 取出真实 bind_token。
     """
+    import secrets
     from fastapi.responses import RedirectResponse
     from urllib.parse import urlencode
+    from app.services.cache_service import RedisCache
+
+    # 生成不透明的一次性引用键
+    bind_ref = secrets.token_urlsafe(32)
+
+    # 存入 Redis，10 分钟 TTL（与 bind_token 有效期一致）
+    cache = RedisCache()
+    cache.set(f"auth:bind_ref:{bind_ref}", bind_token, ttl=600)
+
     frontend_url = settings.FRONTEND_URL or "http://localhost:3001"
     params = urlencode({
         "requires_binding": "true",
-        "bind_token": bind_token,
+        "bind_ref": bind_ref,
         "provider_name": provider_name,
     })
     return RedirectResponse(url=f"{frontend_url}/login?{params}")
 
 
-def _issue_tokens_and_redirect(user: User, db: Session):
+def _issue_tokens_and_redirect(user: User, db: Session, http_request: Request = None):
     """
     签发 Access Token + Refresh Token，设置 Cookie，重定向到前端
 
@@ -503,13 +515,25 @@ def _issue_tokens_and_redirect(user: User, db: Session):
     rt_hash = hash_refresh_token(refresh_token_val)
     expires_at = get_refresh_token_expires_at()
 
+    # 提取设备信息（从 OAuth 回调请求中获取）
+    user_agent = "oauth-login"
+    ip_address = "oauth"
+    device_type = "oauth"
+    if http_request:
+        user_agent = http_request.headers.get("User-Agent", "oauth-login")[:512]
+        ip_address = http_request.client.host if http_request.client else "unknown"
+        forwarded = http_request.headers.get("X-Forwarded-For")
+        if forwarded:
+            ip_address = forwarded.split(",")[0].strip()
+        device_type = _detect_device_type(user_agent)
+
     # 创建活跃会话记录
     active_session = ActiveSession(
         user_id=user.id,
         refresh_token_hash=rt_hash,
-        user_agent="oauth-login",
-        ip_address="oauth",
-        device_type="oauth",
+        user_agent=user_agent,
+        ip_address=ip_address,
+        device_type=device_type,
         expires_at=expires_at,
     )
     db.add(active_session)
@@ -523,6 +547,20 @@ def _issue_tokens_and_redirect(user: User, db: Session):
     set_auth_cookies(response, access_token, refresh_token_val)
 
     return response
+
+
+def _detect_device_type(user_agent: str) -> str:
+    """从 User-Agent 检测设备类型"""
+    ua = user_agent.lower()
+    if any(k in ua for k in ["mobile", "android", "iphone", "ipad"]):
+        return "mobile"
+    elif "mac" in ua:
+        return "mac"
+    elif "windows" in ua:
+        return "windows"
+    elif "linux" in ua:
+        return "linux"
+    return "desktop"
 
 
 async def _fetch_oauth_user_info(provider: str, code: str) -> dict | None:

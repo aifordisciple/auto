@@ -52,17 +52,17 @@ export default function LoginPage() {
 
   // OAuth 绑定手机号状态（从 URL 参数读取）
   const [showBindModal, setShowBindModal] = useState(false);
-  const [bindToken, setBindToken] = useState('');
+  const [bindRef, setBindRef] = useState('');
   const [bindProviderName, setBindProviderName] = useState('');
 
   // 检测 OAuth 回调参数：绑定手机号
   useEffect(() => {
     const requiresBinding = searchParams.get('requires_binding');
-    const token = searchParams.get('bind_token');
+    const ref = searchParams.get('bind_ref');
     const providerName = searchParams.get('provider_name');
 
-    if (requiresBinding === 'true' && token) {
-      setBindToken(token);
+    if (requiresBinding === 'true' && ref) {
+      setBindRef(ref);
       setBindProviderName(providerName || '');
       setShowBindModal(true);
     }
@@ -533,9 +533,9 @@ export default function LoginPage() {
       </div>
 
       {/* OAuth 强制绑定手机号模态框 */}
-      {showBindModal && bindToken && (
+      {showBindModal && bindRef && (
         <BindPhoneModal
-          bindToken={bindToken}
+          bindRef={bindRef}
           providerName={bindProviderName}
           onComplete={() => {
             setShowBindModal(false);

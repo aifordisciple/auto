@@ -24,12 +24,12 @@ import {
 } from 'lucide-react';
 
 interface BindPhoneModalProps {
-  bindToken: string;
+  bindRef: string;
   providerName?: string;
   onComplete: () => void;
 }
 
-export function BindPhoneModal({ bindToken, providerName, onComplete }: BindPhoneModalProps) {
+export function BindPhoneModal({ bindRef, providerName, onComplete }: BindPhoneModalProps) {
   const router = useRouter();
   const { setUser, setToken, fetchProfile } = useAuthStore();
 
@@ -88,7 +88,7 @@ export function BindPhoneModal({ bindToken, providerName, onComplete }: BindPhon
         body: JSON.stringify({
           phone,
           otp_code: otp,
-          bind_token: bindToken,
+          bind_ref: bindRef,
         }),
       });
 

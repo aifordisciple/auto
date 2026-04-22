@@ -127,6 +127,7 @@ export function SecurityPanel() {
     device_type: string | null;
     created_at: string;
     last_active_at: string;
+    is_current: boolean;
   }>>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [revokeLoading, setRevokeLoading] = useState<number | null>(null);
@@ -750,20 +751,29 @@ export function SecurityPanel() {
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-neutral-200 truncate">
                           {os} · {browser}
+                          {s.is_current && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 bg-blue-500/10 text-blue-400 text-xs rounded-full">
+                              当前设备
+                            </span>
+                          )}
                         </p>
                         <p className="text-xs text-neutral-500">
                           {s.ip_address || '未知IP'} · {formatDate(s.last_active_at)}
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleRevokeSession(s.session_id)}
-                      disabled={revokeLoading === s.session_id}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
-                    >
-                      {revokeLoading === s.session_id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                      下线
-                    </button>
+                    {s.is_current ? (
+                      <span className="text-xs text-neutral-600 flex-shrink-0">当前设备</span>
+                    ) : (
+                      <button
+                        onClick={() => handleRevokeSession(s.session_id)}
+                        disabled={revokeLoading === s.session_id}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+                      >
+                        {revokeLoading === s.session_id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        下线
+                      </button>
+                    )}
                   </div>
                 );
               })}
