@@ -190,9 +190,27 @@ async def change_password(
     session.add(current_user)
     session.commit()
 
-    log.info(f"用户 {current_user.id} 修改密码成功")
+    # 5. 撤销该用户的所有活跃会话（密码修改后强制重新登录）
+    from app.models.user import ActiveSession
+    from sqlmodel import select
 
-    return {"status": "success", "message": "密码修改成功"}
+    active_sessions = session.exec(
+        select(ActiveSession).where(
+            ActiveSession.user_id == current_user.id,
+            ActiveSession.is_revoked == False,  # noqa: E712
+        )
+    ).all()
+    revoked_count = 0
+    for s in active_sessions:
+        s.is_revoked = True
+        session.add(s)
+        revoked_count += 1
+    if revoked_count > 0:
+        session.commit()
+
+    log.info(f"用户 {current_user.id} 修改密码成功，已撤销 {revoked_count} 个活跃会话")
+
+    return {"status": "success", "message": "密码修改成功，其他设备已下线"}
 
 
 # ==========================================

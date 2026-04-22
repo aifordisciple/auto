@@ -14,10 +14,11 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fetchAPI, BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
+import { BindPhoneModal } from '@/components/overlays/Auth/BindPhoneModal';
 import { Phone, Mail, Lock, MessageSquare, Send, Loader2, Eye, EyeOff, ArrowRight, Github, QrCode } from 'lucide-react';
 
 // ==========================================
@@ -48,6 +49,29 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setUser } = useAuthStore();
+
+  // OAuth 绑定手机号状态（从 URL 参数读取）
+  const [showBindModal, setShowBindModal] = useState(false);
+  const [bindToken, setBindToken] = useState('');
+  const [bindProviderName, setBindProviderName] = useState('');
+
+  // 检测 OAuth 回调参数：绑定手机号 / 错误信息
+  useEffect(() => {
+    const requiresBinding = searchParams.get('requires_binding');
+    const token = searchParams.get('bind_token');
+    const providerName = searchParams.get('provider_name');
+    const oauthError = searchParams.get('oauth_error');
+
+    if (requiresBinding === 'true' && token) {
+      setBindToken(token);
+      setBindProviderName(providerName || '');
+      setShowBindModal(true);
+    }
+
+    if (oauthError) {
+      setLoginError(oauthError);
+    }
+  }, [searchParams]);
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState<LoginTab>('sms');
@@ -421,6 +445,16 @@ export default function LoginPage() {
               {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
               登录
             </button>
+
+            {/* 忘记密码链接 */}
+            <div className="text-center">
+              <button
+                onClick={() => router.push('/forgot-password')}
+                className="text-sm text-neutral-500 hover:text-blue-400 transition-colors"
+              >
+                忘记密码？
+              </button>
+            </div>
           </div>
         )}
 
@@ -502,6 +536,18 @@ export default function LoginPage() {
           登录即表示同意服务条款和隐私政策
         </p>
       </div>
+
+      {/* OAuth 强制绑定手机号模态框 */}
+      {showBindModal && bindToken && (
+        <BindPhoneModal
+          bindToken={bindToken}
+          providerName={bindProviderName}
+          onComplete={() => {
+            setShowBindModal(false);
+            router.push('/');
+          }}
+        />
+      )}
     </div>
   );
 }

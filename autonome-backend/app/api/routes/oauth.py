@@ -18,6 +18,7 @@ from app.core.security import (
     create_short_access_token,
     generate_refresh_token, hash_refresh_token, get_refresh_token_expires_at,
     set_auth_cookies,
+    create_bind_token,
 )
 from app.models.user import User, OAuthAccount
 from app.services.auth_risk_control import generate_otp
@@ -153,7 +154,7 @@ async def github_callback(
     if not github_id:
         return _oauth_error_redirect("GitHub 用户 ID 获取失败")
 
-    # ── 3. 查找已关联的 OAuthAccount 或自动注册 ──
+    # ── 3. 查找已关联的 OAuthAccount 或强制绑定手机号 ──
     oauth_account = db.query(OAuthAccount).filter(
         OAuthAccount.provider == "github",
         OAuthAccount.provider_account_id == github_id,
@@ -171,39 +172,36 @@ async def github_callback(
         oauth_account.provider_avatar_url = github_avatar
         db.commit()
     else:
-        # 未关联 → 自动注册
+        # 未关联 → 尝试通过邮箱匹配已有用户
         user = None
-        # 尝试通过邮箱匹配已有用户
         if github_email:
             user = db.query(User).filter(User.email == github_email).first()
 
         if user:
-            # 邮箱匹配到已有用户 → 自动绑定
+            # 邮箱匹配到已有用户 → 自动绑定 GitHub 账号
             logger.info("GitHub OAuth 邮箱匹配到已有用户: user_id={}", user.id)
-        else:
-            # 创建新用户
-            user = User(
-                email=github_email or f"github_{github_id}@autonome.local",
-                username=github_login,
-                hashed_password=None,  # OAuth 用户无密码
-                is_active=True,
-                is_verified=bool(github_email),  # 有已验证邮箱则标记为已验证
+            oauth_account = OAuthAccount(
+                user_id=user.id,
+                provider="github",
+                provider_account_id=github_id,
+                access_token=access_token,
+                provider_name=github_name,
+                provider_avatar_url=github_avatar,
             )
-            db.add(user)
-            db.flush()  # 获取 user.id
-            logger.info("GitHub OAuth 自动创建用户: user_id={}, email={}", user.id, user.email)
-
-        # 创建 OAuthAccount 关联
-        oauth_account = OAuthAccount(
-            user_id=user.id,
-            provider="github",
-            provider_account_id=github_id,
-            access_token=access_token,
-            provider_name=github_name,
-            provider_avatar_url=github_avatar,
-        )
-        db.add(oauth_account)
-        db.commit()
+            db.add(oauth_account)
+            db.commit()
+        else:
+            # 【核心防御】未匹配到已有用户 → 不自动创建 User，下发 Bind_Token
+            # 前端必须弹出"绑定手机号"模态框，用户完成手机验证后才创建正式账号
+            logger.info("GitHub OAuth 未关联用户，下发 Bind_Token: github_id={}", github_id)
+            bind_token = create_bind_token(
+                provider="github",
+                provider_account_id=github_id,
+                email=github_email,
+                name=github_name,
+                avatar_url=github_avatar,
+            )
+            return _oauth_bind_redirect(bind_token, github_name)
 
     # ── 4. 签发 Token + 设置 Cookie + 重定向 ──
     return _issue_tokens_and_redirect(user, db)
@@ -303,7 +301,7 @@ async def wechat_callback(
         logger.error("获取微信用户信息异常: {}", e)
         # 微信用户信息获取失败不影响登录，用 openid 作为标识
 
-    # ── 3. 查找已关联的 OAuthAccount 或自动注册 ──
+    # ── 3. 查找已关联的 OAuthAccount 或强制绑定手机号 ──
     # 优先用 unionid（跨应用统一），退而求其次用 openid
     provider_account_id = unionid or openid
 
@@ -323,28 +321,17 @@ async def wechat_callback(
         oauth_account.provider_avatar_url = wechat_avatar
         db.commit()
     else:
-        # 微信不提供邮箱，直接创建新用户
-        user = User(
-            email=f"wechat_{provider_account_id}@autonome.local",
-            username=wechat_nickname or f"wx_{provider_account_id[:8]}",
-            hashed_password=None,
-            is_active=True,
-            is_verified=False,  # 微信用户无邮箱验证
-        )
-        db.add(user)
-        db.flush()
-
-        oauth_account = OAuthAccount(
-            user_id=user.id,
+        # 【核心防御】微信不提供邮箱，无法自动匹配 → 直接下发 Bind_Token
+        # 前端必须弹出"绑定手机号"模态框
+        logger.info("微信 OAuth 未关联用户，下发 Bind_Token: provider_account_id={}", provider_account_id)
+        bind_token = create_bind_token(
             provider="wechat",
             provider_account_id=provider_account_id,
-            access_token=access_token,
-            provider_name=wechat_nickname,
-            provider_avatar_url=wechat_avatar,
+            email=None,
+            name=wechat_nickname,
+            avatar_url=wechat_avatar,
         )
-        db.add(oauth_account)
-        db.commit()
-        logger.info("微信 OAuth 自动创建用户: user_id={}", user.id)
+        return _oauth_bind_redirect(bind_token, wechat_nickname)
 
     return _issue_tokens_and_redirect(user, db)
 
@@ -480,6 +467,23 @@ def _oauth_error_redirect(error: str):
     from fastapi.responses import RedirectResponse
     frontend_url = settings.FRONTEND_URL or "http://localhost:3001"
     return RedirectResponse(url=f"{frontend_url}/login?oauth_error={error}")
+
+
+def _oauth_bind_redirect(bind_token: str, provider_name: str = ""):
+    """
+    OAuth 需要绑定手机号时，重定向到前端登录页，携带 bind_token
+
+    前端检测到 requires_binding 参数后，弹出不可关闭的绑定手机号模态框
+    """
+    from fastapi.responses import RedirectResponse
+    from urllib.parse import urlencode
+    frontend_url = settings.FRONTEND_URL or "http://localhost:3001"
+    params = urlencode({
+        "requires_binding": "true",
+        "bind_token": bind_token,
+        "provider_name": provider_name,
+    })
+    return RedirectResponse(url=f"{frontend_url}/login?{params}")
 
 
 def _issue_tokens_and_redirect(user: User, db: Session):

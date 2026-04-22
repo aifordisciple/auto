@@ -34,6 +34,9 @@ from app.core.security import (
     create_access_token, create_short_access_token, verify_token,
     generate_refresh_token, hash_refresh_token, get_refresh_token_expires_at,
     set_auth_cookies, clear_auth_cookies,
+    create_bind_token, verify_bind_token,
+    create_reset_token, verify_reset_token,
+    create_email_verification_token, verify_email_verification_token,
 )
 from app.core.config import settings
 from app.models.domain import User, ActiveSession
@@ -125,6 +128,47 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserInfo
+
+
+# --- OAuth 绑定手机号模型 ---
+
+class BindPhoneRequest(BaseModel):
+    """OAuth 绑定手机号请求 — 前端提交手机号 + 验证码 + bind_token"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+    otp_code: str = Field(..., min_length=4, max_length=6, description="短信验证码")
+    bind_token: str = Field(..., min_length=1, description="OAuth 绑定凭证")
+
+
+# --- 忘记密码模型 ---
+
+class ForgotPasswordSendRequest(BaseModel):
+    """忘记密码 — 发送验证码请求"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+
+
+class ForgotPasswordVerifyRequest(BaseModel):
+    """忘记密码 — 验证码校验请求"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+    otp_code: str = Field(..., min_length=4, max_length=6, description="短信验证码")
+
+
+class ResetPasswordRequest(BaseModel):
+    """忘记密码 — 重置密码请求"""
+    reset_token: str = Field(..., min_length=1, description="密码重置凭证")
+    new_password: str = Field(..., min_length=8, max_length=128, description="新密码")
+
+
+# --- 邮箱绑定模型 ---
+
+class BindEmailRequest(BaseModel):
+    """绑定安全邮箱请求"""
+    email: str = Field(..., description="邮箱地址")
+    current_password: str = Field(..., min_length=1, description="当前密码（本人校验）")
+
+
+class VerifyEmailRequest(BaseModel):
+    """验证邮箱请求"""
+    token: str = Field(..., min_length=1, description="邮箱验证凭证")
 
 
 # ==========================================
@@ -589,6 +633,371 @@ async def revoke_session(
     session.commit()
 
     return {"status": "success", "message": "设备已下线"}
+
+
+# ==========================================
+# OAuth 强制绑定手机号（工作流 B 闭环）
+# ==========================================
+
+@router.post("/bind-phone", response_model=LoginResponse)
+async def bind_phone(
+    request: BindPhoneRequest,
+    http_request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+):
+    """
+    OAuth 绑定手机号 — 第三方登录后强制绑定手机号
+
+    流程：
+    1. 验证 bind_token（解析 provider, provider_account_id 等信息）
+    2. 验证手机号 SMS OTP
+    3. 查找手机号对应用户：
+       - 已存在：将 OAuth 账号关联到该用户（冲突检查）
+       - 不存在：创建新 User + OAuthAccount
+    4. 签发双 Token
+    """
+    from app.models.user import OAuthAccount
+
+    # 1. 验证 bind_token
+    bind_payload = verify_bind_token(request.bind_token)
+    if not bind_payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="绑定凭证无效或已过期，请重新登录",
+        )
+
+    provider = bind_payload["provider"]
+    provider_account_id = bind_payload["provider_account_id"]
+    oauth_email = bind_payload.get("email") or None
+    oauth_name = bind_payload.get("name") or None
+    oauth_avatar = bind_payload.get("avatar_url") or None
+
+    # 2. 验证 SMS OTP
+    valid, reason = verify_otp(request.phone, request.otp_code)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=reason,
+        )
+
+    # 3. 查找手机号对应用户
+    user = session.exec(
+        select(User).where(User.phone_number == request.phone)
+    ).first()
+
+    if user:
+        # 手机号已存在 → 检查该用户是否已绑定同类型 OAuth
+        existing_oauth = session.exec(
+            select(OAuthAccount).where(
+                OAuthAccount.user_id == user.id,
+                OAuthAccount.provider == provider,
+            )
+        ).first()
+        if existing_oauth:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"该手机号已绑定其他 {provider} 账号，请联系管理员",
+            )
+        # 关联 OAuth 账号到已有用户
+        oauth_account = OAuthAccount(
+            user_id=user.id,
+            provider=provider,
+            provider_account_id=provider_account_id,
+            provider_name=oauth_name,
+            provider_avatar_url=oauth_avatar,
+        )
+        session.add(oauth_account)
+        session.commit()
+    else:
+        # 手机号是新号 → 创建新用户 + OAuthAccount
+        user = User(
+            email=oauth_email or f"{request.phone}@phone.placeholder",
+            phone_number=request.phone,
+            hashed_password=None,
+            full_name=oauth_name,
+            avatar_url=oauth_avatar,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+        oauth_account = OAuthAccount(
+            user_id=user.id,
+            provider=provider,
+            provider_account_id=provider_account_id,
+            provider_name=oauth_name,
+            provider_avatar_url=oauth_avatar,
+        )
+        session.add(oauth_account)
+        session.commit()
+
+    # 4. 签发双 Token
+    access_token, refresh_token_val = _issue_tokens(
+        user_id=user.id,
+        http_request=http_request,
+        session=session,
+    )
+    set_auth_cookies(response, access_token, refresh_token_val)
+
+    return LoginResponse(
+        access_token=access_token,
+        user=UserInfo(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            avatar_url=user.avatar_url,
+            organization=user.organization,
+            phone_number=user.phone_number,
+            bio=user.bio,
+            is_superuser=user.is_superuser,
+            is_email_verified=user.is_email_verified,
+            is_2fa_enabled=user.is_2fa_enabled,
+            created_at=user.created_at,
+        ),
+    )
+
+
+# ==========================================
+# 忘记密码 / 密码重置（工作流 G）
+# ==========================================
+
+@router.post("/forgot-password/send")
+async def forgot_password_send(
+    request: ForgotPasswordSendRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
+):
+    """
+    忘记密码 — 发送验证码
+
+    流程：风控检查 → 查找用户 → 生成 OTP → 发送 SMS
+    """
+    # 风控检查
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    forwarded = http_request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+
+    allowed, reason = check_sms_rate_limit(request.phone, client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=reason,
+        )
+
+    # 查找用户（不暴露用户是否存在的信息，统一返回"已发送"）
+    user = session.exec(
+        select(User).where(User.phone_number == request.phone)
+    ).first()
+
+    # 生成 OTP 并发送（即使用户不存在也发送，防止枚举攻击）
+    otp = generate_otp(request.phone)
+    record_sms_sent(request.phone, client_ip)
+
+    sms_service = get_sms_service()
+    success = await sms_service.send_verification_code(request.phone, otp)
+
+    if not success:
+        release_sms_lock(request.phone)
+        # 不暴露发送失败细节，防止信息泄露
+        pass
+
+    # 无论用户是否存在，统一返回成功（防枚举）
+    return {"status": "success", "message": "如果该手机号已注册，验证码已发送"}
+
+
+@router.post("/forgot-password/verify")
+async def forgot_password_verify(
+    request: ForgotPasswordVerifyRequest,
+    session: Session = Depends(get_session),
+):
+    """
+    忘记密码 — 验证码校验，下发 reset_token
+
+    流程：验证 OTP → 查找用户 → 下发 reset_token
+    """
+    # 验证 OTP
+    valid, reason = verify_otp(request.phone, request.otp_code)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=reason,
+        )
+
+    # 查找用户
+    user = session.exec(
+        select(User).where(User.phone_number == request.phone)
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该手机号未注册",
+        )
+
+    # 下发 reset_token
+    reset_token = create_reset_token(user_id=user.id)
+
+    return {"status": "success", "reset_token": reset_token}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    session: Session = Depends(get_session),
+):
+    """
+    忘记密码 — 重置密码
+
+    流程：验证 reset_token → 密码强度验证 → 更新密码 → 撤销所有会话
+    """
+    # 验证 reset_token
+    payload = verify_reset_token(request.reset_token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="重置凭证无效或已过期，请重新操作",
+        )
+
+    user_id = int(payload["sub"])
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户不存在",
+        )
+
+    # 密码强度验证
+    if len(request.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密码长度至少 8 位",
+        )
+    has_letter = any(c.isalpha() for c in request.new_password)
+    has_digit = any(c.isdigit() for c in request.new_password)
+    if not (has_letter and has_digit):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密码需包含字母和数字",
+        )
+
+    # 更新密码
+    user.hashed_password = get_password_hash(request.new_password)
+    user.last_password_change = datetime.now(timezone.utc)
+    user.updated_at = datetime.now(timezone.utc)
+    session.add(user)
+
+    # 【安全动作】撤销该用户所有 ActiveSession（密码已变，旧 Token 全部失效）
+    active_sessions = session.exec(
+        select(ActiveSession).where(
+            ActiveSession.user_id == user.id,
+            ActiveSession.is_revoked == False,
+        )
+    ).all()
+    for s in active_sessions:
+        s.is_revoked = True
+        session.add(s)
+
+    session.commit()
+
+    return {"status": "success", "message": "密码重置成功，请使用新密码登录"}
+
+
+# ==========================================
+# 安全邮箱绑定（工作流 E）
+# ==========================================
+
+@router.post("/bind-email")
+async def bind_email(
+    request: BindEmailRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    绑定安全邮箱 — 已登录用户请求绑定邮箱
+
+    流程：验证当前密码 → 生成验证 Token → 发送验证邮件
+    """
+    # 本人校验：验证当前密码
+    if not current_user.hashed_password or not verify_password(
+        request.current_password, current_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码错误",
+        )
+
+    # 检查邮箱是否已被其他用户使用
+    existing = session.exec(
+        select(User).where(User.email == request.email)
+    ).first()
+    if existing and existing.id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该邮箱已被其他用户使用",
+        )
+
+    # 生成验证 Token
+    verification_token = create_email_verification_token(
+        user_id=current_user.id, email=request.email
+    )
+
+    # 发送验证邮件（异步，通过 Celery 或直接调用）
+    try:
+        from app.services.email_service import get_email_service
+        email_service = get_email_service()
+        await email_service.send_verification_email(
+            to_email=request.email,
+            token=verification_token,
+            user_name=current_user.full_name or current_user.email,
+        )
+    except Exception as e:
+        from app.core.logger import log
+        log.error(f"验证邮件发送失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="验证邮件发送失败，请稍后重试",
+        )
+
+    return {"status": "success", "message": "验证邮件已发送，请查收邮箱"}
+
+
+@router.post("/verify-email")
+async def verify_email(
+    request: VerifyEmailRequest,
+    session: Session = Depends(get_session),
+):
+    """
+    验证邮箱 — 用户点击邮件中的验证链接后调用
+
+    流程：验证 token → 更新 email 和 is_email_verified
+    """
+    payload = verify_email_verification_token(request.token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证凭证无效或已过期",
+        )
+
+    user_id = int(payload["sub"])
+    email = payload["email"]
+
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户不存在",
+        )
+
+    # 更新邮箱和验证状态
+    user.email = email
+    user.is_email_verified = True
+    user.updated_at = datetime.now(timezone.utc)
+    session.add(user)
+    session.commit()
+
+    return {"status": "success", "message": "邮箱绑定成功"}
 
 
 # ==========================================

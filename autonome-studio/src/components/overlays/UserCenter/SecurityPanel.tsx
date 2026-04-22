@@ -15,6 +15,7 @@
 
 import { useState, useEffect } from 'react';
 import { fetchAPI } from '@/lib/api';
+import { useAuthStore } from '@/store/useAuthStore';
 import {
   Lock,
   Shield,
@@ -29,6 +30,10 @@ import {
   Github,
   Link2,
   Unlink,
+  Mail,
+  Send,
+  Monitor,
+  Trash2,
 } from 'lucide-react';
 
 // ==========================================
@@ -75,6 +80,7 @@ function calculatePasswordStrength(password: string): PasswordStrength {
 // ==========================================
 
 export function SecurityPanel() {
+  const { user, fetchProfile } = useAuthStore();
   // 密码修改状态
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     current_password: '',
@@ -105,7 +111,27 @@ export function SecurityPanel() {
   const [oauthError, setOauthError] = useState('');
   const [unbindLoading, setUnbindLoading] = useState<string | null>(null);
 
-  // 加载 OAuth 账号列表
+  // ── 安全邮箱绑定状态 ──
+  const [bindEmail, setBindEmail] = useState('');
+  const [bindEmailPassword, setBindEmailPassword] = useState('');
+  const [bindEmailLoading, setBindEmailLoading] = useState(false);
+  const [bindEmailMessage, setBindEmailMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // 邮箱验证中状态（发送验证邮件后等待用户点击链接）
+  const [emailVerifying, setEmailVerifying] = useState(false);
+
+  // ── 设备管理状态 ──
+  const [sessions, setSessions] = useState<Array<{
+    session_id: number;
+    user_agent: string | null;
+    ip_address: string | null;
+    device_type: string | null;
+    created_at: string;
+    last_active_at: string;
+  }>>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [revokeLoading, setRevokeLoading] = useState<number | null>(null);
+
+  // 加载 OAuth 账号列表 + 设备会话列表
   useEffect(() => {
     (async () => {
       try {
@@ -115,6 +141,7 @@ export function SecurityPanel() {
         // 未登录或接口不可用，静默处理
       }
     })();
+    loadSessions();
   }, []);
 
   // 绑定 GitHub OAuth
@@ -170,6 +197,70 @@ export function SecurityPanel() {
 
   // 检查是否已绑定某 OAuth
   const isBound = (provider: string) => oauthAccounts.some(a => a.provider === provider);
+
+  // ── 安全邮箱绑定 ──
+  const handleBindEmail = async () => {
+    if (!bindEmail) {
+      setBindEmailMessage({ type: 'error', text: '请输入邮箱地址' });
+      return;
+    }
+    // 简单邮箱格式校验
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bindEmail)) {
+      setBindEmailMessage({ type: 'error', text: '请输入合法的邮箱地址' });
+      return;
+    }
+    if (!bindEmailPassword) {
+      setBindEmailMessage({ type: 'error', text: '请输入当前密码以验证身份' });
+      return;
+    }
+
+    setBindEmailLoading(true);
+    setBindEmailMessage(null);
+
+    try {
+      await fetchAPI('/auth/bind-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: bindEmail,
+          current_password: bindEmailPassword,
+        }),
+      });
+      setBindEmailMessage({ type: 'success', text: '验证邮件已发送，请查收邮箱并点击验证链接' });
+      setEmailVerifying(true);
+      setBindEmailPassword('');
+    } catch (err: unknown) {
+      setBindEmailMessage({ type: 'error', text: err instanceof Error ? err.message : '绑定邮箱失败' });
+    } finally {
+      setBindEmailLoading(false);
+    }
+  };
+
+  // ── 设备管理：加载会话列表 ──
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      const data = await fetchAPI('/auth/sessions');
+      setSessions(Array.isArray(data) ? data : []);
+    } catch {
+      // 静默失败
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  // ── 设备管理：撤销指定会话 ──
+  const handleRevokeSession = async (sessionId: number) => {
+    setRevokeLoading(sessionId);
+    try {
+      await fetchAPI(`/auth/sessions/${sessionId}/revoke`, { method: 'POST' });
+      // 从列表中移除已撤销的会话
+      setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+    } catch {
+      // 静默失败
+    } finally {
+      setRevokeLoading(null);
+    }
+  };
 
   // 表单字段变更
   const handlePasswordChange = (field: keyof PasswordForm, value: string) => {
@@ -532,6 +623,163 @@ export function SecurityPanel() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* 卡片四：安全邮箱绑定 */}
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <Mail size={20} className="text-emerald-400" />
+            安全邮箱
+          </h2>
+
+          {/* 当前邮箱状态 */}
+          {user?.email && (
+            <div className="mb-4 flex items-center gap-2 text-sm">
+              <span className="text-neutral-400">当前邮箱：</span>
+              <span className="text-neutral-200">{user.email}</span>
+              {user.is_email_verified ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-400 text-xs rounded-full">
+                  <CheckCircle size={12} /> 已验证
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 text-yellow-400 text-xs rounded-full">
+                  <AlertCircle size={12} /> 未验证
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* 邮箱验证中提示 */}
+          {emailVerifying && (
+            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-2">
+              <Send size={16} className="text-blue-400" />
+              <span className="text-sm text-blue-400">验证邮件已发送，请查收邮箱并点击验证链接完成绑定</span>
+            </div>
+          )}
+
+          {/* 提示消息 */}
+          {bindEmailMessage && (
+            <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${
+              bindEmailMessage.type === 'success'
+                ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                : 'bg-red-500/10 border border-red-500/20 text-red-400'
+            }`}>
+              {bindEmailMessage.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {bindEmailMessage.text}
+            </div>
+          )}
+
+          <p className="text-sm text-neutral-400 mb-4">
+            {user?.email
+              ? '更换邮箱需要验证当前密码，并通过新邮箱的验证链接确认'
+              : '绑定邮箱可用于找回密码和接收安全通知'}
+          </p>
+
+          <div className="space-y-3">
+            {/* 邮箱输入 */}
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+              <input
+                type="email"
+                placeholder="请输入邮箱地址"
+                className="w-full pl-10 pr-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors text-sm"
+                value={bindEmail}
+                onChange={e => { setBindEmail(e.target.value); setBindEmailMessage(null); setEmailVerifying(false); }}
+              />
+            </div>
+
+            {/* 当前密码验证 */}
+            <div className="relative">
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+              <input
+                type="password"
+                placeholder="输入当前密码以验证身份"
+                className="w-full pl-10 pr-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors text-sm"
+                value={bindEmailPassword}
+                onChange={e => { setBindEmailPassword(e.target.value); setBindEmailMessage(null); }}
+              />
+            </div>
+
+            <button
+              onClick={handleBindEmail}
+              disabled={bindEmailLoading || !bindEmail || !bindEmailPassword}
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors text-sm"
+            >
+              {bindEmailLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              {user?.email ? '更换邮箱' : '绑定邮箱'}
+            </button>
+          </div>
+        </div>
+
+        {/* 卡片五：设备管理 */}
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Monitor size={20} className="text-cyan-400" />
+            在线设备
+          </h2>
+
+          <p className="text-sm text-neutral-400 mb-4">
+            管理已登录的设备，可撤销可疑设备的登录状态
+          </p>
+
+          {sessionsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 size={20} className="animate-spin text-neutral-500" />
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="text-sm text-neutral-500 text-center py-4">
+              暂无在线设备
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map(s => {
+                // 解析 user_agent 获取设备信息
+                const ua = s.user_agent || '';
+                const isMobile = /Mobile|Android|iPhone/i.test(ua);
+                const isMac = /Mac/i.test(ua);
+                const isWindows = /Windows/i.test(ua);
+                const isLinux = /Linux/i.test(ua);
+                const browserMatch = ua.match(/(Chrome|Firefox|Safari|Edge)\/[\d.]+/);
+                const browser = browserMatch ? browserMatch[1] : '未知浏览器';
+                const os = isMobile ? '移动端' : isMac ? 'macOS' : isWindows ? 'Windows' : isLinux ? 'Linux' : '未知系统';
+
+                return (
+                  <div key={s.session_id} className="flex items-center justify-between p-3 bg-neutral-800/50 rounded-lg">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Monitor size={18} className="text-neutral-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-neutral-200 truncate">
+                          {os} · {browser}
+                        </p>
+                        <p className="text-xs text-neutral-500">
+                          {s.ip_address || '未知IP'} · {formatDate(s.last_active_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRevokeSession(s.session_id)}
+                      disabled={revokeLoading === s.session_id}
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+                    >
+                      {revokeLoading === s.session_id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                      下线
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!sessionsLoading && sessions.length > 0 && (
+            <div className="mt-3 text-right">
+              <button
+                onClick={loadSessions}
+                className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+              >
+                刷新列表
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 安全提示 */}

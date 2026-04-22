@@ -96,6 +96,9 @@ class OAuthAccount(SQLModel, table=True):
     provider_account_id: str = Field(max_length=255, index=True)
     access_token: Optional[str] = Field(default=None, max_length=1024)
     refresh_token: Optional[str] = Field(default=None, max_length=1024)
+    # 第三方用户显示信息（用于前端展示绑定状态）
+    provider_name: Optional[str] = Field(default=None, max_length=255, description="第三方用户显示名")
+    provider_avatar_url: Optional[str] = Field(default=None, max_length=512, description="第三方用户头像 URL")
     created_at: datetime = Field(default_factory=get_utc_now)
 
     user: Optional[User] = Relationship(back_populates="oauth_accounts")

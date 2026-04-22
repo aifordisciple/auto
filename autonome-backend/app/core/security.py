@@ -127,6 +127,132 @@ def get_refresh_token_expires_at() -> datetime:
 
 
 # ==========================================
+# Bind Token（OAuth 强制手机号绑定凭证）
+# ==========================================
+
+def create_bind_token(
+    provider: str,
+    provider_account_id: str,
+    email: str | None = None,
+    name: str | None = None,
+    avatar_url: str | None = None,
+) -> str:
+    """
+    创建 OAuth 绑定 Token
+
+    当第三方 OAuth 账号未关联已有用户时，签发此 Token。
+    前端收到后弹出强制绑定手机号模态框，绑定成功后才下发正式 Token。
+
+    Token 有效期 10 分钟，scope=bind_only，不可用于调用业务 API。
+    """
+    data = {
+        "sub": f"bind:{provider}:{provider_account_id}",
+        "scope": "bind_only",
+        "provider": provider,
+        "provider_account_id": provider_account_id,
+        "email": email or "",
+        "name": name or "",
+        "avatar_url": avatar_url or "",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+    }
+    return jwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_bind_token(token: str) -> dict | None:
+    """
+    验证 OAuth 绑定 Token
+
+    Returns:
+        解析后的载荷字典，包含 provider, provider_account_id 等；
+        若 Token 无效、过期或 scope 不是 bind_only，返回 None
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("scope") != "bind_only":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+# ==========================================
+# Password Reset Token（忘记密码重置凭证）
+# ==========================================
+
+def create_reset_token(user_id: int) -> str:
+    """
+    创建密码重置 Token
+
+    用户通过手机验证码确认身份后，下发此 Token。
+    前端携带此 Token 提交新密码，完成重置。
+
+    Token 有效期 10 分钟，scope=reset_password。
+    """
+    data = {
+        "sub": str(user_id),
+        "scope": "reset_password",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+    }
+    return jwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_reset_token(token: str) -> dict | None:
+    """
+    验证密码重置 Token
+
+    Returns:
+        解析后的载荷字典，包含 sub(user_id)；
+        若 Token 无效、过期或 scope 不是 reset_password，返回 None
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("scope") != "reset_password":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+# ==========================================
+# Email Verification Token（邮箱绑定验证凭证）
+# ==========================================
+
+def create_email_verification_token(user_id: int, email: str) -> str:
+    """
+    创建邮箱验证 Token
+
+    用户请求绑定邮箱后，此 Token 嵌入验证链接发送到邮箱。
+    用户点击链接后，前端携带此 Token 调用验证端点。
+
+    Token 有效期 15 分钟，scope=verify_email。
+    """
+    data = {
+        "sub": str(user_id),
+        "scope": "verify_email",
+        "email": email,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+    }
+    return jwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_email_verification_token(token: str) -> dict | None:
+    """
+    验证邮箱验证 Token
+
+    Returns:
+        解析后的载荷字典，包含 sub(user_id) 和 email；
+        若 Token 无效、过期或 scope 不是 verify_email，返回 None
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("scope") != "verify_email":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+# ==========================================
 # Cookie 辅助函数
 # ==========================================
 

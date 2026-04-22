@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     ALIYUN_SMS_SIGN_NAME: str = "Autonome"
     ALIYUN_SMS_TEMPLATE_CODE: str = ""
 
+    # SMTP 邮件服务配置（安全邮箱绑定）
+    SMTP_HOST: str = ""          # SMTP 服务器地址，如 smtp.gmail.com
+    SMTP_PORT: int = 587         # SMTP 端口
+    SMTP_USER: str = ""          # SMTP 用户名
+    SMTP_PASSWORD: str = ""      # SMTP 密码或应用专用密码
+    SMTP_FROM: str = ""          # 发件人地址（默认与 SMTP_USER 相同）
+    SMTP_TLS: bool = True        # 是否使用 TLS
+
     # OAuth 第三方登录配置
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
