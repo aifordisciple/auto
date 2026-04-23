@@ -149,10 +149,13 @@ export default function LoginPage() {
     return true;
   };
 
-  /** 完成登录：设置 token + 用户信息并跳转首页
+  /** 完成登录：设置 token + 用户信息并跳转
    *
    * Cookie 由后端 set_auth_cookies 设置，浏览器自动携带。
    * 但仍需 setToken 以便首页 page.tsx 初始化检查、SSE 连接等场景读取 access_token。
+   *
+   * 跳转目标：优先使用 middleware 保存的 redirect 参数，
+   * 否则跳转首页（确保用户回到被拦截前的原始页面）
    */
   const completeLogin = (data: LoginResponse | TwoFALoginResponse) => {
     const { setToken } = useAuthStore.getState();
@@ -166,7 +169,9 @@ export default function LoginPage() {
       is_email_verified: data.user.is_email_verified,
       is_2fa_enabled: data.user.is_2fa_enabled,
     });
-    router.push('/');
+    // 优先跳转到 middleware 保存的原始页面，否则跳转首页
+    const redirectTo = searchParams.get('redirect') || '/';
+    router.push(redirectTo);
   };
 
   // ==========================================
@@ -618,7 +623,8 @@ export default function LoginPage() {
           providerName={bindProviderName}
           onComplete={() => {
             setShowBindModal(false);
-            router.push('/');
+            const redirectTo = searchParams.get('redirect') || '/';
+            router.push(redirectTo);
           }}
         />
       )}

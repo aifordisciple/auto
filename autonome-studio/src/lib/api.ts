@@ -252,6 +252,7 @@ export async function uploadFile(
 ): Promise<any> {
   /**
    * 文件上传（multipart/form-data）
+   * 包含 401 拦截器：与 fetchAPI 一致的静默刷新逻辑
    */
   const formData = new FormData();
   formData.append('file', file);
@@ -268,12 +269,46 @@ export async function uploadFile(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${normalizeEndpoint(endpoint)}`, {
+  const url = `${API_BASE_URL}${normalizeEndpoint(endpoint)}`;
+  const fetchOptions: RequestInit = {
     method: 'POST',
     headers,
     body: formData,
     credentials: 'include',
-  });
+  };
+
+  let response = await fetch(url, fetchOptions);
+
+  // ==========================================
+  // 401 拦截器：与 fetchAPI 一致的静默刷新
+  // ==========================================
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+
+    if (refreshed) {
+      // 刷新成功，重试上传请求
+      const { token: newToken } = useAuthStore.getState();
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`;
+      }
+      response = await fetch(url, {
+        ...fetchOptions,
+        headers,
+      });
+
+      // 重试后仍然 401，说明真的没权限
+      if (response.status === 401) {
+        const { logout } = useAuthStore.getState();
+        logout();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        throw new Error('认证失败，请重新登录');
+      }
+    } else {
+      throw new Error('认证已过期，请重新登录');
+    }
+  }
 
   if (!response.ok) {
     let errorDetail = `上传失败 (${response.status})`;

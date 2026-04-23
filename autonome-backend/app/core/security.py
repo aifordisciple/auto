@@ -259,7 +259,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         max_age=settings.ACCESS_TOKEN_SHORT_EXPIRE_MINUTES * 60,
         httponly=True,
         samesite="lax",
-        secure=False,  # 本地开发 False，生产 True
+        secure=settings.SECURE_COOKIES,  # 本地开发 False，生产 True（HTTPS）
     )
     response.set_cookie(
         key="refresh_token",
@@ -267,7 +267,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.SECURE_COOKIES,
     )
     # 【前端路由守卫标记】非 HttpOnly，Path=/，Next.js middleware 可读
     # 仅用于前端判断用户是否已登录，不包含敏感信息
@@ -277,7 +277,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         httponly=False,
         samesite="lax",
-        secure=False,
+        secure=settings.SECURE_COOKIES,
         path="/",
     )
 

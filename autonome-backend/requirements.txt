@@ -29,10 +29,14 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
 pyotp>=2.9.0
+httpx>=0.27.0
 
 # Aliyun SMS SDK
 alibabacloud-dysmsapi20170525>=3.0.0
 alibabacloud-tea-openapi>=0.3.0
+
+# Async SMTP (email verification / password reset)
+aiosmtplib>=3.0.0
 
 # PostgreSQL driver
 psycopg2-binary==2.9.9

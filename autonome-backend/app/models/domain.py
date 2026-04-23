@@ -219,6 +219,15 @@ from app.models.learning import (
 )
 
 # ==========================================
+# RBAC 权限模型
+# ==========================================
+from app.models.rbac import (
+    Role,
+    Permission,
+    AuditLog,
+)
+
+# ==========================================
 # 导入其他模型以确保数据库表被创建
 # ==========================================
 from app.models.skill_template import SkillTemplate  # noqa: F401
@@ -262,6 +271,8 @@ __all__ = [
     "get_utc_now",
     # 用户模型
     "User",
+    "OAuthAccount",
+    "ActiveSession",
     "BillingAccount",
     # 项目模型
     "Project",
@@ -347,4 +358,8 @@ __all__ = [
     "LiteratureTagCreate",
     "LiteratureTagUpdate",
     "LiteratureTagPublic",
+    # RBAC 权限模型
+    "Role",
+    "Permission",
+    "AuditLog",
 ]

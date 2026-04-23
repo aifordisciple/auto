@@ -14,6 +14,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import QRCode from 'react-qr-code';
 import { fetchAPI } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import {

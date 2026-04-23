@@ -36,7 +36,7 @@ from app.models.domain import (
     # 工具函数
     get_utc_now,
     # 用户模型
-    User, BillingAccount,
+    User, OAuthAccount, ActiveSession, BillingAccount,
     # 项目模型
     Project, DataFile, ProjectUpdate, PublicDataset,
     # 聊天模型
@@ -78,6 +78,11 @@ from app.models.forge_session import (
     ForgeStatus, ForgeChatRequest, SkillDraftUpdate, SkillDraftSchema
 )
 
+# RBAC 权限模型
+from app.models.rbac import (
+    Role, Permission, AuditLog,
+)
+
 __all__ = [
     # 枚举
     "RoleEnum", "SkillStatus", "SkillVisibility", "ExecutionMode",
@@ -94,7 +99,7 @@ __all__ = [
     "get_utc_now",
 
     # User & Project
-    "User", "BillingAccount", "Project", "ProjectUpdate",
+    "User", "OAuthAccount", "ActiveSession", "BillingAccount", "Project", "ProjectUpdate",
     "ChatSession", "ChatMessage", "DataFile", "TaskRecord",
     "SystemConfig", "PublicDataset",
 
@@ -133,5 +138,8 @@ __all__ = [
     # Forge Session
     "ForgeSession", "ForgeSessionCreate", "ForgeSessionUpdate", "ForgeSessionPublic",
     "ForgeMessage", "ForgeMessageCreate", "ForgeMessagePublic",
-    "ForgeStatus", "ForgeChatRequest", "SkillDraftUpdate", "SkillDraftSchema",
+    "ForgeStatus", "ForgeChatRequest", "SkillDraftUpdate", "ForgeSessionSchema",
+
+    # RBAC
+    "Role", "Permission", "AuditLog",
 ]

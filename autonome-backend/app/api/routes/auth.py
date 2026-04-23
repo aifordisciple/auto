@@ -58,6 +58,7 @@ from app.services.sms_service import get_sms_service
 from app.schemas.auth import (
     UserCreate, SMSLoginRequest, PasswordLoginRequest,
     SendSMSRequest, LoginResponse, RefreshResponse,
+    ActiveSessionOut,
     BindPhoneRequest, ForgotPasswordSendRequest, ForgotPasswordVerifyRequest,
     ResetPasswordRequest, BindEmailRequest, VerifyEmailRequest,
     ChangePasswordRequest, ChangePhoneRequest,
@@ -526,7 +527,7 @@ async def logout(
     return {"status": "success", "message": "已登出"}
 
 
-@router.get("/sessions")
+@router.get("/sessions", response_model=list[ActiveSessionOut])
 async def list_sessions(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -537,6 +538,7 @@ async def list_sessions(
 
     通过比对当前请求的 refresh_token Cookie 哈希值，
     标记 is_current 字段以区分当前设备和其他设备。
+    使用 ActiveSessionOut schema 确保响应结构类型安全。
     """
     now = datetime.now(timezone.utc)
     sessions = session.exec(
@@ -554,15 +556,16 @@ async def list_sessions(
         current_rt_hash = hash_refresh_token(rt_cookie)
 
     return [
-        {
-            "session_id": s.session_id,
-            "user_agent": s.user_agent,
-            "ip_address": s.ip_address,
-            "device_type": s.device_type,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-            "last_active_at": s.last_active_at.isoformat() if s.last_active_at else None,
-            "is_current": s.refresh_token_hash == current_rt_hash,
-        }
+        ActiveSessionOut(
+            session_id=s.session_id,
+            user_agent=s.user_agent,
+            ip_address=s.ip_address,
+            device_type=s.device_type,
+            created_at=s.created_at,
+            last_active_at=s.last_active_at,
+            is_revoked=s.is_revoked,
+            is_current=(s.refresh_token_hash == current_rt_hash),
+        )
         for s in sessions
     ]
 

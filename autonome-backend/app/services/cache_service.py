@@ -416,6 +416,76 @@ class RedisCache:
         full_key = self._make_key(key)
         return client.ttl(full_key)
 
+    def incr(self, key: str, amount: int = 1) -> int:
+        """
+        原子递增计数器
+
+        注意：此方法绕过 JSON 序列化，直接操作 Redis 整数。
+        适用于 auth 风控计数器等需要原子递增的场景。
+        仅与 setex_int() 或 incr() 自身初始化的键兼容，
+        不可用于 set() 写入的键（set 使用 JSON 序列化）。
+
+        Args:
+            key: 缓存键（不含前缀）
+            amount: 递增量，默认 1
+
+        Returns:
+            递增后的整数值；Redis 异常时返回 0
+        """
+        client = self._get_client()
+        full_key = self._make_key(key)
+        try:
+            result = client.incrby(full_key, amount)
+            return result
+        except redis.RedisError as e:
+            log.error(f"[RedisCache] 递增失败: {e}")
+            return 0
+
+    def expire(self, key: str, ttl: int) -> bool:
+        """
+        设置键的过期时间
+
+        与 incr() 配合使用：incr 初始化计数器后，expire 设置 TTL。
+
+        Args:
+            key: 缓存键（不含前缀）
+            ttl: 过期时间（秒）
+
+        Returns:
+            是否成功
+        """
+        client = self._get_client()
+        full_key = self._make_key(key)
+        try:
+            return client.expire(full_key, ttl)
+        except redis.RedisError as e:
+            log.error(f"[RedisCache] 设置过期时间失败: {e}")
+            return False
+
+    def setex_int(self, key: str, value: int, ttl: int) -> bool:
+        """
+        存储整数计数器并设置 TTL
+
+        与 incr() 配合使用：setex_int 初始化计数器，incr 原子递增。
+        不使用 JSON 序列化，直接存储整数的字符串表示。
+
+        Args:
+            key: 缓存键（不含前缀）
+            value: 整数值
+            ttl: 过期时间（秒）
+
+        Returns:
+            是否成功
+        """
+        client = self._get_client()
+        full_key = self._make_key(key)
+        try:
+            client.setex(full_key, ttl, str(value))
+            return True
+        except redis.RedisError as e:
+            log.error(f"[RedisCache] 整数存储失败: {e}")
+            return False
+
     def get_stats(self) -> Dict:
         """获取缓存统计"""
         return self.stats.to_dict()
