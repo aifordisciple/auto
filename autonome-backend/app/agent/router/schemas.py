@@ -155,6 +155,41 @@ class ProbingRequest(BaseModel):
     message_to_user: str = Field(default="", description="向用户展示的追问提示语")
 
 
+class ExecutionStatus(str, Enum):
+    """DAG 执行状态枚举"""
+    PENDING = "pending"        # 等待执行
+    RUNNING = "running"        # 执行中
+    COMPLETED = "completed"    # 全部完成
+    FAILED = "failed"          # 执行失败
+    PROBING = "probing"        # 等待用户参数补全
+
+
+class TaskNodeStatus(str, Enum):
+    """DAG 中单个 TaskNode 的执行状态"""
+    PENDING = "pending"      # 等待前置节点完成
+    READY = "ready"          # 可执行（前置节点已完成）
+    RUNNING = "running"      # 执行中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"        # 执行失败
+    SKIPPED = "skipped"      # 因依赖失败而跳过
+
+
+class ProbingResponse(BaseModel):
+    """用户提交的 Active Probing 参数"""
+    message_id: str = Field(..., description="对应的 ProbingRequest message_id")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="用户填写的参数")
+
+
+class TaskResult(BaseModel):
+    """单个 TaskNode 的执行结果"""
+    task_id: str = Field(..., description="子任务 ID")
+    skill_id: str = Field(default="", description="执行的技能 ID")
+    status: str = Field(default="pending", description="执行状态: success/failed/timeout")
+    output: Optional[Any] = Field(None, description="执行输出")
+    error: Optional[str] = Field(None, description="错误信息")
+    execution_time_seconds: float = Field(0.0, description="执行耗时（秒）")
+
+
 class RouteResult(BaseModel):
     """路由引擎的完整输出结果"""
     dag: TaskDAG = Field(..., description="L1 解析出的任务图谱")
@@ -196,7 +231,7 @@ class AgentState(TypedDict):
     """
     LangGraph 多 Agent 编排状态 (V2.0)。
 
-    支持多任务 DAG 调度、Active Probing 挂起/恢复。
+    支持多任务 DAG 调度、Active Probing 挂起/恢复、L3 执行结果收集。
     """
     messages: Annotated[Sequence[BaseMessage], "消息历史"]
     context: Dict[str, Any]            # 前端注入的工作区上下文
@@ -208,3 +243,6 @@ class AgentState(TypedDict):
     current_task_idx: int              # 当前执行到 DAG 中的哪一个任务
     active_probing: Optional[Dict]     # ProbingRequest 序列化结果
     task_results: Dict[str, Any]       # 各子任务执行完毕后的结果上下文
+    # --- V2.0+ 新增字段 ---
+    execution_status: str              # ExecutionStatus 值，默认 "pending"
+    probing_response: Optional[Dict]   # ProbingResponse 序列化结果（用户提交的参数）
