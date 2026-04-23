@@ -8,10 +8,10 @@
 
 ### 旧端点（保持不变）
 - POST   /api/auth/register        - 邮箱注册
-- POST   /api/auth/login           - 邮箱密码登录（OAuth2PasswordRequestForm）
 - GET    /api/auth/me              - 获取当前用户信息
 
 ### 阶段2端点
+- POST   /api/auth/login           - 邮箱密码登录（OAuth2PasswordRequestForm，已对齐新认证流程）
 - POST   /api/auth/send-sms        - 发送短信验证码
 - POST   /api/auth/login/sms       - 验证码登录（自动注册）
 - POST   /api/auth/login/password  - 手机号+密码登录
@@ -89,7 +89,7 @@ def _build_user_info(user: User) -> dict:
 
 
 # ==========================================
-# 旧端点实现（保持不变）
+# 旧端点实现（register 保持不变，login 已对齐新流程）
 # ==========================================
 
 @router.post("/register")
@@ -124,28 +124,81 @@ async def register(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 async def login(
+    http_request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """
     邮箱密码登录（OAuth2 兼容）
 
     使用 OAuth2PasswordRequestForm，username 字段传入 email
-    返回长命 JWT（7天，向后兼容旧前端）
+
+    流程（与 /login/password 对齐）：
+    1. 风控检查（防爆破）
+    2. 查找用户并验证密码
+    3. 2FA 检查
+    4. 签发双 Token（AT + RT）
+    5. 设置 httpOnly Cookie
     """
     # form_data.username 当作 email 使用
-    user = session.exec(select(User).where(User.email == form_data.username)).first()
-    if not user or not user.hashed_password or not verify_password(form_data.password, user.hashed_password):
+    email = form_data.username
+
+    # 风控检查：用 email 作为风控键
+    safe, reason = check_login_risk(email)
+    if not safe:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="邮箱或密码错误"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=reason,
         )
 
-    # 签发长命 JWT（7天，向后兼容旧端点）
-    access_token = create_access_token(data={"sub": str(user.id)})
-    return {"access_token": access_token, "token_type": "bearer"}
+    # 查找用户
+    user = session.exec(select(User).where(User.email == email)).first()
+
+    if not user or not user.hashed_password:
+        record_login_failure(email)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="邮箱或密码错误",
+        )
+
+    # 验证密码
+    if not verify_password(form_data.password, user.hashed_password):
+        record_login_failure(email)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="邮箱或密码错误",
+        )
+
+    # 登录成功，清除失败记录
+    clear_login_failure(email)
+
+    # 2FA 检查：如果用户已启用 2FA，不下发正式 Token，返回 MFA 挑战
+    if user.is_2fa_enabled:
+        mfa_token = create_mfa_token(user_id=user.id)
+        return LoginResponse(
+            access_token="",
+            user=_build_user_info(user),
+            status="requires_2fa",
+            mfa_token=mfa_token,
+        )
+
+    # 签发双 Token
+    access_token, refresh_token_val = _issue_tokens(
+        user_id=user.id,
+        http_request=http_request,
+        session=session,
+    )
+
+    # 设置 Cookie
+    set_auth_cookies(response, access_token, refresh_token_val)
+
+    return LoginResponse(
+        access_token=access_token,
+        user=_build_user_info(user),
+    )
 
 
 @router.get("/me")

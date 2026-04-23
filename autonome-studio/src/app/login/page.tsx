@@ -293,7 +293,7 @@ export default function LoginPage() {
   };
 
   // ==========================================
-  // 邮箱密码登录（向后兼容）
+  // 邮箱密码登录
   // ==========================================
 
   const handleEmailLogin = async () => {
@@ -318,26 +318,12 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
-      });
+      }) as LoginResponse | MFAChallengeResponse;
 
-      // 检测 2FA 挑战
-      if ('status' in data && data.status === 'requires_2fa') {
-        setMfaToken(data.mfa_token);
-        setTotpCode('');
-        setTwoFAError('');
-        setShow2FA(true);
-        setLoading(false);
-        return;
+      // 统一处理：2FA 挑战或正常登录
+      if (handleLoginResponse(data)) {
+        completeLogin(data);
       }
-
-      // 正常邮箱登录流程
-      const { setToken } = useAuthStore.getState();
-      setToken(data.access_token);
-
-      const userInfo = await fetchAPI('/auth/me');
-      setUser(userInfo);
-
-      router.push('/');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '登录失败');
     } finally {
@@ -540,7 +526,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* 邮箱密码登录（向后兼容）*/}
+        {/* 邮箱密码登录 */}
         {activeTab === 'email' && (
           <div className="space-y-4">
             <div>
