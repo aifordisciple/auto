@@ -25,6 +25,7 @@ class Project(SQLModel, table=True):
     id: str = Field(default_factory=generate_project_id, primary_key=True, index=True)
     name: str = Field(index=True, max_length=100)
     description: Optional[str] = None
+    project_code: Optional[str] = Field(default=None, max_length=50, description="项目编号（可选）")
     # ✨ 新增字段
     icon: str = Field(default="📁")
     status: str = Field(default="active", index=True)  # "active" 或 "archived"
@@ -72,6 +73,7 @@ class DataFile(SQLModel, table=True):
 class ProjectUpdate(SQLModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    project_code: Optional[str] = None
     icon: Optional[str] = None
     status: Optional[str] = None
 

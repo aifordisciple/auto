@@ -27,6 +27,7 @@ export function ProjectCenter() {
   // 表单状态
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
+  const [formProjectCode, setFormProjectCode] = useState("");
   const [formIcon, setFormIcon] = useState("📁");
 
   const loadProjects = () => {
@@ -43,7 +44,8 @@ export function ProjectCenter() {
     return projects.filter(p => {
       const matchesTab = (activeTab === 'active' ? p.status !== 'archived' : p.status === 'archived');
       const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+                            (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                            (p.project_code && p.project_code.toLowerCase().includes(searchQuery.toLowerCase()));
       return matchesTab && matchesSearch;
     });
   }, [projects, activeTab, searchQuery]);
@@ -53,6 +55,7 @@ export function ProjectCenter() {
     setModalMode('create');
     setFormName("");
     setFormDesc("");
+    setFormProjectCode("");
     setFormIcon("📁");
     setEditingId(null);
     setIsModalOpen(true);
@@ -64,6 +67,7 @@ export function ProjectCenter() {
     setModalMode('edit');
     setFormName(proj.name);
     setFormDesc(proj.description || "");
+    setFormProjectCode(proj.project_code || "");
     setFormIcon(proj.icon || "📁");
     setEditingId(proj.id);
     setIsModalOpen(true);
@@ -76,7 +80,7 @@ export function ProjectCenter() {
       if (modalMode === 'create') {
         const res = await fetchAPI('/api/projects', {
           method: 'POST',
-          body: JSON.stringify({ name: formName.trim(), description: formDesc.trim(), icon: formIcon })
+          body: JSON.stringify({ name: formName.trim(), description: formDesc.trim(), project_code: formProjectCode.trim() || null, icon: formIcon })
         });
         if (res.status === 'success' && res.data) {
           // ✨ 创建新项目时，重置聊天和会话状态
@@ -90,7 +94,7 @@ export function ProjectCenter() {
       } else if (modalMode === 'edit' && editingId) {
         await fetchAPI(`/api/projects/${editingId}`, {
           method: 'PUT',
-          body: JSON.stringify({ name: formName.trim(), description: formDesc.trim(), icon: formIcon })
+          body: JSON.stringify({ name: formName.trim(), description: formDesc.trim(), project_code: formProjectCode.trim() || null, icon: formIcon })
         });
       }
       loadProjects();
@@ -242,7 +246,8 @@ export function ProjectCenter() {
                   <div className="text-2xl md:text-xl">{proj.icon || "📁"}</div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-white font-medium text-base truncate leading-tight">{proj.name}</h4>
-                    {currentProjectId === proj.id && <span className="inline-block mt-1 text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30">当前</span>}
+                    {proj.project_code && <span className="inline-block mt-1 text-[10px] bg-purple-500/15 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/20 font-mono">{proj.project_code}</span>}
+                    {currentProjectId === proj.id && <span className="inline-block mt-1 text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 ml-1">当前</span>}
                   </div>
                 </div>
 
@@ -290,6 +295,15 @@ export function ProjectCenter() {
                   type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
                   placeholder="例如: 肺癌单细胞时空图谱分析"
                   className="w-full bg-[#121212] border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1.5">项目编号 <span className="text-neutral-600 font-normal">（可选）</span></label>
+                <input
+                  type="text" value={formProjectCode} onChange={(e) => setFormProjectCode(e.target.value)}
+                  placeholder="例如: PRJ-2024-001"
+                  className="w-full bg-[#121212] border border-neutral-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 font-mono"
                 />
               </div>
 

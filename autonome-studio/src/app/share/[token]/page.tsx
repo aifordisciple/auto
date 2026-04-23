@@ -57,6 +57,7 @@ export default function SharedWorkspacePage() {
             
             <div className="border-b border-neutral-800 pb-6 mb-8">
               <h1 className="text-3xl font-bold text-white mb-2">{data.project_name}</h1>
+              {data.project_code && <span className="inline-block text-xs bg-purple-500/15 text-purple-400 px-2 py-0.5 rounded border border-purple-500/20 font-mono mb-2">{data.project_code}</span>}
               <p className="text-neutral-400">{data.project_desc || "No description provided."}</p>
               <div className="mt-4 text-xs text-neutral-600">Created at: {new Date(data.created_at).toLocaleString()}</div>
             </div>

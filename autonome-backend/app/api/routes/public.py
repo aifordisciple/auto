@@ -50,6 +50,7 @@ async def get_shared_workspace(share_token: str, session: Session = Depends(get_
         "data": {
             "project_name": project.name,
             "project_desc": project.description,
+            "project_code": project.project_code,
             "created_at": project.created_at.isoformat() if project.created_at else None,
             "messages": messages,
             "files": safe_files

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, R
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
+from typing import Optional
 
 from app.core.database import get_session
 from app.core.config import settings
@@ -18,6 +19,7 @@ router = APIRouter()
 class ProjectCreate(BaseModel):
     name: str
     description: str = ""
+    project_code: Optional[str] = None
 
 @router.get("")
 async def get_projects(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
@@ -83,7 +85,7 @@ async def delete_project(
 @router.post("")
 async def create_project(project: ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     # ✨ 创建项目时，强制绑定 owner_id
-    new_proj = Project(name=project.name, description=project.description, owner_id=current_user.id)
+    new_proj = Project(name=project.name, description=project.description, project_code=project.project_code, owner_id=current_user.id)
     session.add(new_proj)
     session.commit()
     session.refresh(new_proj)
