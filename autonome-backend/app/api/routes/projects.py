@@ -2,7 +2,7 @@ import os
 import shutil
 import secrets
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Request
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Request, Cookie
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -657,35 +657,39 @@ async def view_project_file(
     project_id: str,
     file_path: str,
     token: Optional[str] = None,
+    access_token_cookie: Optional[str] = Cookie(None, alias="access_token"),
     request: Request = None,
     session: Session = Depends(get_session),
 ):
     """
     提供给前端 Markdown 渲染图片的直链读取接口
 
-    支持两种认证方式：
-    1. Authorization header（标准方式）
-    2. ?token=xxx query parameter（用于 <img src> 等无法设置 header 的场景）
+    支持三种认证方式：
+    1. ?token=xxx query parameter（用于 <img src> 等无法设置 header 的场景）
+    2. Authorization: Bearer xxx header（标准方式）
+    3. access_token Cookie（浏览器自动携带，Cookie 模式下无需手动注入）
     """
     from app.api.deps import verify_token_and_get_user
 
-    # ✨ 认证：优先使用 query parameter token，回退到 Authorization header
+    # 认证：优先级 query param → Bearer header → Cookie
     current_user = None
-    if token:
-        try:
-            current_user = verify_token_and_get_user(token, session)
-        except HTTPException:
-            raise HTTPException(status_code=401, detail="Token 无效或已过期")
+    effective_token = token  # query parameter token
 
-    if current_user is None and request:
-        # 尝试从 Authorization header 获取 Bearer token
+    # 回退到 Authorization header
+    if not effective_token and request:
         auth_header = request.headers.get("authorization", "") if hasattr(request, "headers") else ""
         if auth_header.startswith("Bearer "):
-            header_token = auth_header[7:]
-            try:
-                current_user = verify_token_and_get_user(header_token, session)
-            except HTTPException:
-                raise HTTPException(status_code=401, detail="Token 无效或已过期")
+            effective_token = auth_header[7:]
+
+    # 回退到 Cookie（Cookie 模式下浏览器自动携带）
+    if not effective_token:
+        effective_token = access_token_cookie
+
+    if effective_token:
+        try:
+            current_user = verify_token_and_get_user(effective_token, session)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="Token 无效或已过期")
 
     if current_user is None:
         raise HTTPException(status_code=401, detail="未认证")

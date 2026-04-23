@@ -9,7 +9,7 @@
  * 从 ChatStage.tsx 提取，减少主组件复杂度
  */
 import { useState, useCallback } from 'react';
-import { BASE_URL } from '@/lib/api';
+import { BASE_URL, getToken } from '@/lib/api';
 
 // ==========================================
 // 类型定义
@@ -91,7 +91,7 @@ export function useFilePreview() {
    */
   const handleDownloadAsset = useCallback(async (url: string, filename: string) => {
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const fetchUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
       const res = await fetch(fetchUrl, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error("获取文件失败");
@@ -133,7 +133,7 @@ export function useFilePreview() {
     setPreviewLanguage(CODE_LANGUAGE_MAP[ext] || 'text');
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const fetchUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
       const res = await fetch(fetchUrl, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error("获取失败");

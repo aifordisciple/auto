@@ -105,7 +105,7 @@ def verify_token_and_get_user(token: str, session: Session) -> User:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    payload = verify_token(token)
+    payload = verify_access_token(token)
     if payload is None:
         raise credentials_exception
 

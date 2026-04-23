@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, ChevronDown, Table2, Image as ImageIcon, Trash2, Download, RefreshCw, UploadCloud, Loader2, Lock, Eye, ListChecks, FolderPlus, Move, FolderInput, Pencil, MessageSquarePlus, Dna, Database, Save, Edit3 } from "lucide-react";
-import { fetchAPI, BASE_URL } from "@/lib/api";
+import { fetchAPI, BASE_URL, getToken } from "@/lib/api";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { MoveFileModal } from "./MoveFileModal";
 import { UploadManager } from "./UploadManager";
@@ -171,7 +171,7 @@ export function DataCenter() {
     setIsSyncing(true); // 借用同步状态显示 Loading
     try {
       // 并发发送多条删除请求
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const promises = Array.from(selectedPaths).map(path =>
         fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${path}`, {
           method: 'DELETE',
@@ -252,7 +252,7 @@ export function DataCenter() {
   const handleDownloadNode = async (filePath: string) => {
     if (!currentProjectId) return;
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -366,7 +366,7 @@ export function DataCenter() {
     }
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -427,7 +427,7 @@ export function DataCenter() {
 
     setIsSaving(true);
     try {
-      const token = localStorage.getItem('autonome_access_token');
+      const token = getToken();
       const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${previewPath}/content`, {
         method: 'PUT',
         headers: {
