@@ -22,9 +22,9 @@ import os
 import asyncio
 from pathlib import Path
 from http import HTTPStatus
-from typing import Optional
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from fastapi.responses import StreamingResponse
 
@@ -982,3 +982,45 @@ async def chat_stream_queue(
             "Connection": "keep-alive",
         },
     )
+
+
+# ==========================================
+# Active Probing 参数提交端点
+# ==========================================
+
+class ProbingSubmitRequest(BaseModel):
+    """Active Probing 参数提交请求"""
+    message_id: str = Field(..., description="ProbingRequest 的 message_id")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="用户填写的参数")
+
+
+@router.post("/probing/submit")
+async def probing_submit(
+    request: ProbingSubmitRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    接收前端 Active Probing 表单提交的参数。
+
+    程序说明：
+    将用户提交的参数写入 Redis，key 为 probing:{message_id}，
+    TTL 10 分钟。LangGraph 的 probing_response_node 从 Redis 读取。
+    """
+    import redis
+    from app.core.config import settings
+
+    try:
+        r = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        key = f"probing:{request.message_id}"
+        r.setex(key, 600, json.dumps(request.parameters))  # TTL 10 分钟
+        log.info(f"[probing_submit] 参数已写入 Redis: key={key}")
+        return {"status": "ok", "message_id": request.message_id}
+    except Exception as e:
+        log.error(f"[probing_submit] Redis 写入失败: {e}")
+        raise HTTPException(status_code=500, detail=f"参数提交失败: {str(e)}")

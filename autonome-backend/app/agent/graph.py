@@ -37,6 +37,7 @@ from app.agent.nodes.system_asset_node import system_asset_node
 from app.agent.nodes.version_control_node import version_control_node
 from app.agent.nodes.collaboration_node import collaboration_node
 from app.agent.nodes.system_macro_node import system_macro_node
+from app.agent.router.nodes.probing_response_node import probing_response_node
 from app.agent.router.engine import IntentRouterEngine
 from app.agent.router.schemas import (
     AgentState, IntentType, INTENT_NODE_MAP,
@@ -176,6 +177,7 @@ def build_intent_graph() -> StateGraph:
     # 添加节点
     workflow.add_node("intent_router", intent_router_node)
     workflow.add_node("ask_user_node", ask_user_node)
+    workflow.add_node("probing_response_node", probing_response_node)
     workflow.add_node("chat_node", chat_node)
     workflow.add_node("skill_forge_node", skill_forge_node)
     workflow.add_node("explicit_exec_node", explicit_exec_node)
