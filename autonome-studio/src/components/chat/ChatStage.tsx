@@ -93,6 +93,8 @@ export function ChatStage() {
   // → useChat 内部状态丢失 → 消息被清空 → UI 重置为初始状态
   const chatTransport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
+    // Cookie 模式：浏览器自动携带 httpOnly Cookie 到 Next.js BFF 代理
+    credentials: 'include',
     // 注入 JWT 认证头，BFF 代理从 header 中提取 token 转发给后端
     // 使用函数形式确保每次请求都获取最新 token
     headers: () => {

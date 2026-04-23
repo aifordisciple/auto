@@ -218,9 +218,11 @@ def _check_data_probe_params(
     检查数据探查的参数完整性。
 
     程序说明：
-    数据探查需要文件目标（input_file 或 active_file）。
-    如果两者都不存在，生成 ProbingRequest 要求用户指定文件。
-    这确保数据探查节点不会在无目标文件的情况下执行。
+    数据探查分两种子意图：
+    1. workspace_scan（工作区扫描）：扫描整个目录结构，无需 input_file
+    2. 文件探查（inspect/peek）：需要 input_file 或 active_file 指定目标文件
+
+    当 probe_type 为 workspace_scan 时直接放行，否则检查文件目标是否存在。
 
     Args:
         task: L1 解构器输出的 TaskNode
@@ -229,6 +231,13 @@ def _check_data_probe_params(
     Returns:
         ProbingRequest: 参数探查结果
     """
+    # 工作区扫描子意图：无需 input_file，直接放行
+    probe_type = task.parameters.get("probe_type")
+    if probe_type == "workspace_scan":
+        log.debug("[L2] DATA_PROBE workspace_scan 子意图，无需 input_file，放行")
+        return ProbingRequest(is_missing=False)
+
+    # 文件探查子意图：需要 input_file 或 active_file
     has_file = task.parameters.get("input_file") or context.get("active_file")
     if not has_file:
         log.info("[L2] DATA_PROBE 缺失文件目标")

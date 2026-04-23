@@ -242,9 +242,13 @@ class ProbePatternRule(Rule):
     )
 
     # 文件系统探索关键词（无需文件上下文，查询工作区文件结构）
+    # 包含两种语序：
+    #   - "有哪些文件"、"哪些文件"（疑问词在前）
+    #   - "文件有哪些"、"文件列表"（名词在前）
     FILE_EXPLORATION_KEYWORDS = re.compile(
-        r'(有哪些文件|文件列表|目录结构|什么文件|哪些文件|文件树|目录树|'
-        r'扫描目录|扫描文件|列出文件|查看文件|浏览文件|'
+        r'(有哪些文件|文件有哪些|文件列表|目录结构|什么文件|哪些文件|'
+        r'项目文件|项目有哪些|项目目录|项目结构|'
+        r'文件树|目录树|扫描目录|扫描文件|列出文件|查看文件|浏览文件|'
         r'list\s*files|file\s*list|directory\s*tree|file\s*tree|'
         r'scan\s*dir|show\s*files|what\s*files)',
         re.IGNORECASE

@@ -36,6 +36,12 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 | 版本控制 | INTENT_VERSION_CONTROL | 回滚、版本对比、历史查看 |
 | 视觉微调 | INTENT_VISUAL_PERCEPTION_AND_TWEAK | 配色、阈值、DPI、样式调整 |
 | 数据探查 | INTENT_DATA_PROBE | 数据查询、统计分析、可视化 |
+
+**DATA_PROBE 子意图说明**：
+- 当用户询问"有哪些文件"、"目录结构"、"项目文件"等文件系统探索类问题时，
+  parameters 中必须设置 `probe_type: "workspace_scan"`，表示扫描工作区目录，无需 input_file
+- 当用户询问"查看数据结构"、"预览文件"等需要指定文件的问题时，
+  parameters 中需包含 `input_file`，表示探查特定文件
 | 文献挖掘 | INTENT_LITERATURE_MINING | 文献检索、知识提取 |
 | 系统资产 | INTENT_SYSTEM_ASSET_OPS | 资源调度、计费、配额管理 |
 | 团队协作 | INTENT_COLLABORATION | 共享、评论、权限管理 |

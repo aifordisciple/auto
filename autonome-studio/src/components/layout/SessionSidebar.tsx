@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { SquarePen, Trash2, Edit2, MessageSquare, Search } from "lucide-react";
 import dynamic from "next/dynamic";
-import { BASE_URL, getToken } from "@/lib/api";
+import { fetchAPI } from "@/lib/api";
 import { useChatStore, SessionTag } from "@/store/useChatStore";
 import { useUIStore } from "@/store/useUIStore";
 
@@ -39,18 +39,10 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 获取会话列表
   const fetchSessions = async () => {
-    const token = getToken();
     try {
-      const res = await fetch(`${BASE_URL}/api/chat/projects/${projectId}/sessions`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const sessionList = data.data || [];
-        setSessions(sessionList);
-        // ✨ 不再自动选择第一个会话
-        // 用户需要手动点击历史消息才会加载，避免页面打开时的卡顿
-      }
+      const data = await fetchAPI(`/chat/projects/${projectId}/sessions`);
+      const sessionList = data.data || [];
+      setSessions(sessionList);
     } catch (e) {
       console.error('Failed to fetch sessions:', e);
     }
@@ -58,15 +50,9 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 获取标签列表
   const fetchTags = async () => {
-    const token = getToken();
     try {
-      const res = await fetch(`${BASE_URL}/api/chat/tags`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTags(data.data || []);
-      }
+      const data = await fetchAPI('/chat/tags');
+      setTags(data.data || []);
     } catch (e) {
       console.error('Failed to fetch tags:', e);
     }
@@ -74,15 +60,9 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
 
   // 按标签筛选会话
   const fetchSessionsByTag = async (tagId: number) => {
-    const token = getToken();
     try {
-      const res = await fetch(`${BASE_URL}/api/chat/projects/${projectId}/sessions/tagged/${tagId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSessions(data.data || []);
-      }
+      const data = await fetchAPI(`/chat/projects/${projectId}/sessions/tagged/${tagId}`);
+      setSessions(data.data || []);
     } catch (e) {
       console.error('Failed to fetch tagged sessions:', e);
     }

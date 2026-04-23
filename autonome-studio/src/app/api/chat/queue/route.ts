@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const authHeader = req.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '') ||
-      req.cookies.get('autonome_access_token')?.value || '';
+      req.cookies.get('access_token')?.value || '';
 
     const backendResponse = await fetch(`${BACKEND_URL}/api/chat/stream/queue`, {
       method: 'POST',
