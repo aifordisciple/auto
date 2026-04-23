@@ -149,8 +149,14 @@ export default function LoginPage() {
     return true;
   };
 
-  /** 完成登录：设置用户信息并跳转首页 */
+  /** 完成登录：设置 token + 用户信息并跳转首页
+   *
+   * Cookie 由后端 set_auth_cookies 设置，浏览器自动携带。
+   * 但仍需 setToken 以便首页 page.tsx 初始化检查、SSE 连接等场景读取 access_token。
+   */
   const completeLogin = (data: LoginResponse | TwoFALoginResponse) => {
+    const { setToken } = useAuthStore.getState();
+    setToken(data.access_token);
     setUser({
       id: data.user.id,
       email: data.user.email,
