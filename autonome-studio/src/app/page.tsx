@@ -271,8 +271,11 @@ export default function AutonomeStudio() {
   useEffect(() => {
     setMounted(true);
 
-    const localToken = getToken();
-    if (!localToken) {
+    // Cookie 模式下 token 可能不在 store 中（未持久化），
+    // 应基于 isAuthenticated（已持久化）判断登录状态，
+    // 而非 getToken()（仅用于 SSE 等手动 Token 场景）
+    const { isAuthenticated } = useAuthStore.getState();
+    if (!isAuthenticated) {
       window.location.href = '/login';
       return;
     }
