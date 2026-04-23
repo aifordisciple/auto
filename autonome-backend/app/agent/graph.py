@@ -5,7 +5,8 @@ LangGraph 多 Agent 编排图 V2.0。
 
 Graph 结构:
     [Entry] → intent_router_node → determine_next_step
-        → ask_user_node → END (挂起，等待前端参数补全)
+        → ask_user_node → probing_response_node → route_after_probing
+            → l3_executor_node (参数补全后执行)
         → orchestrator_node → task_advance_or_end
         → skill_forge_node → task_advance_or_end
         → explicit_exec_node → task_advance_or_end
@@ -18,6 +19,7 @@ Graph 结构:
         → diagnostic_node → task_advance_or_end
         → chat_node → task_advance_or_end
         → system_macro_node → task_advance_or_end
+        → l3_executor_node → route_after_execution
 """
 from typing import Any, Dict
 
@@ -38,6 +40,7 @@ from app.agent.nodes.version_control_node import version_control_node
 from app.agent.nodes.collaboration_node import collaboration_node
 from app.agent.nodes.system_macro_node import system_macro_node
 from app.agent.router.nodes.probing_response_node import probing_response_node
+from app.agent.router.nodes.l3_executor_node import l3_executor_node
 from app.agent.router.engine import IntentRouterEngine
 from app.agent.router.schemas import (
     AgentState, IntentType, INTENT_NODE_MAP,
@@ -150,9 +153,71 @@ def determine_next_step(state: AgentState) -> str:
     intent_str = nodes[idx].get("intent", "INTENT_GENERAL_CHAT")
     try:
         intent = IntentType(intent_str)
+        # EXPLICIT_EXEC 且有 skill_id 时走 L3 执行器
+        if intent == IntentType.EXPLICIT_EXEC:
+            task_params = nodes[idx].get("parameters", {})
+            if task_params.get("skill_id") or state.get("skill_id"):
+                return "l3_executor_node"
         return INTENT_NODE_MAP.get(intent, "chat_node")
     except ValueError:
         return "chat_node"
+
+
+def route_after_l2(state: AgentState) -> str:
+    """
+    L2 参数探查后的路由判断。
+
+    程序说明：
+    如果 L2 发现参数缺失（active_probing.is_missing=True），
+    路由到 ask_user_node 挂起等待前端参数补全。
+    否则路由到 l3_executor_node 执行技能。
+    """
+    probing_dict = state.get("active_probing")
+    if probing_dict and probing_dict.get("is_missing"):
+        return "ask_user_node"
+
+    # 参数齐全，前进到执行
+    return "l3_executor_node"
+
+
+def route_after_probing(state: AgentState) -> str:
+    """
+    Active Probing 参数回注后的路由判断。
+
+    程序说明：
+    用户提交参数后，probing_response_node 已将参数合并到 TaskNode。
+    此处判断是否需要再次 L2 检查（参数可能仍不完整），
+    或直接前进到 L3 执行。
+
+    当前策略：直接前进到 L3，信任用户提交的参数。
+    未来可增加二次 L2 校验。
+    """
+    # 直接前进到执行
+    return "l3_executor_node"
+
+
+def route_after_execution(state: AgentState) -> str:
+    """
+    L3 执行后的路由判断。
+
+    程序说明：
+    检查 DAG 中是否还有未完成的任务节点。
+    有 → 回到 intent_router 继续调度下一个任务。
+    无 → 结束。
+    """
+    dag_dict = state.get("dag")
+    if not dag_dict or not dag_dict.get("nodes"):
+        return END
+
+    idx = state.get("current_task_idx", 0)
+    nodes = dag_dict.get("nodes", [])
+
+    # 还有未执行的任务
+    if idx < len(nodes):
+        return "intent_router"
+
+    # 所有任务已执行完毕
+    return END
 
 
 def task_advance_or_end(state: AgentState) -> str:
@@ -178,6 +243,7 @@ def build_intent_graph() -> StateGraph:
     workflow.add_node("intent_router", intent_router_node)
     workflow.add_node("ask_user_node", ask_user_node)
     workflow.add_node("probing_response_node", probing_response_node)
+    workflow.add_node("l3_executor_node", l3_executor_node)
     workflow.add_node("chat_node", chat_node)
     workflow.add_node("skill_forge_node", skill_forge_node)
     workflow.add_node("explicit_exec_node", explicit_exec_node)
@@ -200,6 +266,7 @@ def build_intent_graph() -> StateGraph:
         "diagnostic_node", "literature_node", "data_probe_node",
         "orchestrator_node", "ui_state_node", "system_asset_node",
         "version_control_node", "collaboration_node", "system_macro_node",
+        "l3_executor_node",
     ]
     workflow.add_conditional_edges(
         "intent_router",
@@ -207,11 +274,26 @@ def build_intent_graph() -> StateGraph:
         {node: node for node in all_worker_nodes} | {END: END}
     )
 
-    # ask_user_node → END（挂起，等待前端参数补全后重新调用）
-    workflow.add_edge("ask_user_node", END)
+    # --- Active Probing 闭环边 ---
+    # ask_user_node → probing_response_node（前端参数提交后，图恢复执行）
+    workflow.add_edge("ask_user_node", "probing_response_node")
+    # probing_response_node → 条件路由：参数回注后前进到 L3 执行
+    workflow.add_conditional_edges(
+        "probing_response_node",
+        route_after_probing,
+        {"l3_executor_node": "l3_executor_node", "ask_user_node": "ask_user_node"}
+    )
+
+    # --- L3 执行器闭环边 ---
+    # l3_executor_node → 条件路由：执行后推进 DAG 或结束
+    workflow.add_conditional_edges(
+        "l3_executor_node",
+        route_after_execution,
+        {"intent_router": "intent_router", END: END}
+    )
 
     # 各 Worker 节点 → task_advance_or_end
-    worker_only = [n for n in all_worker_nodes if n != "ask_user_node"]
+    worker_only = [n for n in all_worker_nodes if n not in ("ask_user_node", "l3_executor_node")]
     for node in worker_only:
         workflow.add_conditional_edges(
             node,

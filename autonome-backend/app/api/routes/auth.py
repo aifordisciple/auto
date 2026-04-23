@@ -2,7 +2,7 @@
 认证 API 路由
 
 设计日期: 2026-03-22
-更新日期: 2026-04-21（阶段2：新增双通道认证 + Refresh Token 体系）
+更新日期: 2026-04-23（阶段3：2FA/TOTP + 修改密码 + 修改手机号）
 
 ## API 端点列表
 
@@ -11,7 +11,7 @@
 - POST   /api/auth/login           - 邮箱密码登录（OAuth2PasswordRequestForm）
 - GET    /api/auth/me              - 获取当前用户信息
 
-### 新端点（阶段2新增）
+### 阶段2端点
 - POST   /api/auth/send-sms        - 发送短信验证码
 - POST   /api/auth/login/sms       - 验证码登录（自动注册）
 - POST   /api/auth/login/password  - 手机号+密码登录
@@ -19,6 +19,14 @@
 - POST   /api/auth/logout          - 登出（撤销会话 + 清 Cookie）
 - GET    /api/auth/sessions        - 查看在线设备列表
 - POST   /api/auth/sessions/{id}/revoke - 踢设备下线
+
+### 阶段3端点（2FA + 密码修改 + 手机号修改）
+- POST   /api/auth/2fa/setup       - 生成 TOTP 密钥（2FA 设置第一步）
+- POST   /api/auth/2fa/verify      - 验证并启用 2FA（2FA 设置第二步）
+- POST   /api/auth/2fa/disable     - 禁用 2FA
+- POST   /api/auth/2fa/login       - 2FA 登录验证
+- POST   /api/auth/change-password - 已登录用户修改密码
+- POST   /api/auth/change-phone    - 已登录用户修改手机号
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie

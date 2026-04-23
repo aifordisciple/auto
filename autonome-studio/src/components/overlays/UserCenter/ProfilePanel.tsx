@@ -14,7 +14,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { fetchAPI } from '@/lib/api';
-import { User, Building2, Phone, FileText, Save, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { User, Building2, Phone, FileText, Save, Loader2, CheckCircle, AlertCircle, X, Send } from 'lucide-react';
 
 // ==========================================
 // 类型定义
@@ -46,6 +46,15 @@ export function ProfilePanel() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // 修改手机号模态框状态
+  const [showChangePhone, setShowChangePhone] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [changePhoneOTP, setChangePhoneOTP] = useState('');
+  const [changePhonePassword, setChangePhonePassword] = useState('');
+  const [changePhoneCountdown, setChangePhoneCountdown] = useState(0);
+  const [changePhoneLoading, setChangePhoneLoading] = useState(false);
+  const [changePhoneError, setChangePhoneError] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 表单字段
@@ -106,6 +115,81 @@ export function ProfilePanel() {
       setSaving(false);
     }
   };
+
+  // ==========================================
+  // 修改手机号流程
+  // ==========================================
+
+  /** 发送修改手机号的 SMS 验证码 */
+  const handleChangePhoneSendSMS = async () => {
+    if (!/^1[3-9]\d{9}$/.test(newPhone)) {
+      setChangePhoneError('请输入有效的手机号');
+      return;
+    }
+    try {
+      await fetchAPI('/auth/send-sms', {
+        method: 'POST',
+        body: JSON.stringify({ phone_number: newPhone, purpose: 'change_phone' }),
+      });
+      setChangePhoneCountdown(60);
+      setChangePhoneError('');
+    } catch (err: unknown) {
+      setChangePhoneError(err instanceof Error ? err.message : '发送验证码失败');
+    }
+  };
+
+  /** 提交修改手机号 */
+  const handleChangePhone = async () => {
+    if (!/^1[3-9]\d{9}$/.test(newPhone)) {
+      setChangePhoneError('请输入有效的手机号');
+      return;
+    }
+    if (!/^\d{6}$/.test(changePhoneOTP)) {
+      setChangePhoneError('请输入 6 位验证码');
+      return;
+    }
+    if (!changePhonePassword) {
+      setChangePhoneError('请输入当前密码');
+      return;
+    }
+
+    setChangePhoneLoading(true);
+    setChangePhoneError('');
+
+    try {
+      await fetchAPI('/auth/change-phone', {
+        method: 'POST',
+        body: JSON.stringify({
+          new_phone: newPhone,
+          otp_code: changePhoneOTP,
+          current_password: changePhonePassword,
+        }),
+      });
+
+      // 更新本地用户信息
+      const { setUser } = useAuthStore.getState();
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser) {
+        setUser({ ...currentUser, phone_number: newPhone });
+      }
+      setFormData(prev => ({ ...prev, phone_number: newPhone }));
+      setShowChangePhone(false);
+      setNewPhone('');
+      setChangePhoneOTP('');
+      setChangePhonePassword('');
+    } catch (err: unknown) {
+      setChangePhoneError(err instanceof Error ? err.message : '修改手机号失败');
+    } finally {
+      setChangePhoneLoading(false);
+    }
+  };
+
+  // 修改手机号倒计时
+  useEffect(() => {
+    if (changePhoneCountdown <= 0) return;
+    const timer = setTimeout(() => setChangePhoneCountdown(changePhoneCountdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [changePhoneCountdown]);
 
   // 格式化日期
   const formatDate = (dateStr: string) => {
@@ -238,19 +322,29 @@ export function ProfilePanel() {
               <p className="text-xs text-neutral-500">选填。为未来的团队协作功能做准备</p>
             </div>
 
-            {/* 手机号 */}
+            {/* 手机号（只读 + 修改按钮，修改需 SMS 验证） */}
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm text-neutral-300">
                 <Phone size={14} />
                 手机号码
               </label>
-              <input
-                type="tel"
-                value={formData.phone_number}
-                onChange={(e) => handleChange('phone_number', e.target.value)}
-                placeholder="输入您的手机号码"
-                className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
-              />
+              <div className="flex items-center gap-3">
+                <span className="flex-1 px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-neutral-300">
+                  {formData.phone_number || '未绑定'}
+                </span>
+                <button
+                  onClick={() => {
+                    setShowChangePhone(true);
+                    setNewPhone('');
+                    setChangePhoneOTP('');
+                    setChangePhonePassword('');
+                    setChangePhoneError('');
+                  }}
+                  className="px-3 py-2.5 text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  修改
+                </button>
+              </div>
             </div>
 
             {/* 个人简介 */}
@@ -308,6 +402,87 @@ export function ProfilePanel() {
         </div>
 
       </div>
+
+      {/* 修改手机号模态框 */}
+      {showChangePhone && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="w-full max-w-sm mx-4 bg-neutral-900 border border-neutral-700 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">修改手机号</h3>
+              <button
+                onClick={() => setShowChangePhone(false)}
+                className="text-neutral-400 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {changePhoneError && (
+              <div className="mb-4 p-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm text-center">
+                {changePhoneError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {/* 新手机号 */}
+              <div>
+                <label className="block text-sm text-neutral-300 mb-1.5">新手机号</label>
+                <div className="flex gap-3">
+                  <input
+                    type="tel"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    placeholder="请输入新手机号"
+                    className="flex-1 px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <button
+                    onClick={handleChangePhoneSendSMS}
+                    disabled={changePhoneCountdown > 0 || !/^1[3-9]\d{9}$/.test(newPhone)}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-700 disabled:text-neutral-500 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                  >
+                    {changePhoneCountdown > 0 ? `${changePhoneCountdown}s` : <span className="flex items-center gap-1"><Send size={14} /> 发送</span>}
+                  </button>
+                </div>
+              </div>
+
+              {/* 验证码 */}
+              <div>
+                <label className="block text-sm text-neutral-300 mb-1.5">验证码</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={changePhoneOTP}
+                  onChange={(e) => setChangePhoneOTP(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="6 位验证码"
+                  maxLength={6}
+                  className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors text-center tracking-[0.3em]"
+                />
+              </div>
+
+              {/* 当前密码 */}
+              <div>
+                <label className="block text-sm text-neutral-300 mb-1.5">当前密码（身份验证）</label>
+                <input
+                  type="password"
+                  value={changePhonePassword}
+                  onChange={(e) => setChangePhonePassword(e.target.value)}
+                  placeholder="输入当前密码以验证身份"
+                  className="w-full px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+
+              <button
+                onClick={handleChangePhone}
+                disabled={changePhoneLoading}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                {changePhoneLoading ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />}
+                确认修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

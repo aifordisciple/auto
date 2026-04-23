@@ -2,11 +2,11 @@
  * 安全设置面板组件
  *
  * 设计日期: 2026-03-23
- * 更新日期: 2026-04-22（阶段3：新增 OAuth 账号绑定/解绑管理）
+ * 更新日期: 2026-04-23（阶段3：2FA/TOTP 完整UI + 修改密码对接 + 修改手机号）
  *
  * 功能：
  * - 修改密码（原密码验证 + 新密码强度验证）
- * - 双因素认证 (2FA) UI 占位（即将推出）
+ * - 双因素认证 (2FA) 完整设置/验证/禁用流程
  * - OAuth 第三方账号绑定/解绑（GitHub / 微信）
  * - 显示上次密码修改时间
  */
@@ -385,10 +385,10 @@ export function SecurityPanel() {
     setPasswordMessage(null);
 
     try {
-      await fetchAPI('/users/me/password', {
+      await fetchAPI('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({
-          current_password: passwordForm.current_password,
+          old_password: passwordForm.current_password,
           new_password: passwordForm.new_password
         })
       });
@@ -400,8 +400,8 @@ export function SecurityPanel() {
         new_password: '',
         confirm_password: ''
       });
-    } catch (error: any) {
-      setPasswordMessage({ type: 'error', text: error.message || '密码修改失败' });
+    } catch (err: unknown) {
+      setPasswordMessage({ type: 'error', text: err instanceof Error ? err.message : '密码修改失败' });
     } finally {
       setChangingPassword(false);
     }
@@ -586,32 +586,160 @@ export function SecurityPanel() {
             双因素认证 (2FA)
           </h2>
 
-          <div className="flex items-start justify-between gap-6">
-            <div className="flex-1">
-              <p className="text-neutral-300 mb-2">
-                为您的账号添加额外的安全保护层
-              </p>
-              <p className="text-sm text-neutral-500">
-                启用后，登录时除了密码外，还需要输入手机验证码或验证器应用生成的动态码。
-              </p>
+          {/* 2FA 消息提示 */}
+          {twoFAMessage && (
+            <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${
+              twoFAMessage.type === 'success'
+                ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                : 'bg-red-500/10 border border-red-500/20 text-red-400'
+            }`}>
+              {twoFAMessage.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {twoFAMessage.text}
             </div>
+          )}
 
-            {/* 开关占位 */}
-            <div className="flex-shrink-0">
+          {/* 2FA 未启用 — idle 状态 */}
+          {!twoFAEnabled && twoFASetupStep === 'idle' && (
+            <div>
+              <div className="flex items-start justify-between gap-6">
+                <div className="flex-1">
+                  <p className="text-neutral-300 mb-2">
+                    为您的账号添加额外的安全保护层
+                  </p>
+                  <p className="text-sm text-neutral-500">
+                    启用后，登录时除了密码外，还需要输入验证器应用生成的 6 位动态码。
+                  </p>
+                </div>
+              </div>
               <button
-                disabled
-                className="relative inline-flex h-7 w-12 items-center rounded-full bg-neutral-700 transition-colors cursor-not-allowed opacity-50"
+                onClick={handle2FASetup}
+                disabled={twoFALoading}
+                className="mt-4 flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white rounded-lg font-medium transition-colors text-sm"
               >
-                <span className="inline-block h-5 w-5 transform rounded-full bg-neutral-400 translate-x-1 transition-transform" />
+                {twoFALoading ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                启用 2FA
               </button>
             </div>
-          </div>
+          )}
 
-          {/* 即将推出提示 */}
-          <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-2">
-            <Smartphone size={16} className="text-blue-400" />
-            <span className="text-sm text-blue-400">此功能即将推出，敬请期待</span>
-          </div>
+          {/* 2FA 设置步骤1：显示 QR 码 */}
+          {twoFASetupStep === 'setup' && (
+            <div className="space-y-4">
+              <p className="text-sm text-neutral-400">
+                请使用验证器应用（如 Google Authenticator、Microsoft Authenticator）扫描下方二维码
+              </p>
+              {/* QR 码（使用外部 API 渲染） */}
+              <div className="flex justify-center p-4 bg-white rounded-lg">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(twoFAQRUri)}`}
+                  alt="2FA QR Code"
+                  width={200}
+                  height={200}
+                />
+              </div>
+              {/* 手动输入密钥 */}
+              <div className="p-3 bg-neutral-800/50 rounded-lg">
+                <p className="text-xs text-neutral-500 mb-1">无法扫描？手动输入密钥：</p>
+                <p className="text-sm text-neutral-200 font-mono select-all break-all">{twoFASecret}</p>
+              </div>
+              <button
+                onClick={() => setTwoFASetupStep('verify')}
+                className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors text-sm"
+              >
+                下一步：验证
+              </button>
+            </div>
+          )}
+
+          {/* 2FA 设置步骤2：验证 TOTP 码 */}
+          {twoFASetupStep === 'verify' && (
+            <div className="space-y-4">
+              <p className="text-sm text-neutral-400">
+                请输入验证器应用中显示的 6 位验证码以完成设置
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={twoFAVerifyCode}
+                onChange={(e) => setTwoFAVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6 位验证码"
+                maxLength={6}
+                className="w-full px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-center text-2xl tracking-[0.5em] placeholder-neutral-500 focus:outline-none focus:border-purple-500 transition-colors"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setTwoFASetupStep('setup'); setTwoFAMessage(null); }}
+                  className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm font-medium transition-colors"
+                >
+                  返回
+                </button>
+                <button
+                  onClick={handle2FAVerify}
+                  disabled={twoFALoading || twoFAVerifyCode.length !== 6}
+                  className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  {twoFALoading ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                  验证并启用
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 2FA 设置步骤3：显示恢复码 */}
+          {twoFASetupStep === 'recovery' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+                <AlertCircle size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-amber-400">
+                  <p className="font-medium">请妥善保存以下恢复码</p>
+                  <p className="text-amber-400/80 mt-1">如果丢失验证器，可使用恢复码登录。每个恢复码只能使用一次。</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 p-4 bg-neutral-800/50 rounded-lg">
+                {twoFARecoveryCodes.map((code, i) => (
+                  <p key={i} className="text-sm font-mono text-neutral-200 select-all">{code}</p>
+                ))}
+              </div>
+              <button
+                onClick={() => { setTwoFASetupStep('idle'); setTwoFAMessage(null); }}
+                className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors text-sm"
+              >
+                我已保存恢复码，完成设置
+              </button>
+            </div>
+          )}
+
+          {/* 2FA 已启用 — 显示禁用选项 */}
+          {twoFAEnabled && twoFASetupStep === 'idle' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={16} className="text-green-400" />
+                <span className="text-sm text-green-400 font-medium">2FA 已启用</span>
+              </div>
+              <p className="text-sm text-neutral-400">
+                如需禁用 2FA，请输入验证器中的 6 位验证码确认
+              </p>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={twoFADisableCode}
+                  onChange={(e) => setTwoFADisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="6 位验证码"
+                  maxLength={6}
+                  className="flex-1 px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-center tracking-[0.3em] placeholder-neutral-500 focus:outline-none focus:border-red-500 transition-colors"
+                />
+                <button
+                  onClick={handle2FADisable}
+                  disabled={twoFADisableLoading || twoFADisableCode.length !== 6}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-red-600/50 text-white rounded-lg font-medium transition-colors text-sm"
+                >
+                  {twoFADisableLoading ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                  禁用 2FA
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 卡片三：OAuth 第三方账号绑定 */}
