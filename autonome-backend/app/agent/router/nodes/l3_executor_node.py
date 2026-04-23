@@ -69,7 +69,7 @@ async def l3_executor_node(state: AgentState, config: RunnableConfig) -> Dict[st
         session = configurable.get("session")
         user_id = configurable.get("user_id")
 
-        # SkillExecutor 是同步接口，用 run_in_executor 包装为异步
+        # SkillExecutor 是同步接口，用 asyncio.to_thread 包装为异步
         executor = SkillExecutor(
             skill_id=skill_id,
             params=parameters,
@@ -79,8 +79,7 @@ async def l3_executor_node(state: AgentState, config: RunnableConfig) -> Dict[st
         )
 
         # 同步执行 → 异步包装，避免阻塞事件循环
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, executor.execute)
+        result = await asyncio.to_thread(executor.execute)
 
         # 记录执行结果
         success = result.get("success", False)

@@ -168,6 +168,7 @@ export function ChatStage() {
   // aiMessages (useChat) 本身没有这个字段，需要从 mirroredMessages 合并
   // ==========================================
   const mirroredMessages = useChatStore(state => state.mirroredMessages);
+  const dagProgress = useChatStore(state => state.dagProgress);
 
   const messages = useMemo(() => {
     // 构建 thinkingContent 和 attachments 索引：key=message.id
@@ -512,9 +513,9 @@ export function ChatStage() {
             className="flex-1 overflow-y-auto px-2 md:px-4 pt-6 pb-4 smooth-scroll-container bg-white dark:bg-[#131314]"
           >
             {/* ✨ DAG 进度可视化：当有 DAG 任务进度时渲染 */}
-            {useChatStore(state => state.dagProgress) && (
+            {dagProgress && dagProgress.length > 1 && (
               <div className="px-2 md:px-4">
-                <DAGProgressView nodes={useChatStore.getState().dagProgress!} />
+                <DAGProgressView nodes={dagProgress} />
               </div>
             )}
             <VirtualizedMessageList
