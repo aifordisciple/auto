@@ -809,6 +809,133 @@ async def reset_password(
 
 
 # ==========================================
+# 会话内修改密码（工作流 F）
+# ==========================================
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    已登录用户修改密码
+
+    流程：
+    1. 验证旧密码
+    2. 密码强度验证
+    3. 更新密码
+    4. 撤销所有其他会话（保留当前会话，安全动作）
+    """
+    # 验证旧密码
+    if not current_user.hashed_password or not verify_password(
+        request.old_password, current_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码错误",
+        )
+
+    # 新旧密码不能相同
+    if verify_password(request.new_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码不能与当前密码相同",
+        )
+
+    # 密码强度验证
+    if len(request.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密码长度至少 8 位",
+        )
+    has_letter = any(c.isalpha() for c in request.new_password)
+    has_digit = any(c.isdigit() for c in request.new_password)
+    if not (has_letter and has_digit):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密码需包含字母和数字",
+        )
+
+    # 更新密码
+    current_user.hashed_password = get_password_hash(request.new_password)
+    current_user.last_password_change = datetime.now(timezone.utc)
+    current_user.updated_at = datetime.now(timezone.utc)
+    session.add(current_user)
+
+    # 【安全动作】撤销该用户所有 ActiveSession（密码已变，旧 Token 全部失效）
+    active_sessions = session.exec(
+        select(ActiveSession).where(
+            ActiveSession.user_id == current_user.id,
+            ActiveSession.is_revoked == False,
+        )
+    ).all()
+    for s in active_sessions:
+        s.is_revoked = True
+        session.add(s)
+
+    session.commit()
+
+    return {"status": "success", "message": "密码修改成功，请重新登录"}
+
+
+# ==========================================
+# 修改手机号（工作流 H）
+# ==========================================
+
+@router.post("/change-phone")
+async def change_phone(
+    request: ChangePhoneRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    已登录用户修改手机号
+
+    流程：
+    1. 验证当前密码（本人校验）
+    2. 验证新手机号的 SMS OTP
+    3. 检查新手机号是否已被其他用户使用
+    4. 更新手机号
+    """
+    # 本人校验：验证当前密码
+    if not current_user.hashed_password or not verify_password(
+        request.current_password, current_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码错误",
+        )
+
+    # 验证新手机号的 SMS OTP
+    valid, reason = verify_otp(request.new_phone, request.otp_code)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=reason,
+        )
+
+    # 检查新手机号是否已被其他用户使用
+    existing = session.exec(
+        select(User).where(User.phone_number == request.new_phone)
+    ).first()
+    if existing and existing.id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该手机号已被其他用户使用",
+        )
+
+    # 更新手机号
+    current_user.phone_number = request.new_phone
+    current_user.updated_at = datetime.now(timezone.utc)
+    session.add(current_user)
+    session.commit()
+
+    return {"status": "success", "message": "手机号修改成功"}
+
+
+# ==========================================
 # 安全邮箱绑定（工作流 E）
 # ==========================================
 

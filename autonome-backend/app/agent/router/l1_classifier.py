@@ -46,6 +46,10 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 
 {workspace_context}
 
+## 可用技能（与用户需求最相关的技能）
+
+{available_skills}
+
 ## 指令
 
 1. 分析用户输入，识别其中包含的一个或多个原子意图
@@ -144,7 +148,8 @@ class L1Classifier:
         query: str,
         context: Dict[str, Any] = None,
         enable_think: bool = False,
-        temperature: float = 0.0
+        temperature: float = 0.0,
+        skill_summary: str = ""
     ) -> TaskDAG:
         """
         执行意图解构，生成 TaskDAG。
@@ -153,12 +158,15 @@ class L1Classifier:
         作为解构任务的主入口，根据配置的 LLM 环境自动路由到对应的处理引擎。
         将用户查询解构为包含一个或多个 TaskNode 的 TaskDAG。
         包含参数系统，支持向下透传推理模式开关及采样温度设定。
+        V2.0 新增 skill_summary 参数：向 L1 提示词注入与用户需求最相关的技能摘要，
+        帮助 LLM 更准确地识别 INTENT_EXPLICIT_EXEC 意图并推断 skill_id。
 
         Args:
             query (str): 用户自然语言输入。
             context (Dict[str, Any]): 工作区上下文。默认值为 None。
             enable_think (bool): 是否开启大模型的推理思考模式。默认值为 False。
             temperature (float): 采样温度，控制输出稳定性。默认值为 0.0。
+            skill_summary (str): 可用技能摘要文本，用于增强 L1 解构的结构化上下文。默认值为 ""。
 
         Returns:
             TaskDAG: 解构后的任务图谱，包含一个或多个 TaskNode
@@ -177,12 +185,14 @@ class L1Classifier:
                     query=query,
                     context=context,
                     enable_think=enable_think,
-                    temperature=temperature
+                    temperature=temperature,
+                    skill_summary=skill_summary
                 )
             else:
                 result = await self._decompose_with_structured_output(
                     query=query,
-                    workspace_context=workspace_context
+                    workspace_context=workspace_context,
+                    skill_summary=skill_summary
                 )
 
             # 验证解构结果：至少包含一个节点
@@ -210,7 +220,7 @@ class L1Classifier:
             ])
 
     async def _decompose_with_structured_output(
-        self, query: str, workspace_context: str
+        self, query: str, workspace_context: str, skill_summary: str = ""
     ) -> TaskDAG:
         """
         第三方 API 模式：使用 with_structured_output (function calling)。
@@ -219,11 +229,13 @@ class L1Classifier:
         通过 LangChain 的 with_structured_output 方法，将 LLM 输出
         直接约束为 TaskDAG 结构，确保类型安全和格式正确。
         workspace_context 已在 decompose() 中格式化，此处直接传入模板。
+        V2.0 新增 available_skills 占位符填充，注入与用户需求相关的技能摘要。
         """
         llm_with_schema = self.primary_llm.with_structured_output(TaskDAG)
         chain = self.prompt_template | llm_with_schema
         result = await chain.ainvoke({
             "workspace_context": workspace_context,
+            "available_skills": skill_summary or "无可用技能",
             "query": query
         })
         return result
@@ -233,7 +245,8 @@ class L1Classifier:
         query: str,
         context: Dict[str, Any],
         enable_think: bool = False,
-        temperature: float = 0.0
+        temperature: float = 0.0,
+        skill_summary: str = ""
     ) -> TaskDAG:
         """
         本地模型模式：原生 Ollama API + JSON mode + 手动解析。
@@ -243,12 +256,14 @@ class L1Classifier:
         此方法改用 ollama.AsyncClient 直接发起请求，确保异步性能。
         通过参数系统传入的 enable_think，在 API 层面直接关闭深度推理模型 (如 Qwen3) 的思考过程。
         利用原生 format='json' 约束，确保输出结构稳定性。
+        V2.0 新增 available_skills 占位符填充，注入与用户需求相关的技能摘要。
 
         Args:
             query (str): 用户查询。
             context (Dict[str, Any]): 上下文。
             enable_think (bool): 控制思考模式的参数。
             temperature (float): 采样温度参数。
+            skill_summary (str): 可用技能摘要文本，用于增强 L1 解构的结构化上下文。默认值为 ""。
         """
         # 提取 Ollama 服务的基础 URL，移除可能存在的 /v1 兼容后缀
         host = self.llm_config.base_url
@@ -285,7 +300,8 @@ class L1Classifier:
         ws_ctx = build_workspace_context(context or {})
         workspace_context = format_workspace_context_for_prompt(ws_ctx)
         system_msg = L1_DECOMPOSER_PROMPT_TEMPLATE.format(
-            workspace_context=workspace_context
+            workspace_context=workspace_context,
+            available_skills=skill_summary or "无可用技能"
         ) + json_instruction
         user_msg = f"User Query: {query}"
 
