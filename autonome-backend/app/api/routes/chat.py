@@ -1024,3 +1024,42 @@ async def probing_submit(
     except Exception as e:
         log.error(f"[probing_submit] Redis 写入失败: {e}")
         raise HTTPException(status_code=500, detail=f"参数提交失败: {str(e)}")
+
+
+# ==========================================
+# DAG 节点重试端点
+# ==========================================
+
+@router.post("/dag/retry/{task_id}")
+async def dag_retry_task(
+    task_id: str,
+    session_id: str = None,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    重试 DAG 中失败的节点。
+
+    程序说明：
+    重置指定 task_id 的执行状态为 READY，
+    清除其 task_results 记录，
+    使其可被 DAG 调度器重新拾取执行。
+    通过 Redis 通知正在运行的 graph 重试该节点。
+    """
+    try:
+        import redis
+        from app.core.config import settings
+
+        r = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        key = f"dag_retry:{task_id}"
+        r.setex(key, 300, json.dumps({"task_id": task_id, "action": "retry"}))
+        log.info(f"[dag_retry] 重试请求已写入 Redis: task_id={task_id}")
+        return {"status": "ok", "task_id": task_id, "action": "retry"}
+    except Exception as e:
+        log.error(f"[dag_retry] Redis 写入失败: {e}")
+        raise HTTPException(status_code=500, detail=f"重试请求失败: {str(e)}")

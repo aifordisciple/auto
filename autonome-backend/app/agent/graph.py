@@ -134,7 +134,12 @@ async def ask_user_node(state: AgentState, config: RunnableConfig) -> Dict[str, 
 
 def determine_next_step(state: AgentState) -> str:
     """条件边：决定图的下一步走向。"""
-    # 最高优先级：L2 探查器发现缺参数
+    # 最高优先级：用户提交了 Probing 参数，恢复执行
+    probing_response = state.get("probing_response")
+    if probing_response:
+        return "probing_response_node"
+
+    # 次高优先级：L2 探查器发现缺参数
     probing_dict = state.get("active_probing")
     if probing_dict and probing_dict.get("is_missing"):
         return "ask_user_node"
@@ -262,8 +267,8 @@ def build_intent_graph() -> StateGraph:
 
     # 条件路由边：intent_router → 各节点
     all_worker_nodes = [
-        "ask_user_node", "chat_node", "skill_forge_node", "explicit_exec_node",
-        "diagnostic_node", "literature_node", "data_probe_node",
+        "ask_user_node", "probing_response_node", "chat_node", "skill_forge_node",
+        "explicit_exec_node", "diagnostic_node", "literature_node", "data_probe_node",
         "orchestrator_node", "ui_state_node", "system_asset_node",
         "version_control_node", "collaboration_node", "system_macro_node",
         "l3_executor_node",
@@ -275,8 +280,8 @@ def build_intent_graph() -> StateGraph:
     )
 
     # --- Active Probing 闭环边 ---
-    # ask_user_node → probing_response_node（前端参数提交后，图恢复执行）
-    workflow.add_edge("ask_user_node", "probing_response_node")
+    # ask_user_node → END（挂起，等待前端参数补全后重新调用图）
+    workflow.add_edge("ask_user_node", END)
     # probing_response_node → 条件路由：参数回注后前进到 L3 执行
     workflow.add_conditional_edges(
         "probing_response_node",
@@ -293,7 +298,7 @@ def build_intent_graph() -> StateGraph:
     )
 
     # 各 Worker 节点 → task_advance_or_end
-    worker_only = [n for n in all_worker_nodes if n not in ("ask_user_node", "l3_executor_node")]
+    worker_only = [n for n in all_worker_nodes if n not in ("ask_user_node", "probing_response_node", "l3_executor_node")]
     for node in worker_only:
         workflow.add_conditional_edges(
             node,

@@ -168,6 +168,19 @@ export interface ChatState {
   setEnableThink: (enable: boolean) => void;
 
   // ==========================================
+  // ✨ DAG 进度状态
+  // ==========================================
+  /** DAG 任务进度（从后端 intent 事件获取） */
+  dagProgress: Array<{
+    task_id: string
+    intent: string
+    status: 'pending' | 'ready' | 'running' | 'completed' | 'failed'
+    label?: string
+  }> | null;
+  /** 设置 DAG 进度 */
+  setDagProgress: (progress: ChatState['dagProgress']) => void;
+
+  // ==========================================
   // ✨ 消息队列状态
   // ==========================================
   /** 当前会话的队列项 */
@@ -344,6 +357,12 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
       }
       return { mirroredMessages: newMirrored, messages: newMessages };
     }),
+
+  // ==========================================
+  // ✨ DAG 进度状态实现
+  // ==========================================
+  dagProgress: null,
+  setDagProgress: (progress) => set({ dagProgress: progress }),
 
   // ==========================================
   // ✨ 消息队列状态实现

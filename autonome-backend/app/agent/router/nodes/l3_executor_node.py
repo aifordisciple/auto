@@ -10,6 +10,7 @@ L3 技能执行器节点。
 2. route_after_probing 参数补全后 → 路由到执行
 3. route_after_l2 L2 参数齐全后 → 路由到执行
 """
+import asyncio
 from typing import Any, Dict
 
 from langchain_core.messages import AIMessage
@@ -25,7 +26,7 @@ async def l3_executor_node(state: AgentState, config: RunnableConfig) -> Dict[st
 
     程序说明：
     1. 从 DAG 中取当前 TaskNode，提取 skill_id 和 parameters
-    2. 调用 skill_executor 在 Docker 沙箱中执行
+    2. 调用 SkillExecutor(skill_id, params, project_id) 在 Docker 沙箱中执行
     3. 将结果写入 task_results，推进 current_task_idx
     4. 如果执行失败，记录错误但不中断 DAG（由 route_after_execution 决定后续）
     """
@@ -62,26 +63,32 @@ async def l3_executor_node(state: AgentState, config: RunnableConfig) -> Dict[st
     log.info(f"[l3_executor_node] 开始执行 task={task_id}, skill={skill_id}")
 
     try:
-        # 委托给 skill_executor 执行（Docker 沙箱）
-        # TODO: Task 5 完整实现 — 接入 skill_executor.py
         from app.services.skill_executor import SkillExecutor
 
         configurable = config.get("configurable", {})
         session = configurable.get("session")
         user_id = configurable.get("user_id")
 
-        executor = SkillExecutor(session=session, user_id=user_id)
-        result = await executor.execute_skill(
+        # SkillExecutor 是同步接口，用 run_in_executor 包装为异步
+        executor = SkillExecutor(
             skill_id=skill_id,
-            parameters=parameters,
+            params=parameters,
+            project_id=session or "default",
+            task_id=task_id,
+            user_id=int(user_id) if user_id else None,
         )
 
+        # 同步执行 → 异步包装，避免阻塞事件循环
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, executor.execute)
+
         # 记录执行结果
+        success = result.get("success", False)
         task_result = TaskResult(
             task_id=task_id,
             skill_id=skill_id,
-            status="success" if result.get("success", False) else "failed",
-            output=result.get("output"),
+            status="success" if success else "failed",
+            output=result.get("output") or result.get("result"),
             error=result.get("error"),
             execution_time_seconds=result.get("execution_time", 0.0),
         )
@@ -92,7 +99,7 @@ async def l3_executor_node(state: AgentState, config: RunnableConfig) -> Dict[st
         new_idx = idx + 1
 
         # 构造结果消息
-        result_msg = f"技能 {skill_id} 执行{'成功' if task_result.status == 'success' else '失败'}"
+        result_msg = f"技能 {skill_id} 执行{'成功' if success else '失败'}"
         if task_result.output:
             result_msg += f"\n结果: {str(task_result.output)[:500]}"
 

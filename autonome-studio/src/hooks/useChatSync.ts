@@ -260,11 +260,25 @@ export function useChatSync({ messages, isLoading, pendingAttachmentsRef }: UseC
           case 'intent':
             // ✨ 处理意图识别结果事件
             // 当意图为知识类/技能分发时，可触发技能中心打开
+            // 同时提取 DAG 进度数据供 DAGProgressView 渲染
             {
               const intent = event.intent as string;
               if (intent === 'knowledge' || intent === 'basic_analysis') {
                 useUIStore.getState().setSkillFilterMode('basic');
                 // 不自动打开技能中心，仅在用户明确请求时打开
+              }
+              // ✨ DAG 进度：从 intent_data 中提取 DAG 节点状态
+              // intent_data 结构为 TaskDAG.model_dump()，包含 nodes 数组
+              const intentData = event as Record<string, unknown>;
+              const dagNodes = intentData.nodes as Array<Record<string, unknown>> | undefined;
+              if (dagNodes && dagNodes.length > 1) {
+                const dagProgress = dagNodes.map((node) => ({
+                  task_id: (node.task_id as string) || '',
+                  intent: (node.intent as string) || '',
+                  status: 'pending' as const,
+                  label: (node.raw_instruction as string)?.substring(0, 20) || undefined,
+                }));
+                useChatStore.getState().setDagProgress(dagProgress);
               }
             }
             break;
