@@ -159,6 +159,194 @@ def _resolve_system_config() -> LLMConfig:
 
 
 # ==========================================
+# 意图识别模型配置解析
+# ==========================================
+
+def get_intent_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig:
+    """
+    解析意图识别模型配置：per-user intent → system intent → 主模型配置
+
+    三级回退链路：
+    1. 用户级 intent_* 字段（任一字段非 None 即视为使用用户配置）
+    2. 系统级 intent_* 字段
+    3. 主模型配置（get_llm_config 的结果，保持向后兼容）
+
+    Args:
+        session: 数据库会话
+        user_id: 用户 ID（None 则跳过 per-user 查找）
+
+    Returns:
+        LLMConfig(api_key, base_url, model_name, source)
+    """
+    # --- 1. 尝试 per-user 意图识别配置 ---
+    if user_id is not None:
+        user = session.get(User, user_id)
+        if user and _has_user_intent_config(user):
+            return _resolve_user_intent_config(user, session)
+
+    # --- 2. 尝试系统级意图识别配置 ---
+    sys_config = session.get(SystemConfig, 1)
+    if sys_config and _has_system_intent_config(sys_config):
+        return _resolve_system_intent_config(sys_config)
+
+    # --- 3. 回退到主模型配置 ---
+    return get_llm_config(session, user_id)
+
+
+def _has_user_intent_config(user: User) -> bool:
+    """判断用户是否配置了至少一个意图识别模型字段"""
+    return (
+        user.intent_api_key is not None
+        or user.intent_base_url is not None
+        or user.intent_model_name is not None
+    )
+
+
+def _has_system_intent_config(sys_config: SystemConfig) -> bool:
+    """判断系统是否配置了至少一个意图识别模型字段"""
+    return (
+        sys_config.intent_api_key is not None
+        or sys_config.intent_base_url is not None
+        or (sys_config.intent_model is not None and sys_config.intent_model != "")
+    )
+
+
+def _resolve_user_intent_config(user: User, session: Session) -> LLMConfig:
+    """
+    解析用户级意图识别配置，未设置的字段逐级回退
+
+    回退链路：用户 intent_* → 系统 intent_* → 主模型配置
+    """
+    sys_config = session.get(SystemConfig, 1)
+    env_api_key = os.getenv("OPENAI_API_KEY")
+
+    # 逐字段回退：用户 intent → 系统 intent → 主模型
+    base_url = (
+        user.intent_base_url
+        or (sys_config.intent_base_url if sys_config else None)
+        or user.llm_base_url
+        or (sys_config.openai_base_url if sys_config else None)
+        or settings.OPENAI_BASE_URL
+    )
+    model_name = (
+        user.intent_model_name
+        or (sys_config.intent_model if sys_config else None)
+        or user.llm_model_name
+        or (sys_config.default_model if sys_config else None)
+        or "gpt-3.5-turbo"
+    )
+
+    # API Key 解析（含 local model 检测）
+    is_local_model = _is_local_model(base_url)
+
+    # 优先使用用户 intent_api_key，然后回退到系统 intent_api_key，最后回退到主模型
+    api_key = _resolve_api_key_with_fallback(
+        primary_key=user.intent_api_key,
+        fallback_keys=[
+            sys_config.intent_api_key if sys_config else None,
+            user.llm_api_key,
+            sys_config.openai_api_key if sys_config else None,
+        ],
+        env_api_key=env_api_key,
+        is_local_model=is_local_model,
+    )
+
+    log.debug(
+        f"🧠 [Intent LLM Config] user={user.id}, source=user_intent, "
+        f"model={model_name}, base_url={base_url}"
+    )
+
+    return LLMConfig(
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        source="user_intent",
+    )
+
+
+def _resolve_system_intent_config(sys_config: SystemConfig) -> LLMConfig:
+    """
+    解析系统级意图识别配置，未设置的字段回退到主模型配置
+
+    回退链路：系统 intent_* → 主模型配置
+    """
+    env_api_key = os.getenv("OPENAI_API_KEY")
+
+    # 逐字段回退：系统 intent → 主模型
+    base_url = (
+        sys_config.intent_base_url
+        or sys_config.openai_base_url
+        or settings.OPENAI_BASE_URL
+    )
+    model_name = (
+        sys_config.intent_model
+        or sys_config.default_model
+        or "gpt-3.5-turbo"
+    )
+
+    is_local_model = _is_local_model(base_url)
+
+    api_key = _resolve_api_key_with_fallback(
+        primary_key=sys_config.intent_api_key,
+        fallback_keys=[
+            sys_config.openai_api_key,
+        ],
+        env_api_key=env_api_key,
+        is_local_model=is_local_model,
+    )
+
+    log.debug(
+        f"🧠 [Intent LLM Config] source=system_intent, "
+        f"model={model_name}, base_url={base_url}"
+    )
+
+    return LLMConfig(
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        source="system_intent",
+    )
+
+
+def _resolve_api_key_with_fallback(
+    primary_key: Optional[str],
+    fallback_keys: list[Optional[str]],
+    env_api_key: Optional[str],
+    is_local_model: bool,
+) -> str:
+    """
+    通用 API Key 解析：优先使用 primary_key，依次回退 fallback_keys，最后回退环境变量
+
+    Args:
+        primary_key: 首选 API Key
+        fallback_keys: 回退 API Key 列表（按优先级排序）
+        env_api_key: 环境变量中的 API Key
+        is_local_model: 是否为本地模型
+
+    Returns:
+        解析后的 API Key 字符串
+    """
+    # 优先使用首选 Key
+    if primary_key is not None:
+        if is_local_model:
+            return primary_key if primary_key else ""
+        return primary_key
+
+    # 依次尝试回退 Key
+    for fallback_key in fallback_keys:
+        if fallback_key is not None:
+            if is_local_model:
+                return fallback_key if fallback_key else ""
+            if fallback_key and fallback_key != "ollama-local":
+                return fallback_key
+
+    # 最终回退到环境变量
+    if is_local_model:
+        return ""
+    return env_api_key or ""
+
+
+# ==========================================
 # Celery Worker 专用（自建 Session）
 # ==========================================
 
@@ -173,6 +361,19 @@ def get_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
 
     with SQLModelSession(engine) as session:
         return get_llm_config(session, user_id=user_id)
+
+
+def get_intent_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
+    """
+    Celery Worker 专用：自建数据库会话获取意图识别模型配置
+
+    在 FastAPI 依赖注入不可用的后台任务中使用。
+    """
+    from sqlmodel import Session as SQLModelSession
+    from app.core.database import engine
+
+    with SQLModelSession(engine) as session:
+        return get_intent_llm_config(session, user_id=user_id)
 
 
 # ==========================================

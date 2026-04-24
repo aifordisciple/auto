@@ -140,6 +140,7 @@ async def update_user_profile(
 
 class UserLLMConfigResponse(BaseModel):
     """用户 LLM 配置响应（API Key 脱敏）"""
+    # 主模型配置
     llm_api_key: Optional[str] = None
     llm_base_url: Optional[str] = None
     llm_model_name: Optional[str] = None
@@ -148,12 +149,27 @@ class UserLLMConfigResponse(BaseModel):
     system_base_url: Optional[str] = None
     system_model_name: Optional[str] = None
 
+    # 意图识别模型配置
+    intent_api_key: Optional[str] = None
+    intent_base_url: Optional[str] = None
+    intent_model_name: Optional[str] = None
+    is_using_user_intent_config: bool
+    # 系统意图识别回退信息
+    system_intent_base_url: Optional[str] = None
+    system_intent_model_name: Optional[str] = None
+
 
 class UserLLMConfigUpdate(BaseModel):
     """用户 LLM 配置更新请求"""
+    # 主模型配置
     llm_api_key: Optional[str] = None
     llm_base_url: Optional[str] = None
     llm_model_name: Optional[str] = None
+
+    # 意图识别模型配置
+    intent_api_key: Optional[str] = None
+    intent_base_url: Optional[str] = None
+    intent_model_name: Optional[str] = None
 
 
 @router.get("/me/llm-config", response_model=UserLLMConfigResponse)
@@ -177,13 +193,27 @@ async def get_user_llm_config(
         or current_user.llm_model_name is not None
     )
 
+    is_using_user_intent_config = (
+        current_user.intent_api_key is not None
+        or current_user.intent_base_url is not None
+        or current_user.intent_model_name is not None
+    )
+
     return UserLLMConfigResponse(
+        # 主模型配置
         llm_api_key=mask_api_key(current_user.llm_api_key),
         llm_base_url=current_user.llm_base_url,
         llm_model_name=current_user.llm_model_name,
         is_using_user_config=is_using_user_config,
         system_base_url=config.openai_base_url if config else None,
         system_model_name=config.default_model if config else None,
+        # 意图识别模型配置
+        intent_api_key=mask_api_key(current_user.intent_api_key),
+        intent_base_url=current_user.intent_base_url,
+        intent_model_name=current_user.intent_model_name,
+        is_using_user_intent_config=is_using_user_intent_config,
+        system_intent_base_url=config.intent_base_url if config else None,
+        system_intent_model_name=config.intent_model if config else None,
     )
 
 
@@ -209,6 +239,12 @@ async def update_user_llm_config(
         val = update_data["llm_api_key"]
         if val and val.startswith("sk-***"):
             del update_data["llm_api_key"]
+
+    # 意图识别 API Key 同样跳过脱敏值
+    if "intent_api_key" in update_data:
+        val = update_data["intent_api_key"]
+        if val and val.startswith("sk-***"):
+            del update_data["intent_api_key"]
 
     for field, value in update_data.items():
         setattr(current_user, field, value)
@@ -240,27 +276,56 @@ async def test_user_llm_config(
     import openai
 
     # 合并配置：测试值 → 现有用户值 → 系统回退
-    from app.utils.llm_config import get_llm_config, _is_local_model
+    from app.utils.llm_config import get_llm_config, get_intent_llm_config, _is_local_model
 
-    # 构建临时 User 对象用于测试
-    test_api_key = config_update.llm_api_key
-    test_base_url = config_update.llm_base_url
-    test_model_name = config_update.llm_model_name
+    # 判断测试的是意图识别模型还是主模型
+    # 前端发送 intent 字段时，测试意图识别模型；否则测试主模型
+    is_intent_test = (
+        config_update.intent_api_key is not None
+        or config_update.intent_base_url is not None
+        or config_update.intent_model_name is not None
+    )
 
-    # 如果测试值中某些字段为 None，回退到用户现有配置
-    if test_api_key is None and current_user.llm_api_key is not None:
-        test_api_key = current_user.llm_api_key
-    if test_base_url is None and current_user.llm_base_url is not None:
-        test_base_url = current_user.llm_base_url
-    if test_model_name is None and current_user.llm_model_name is not None:
-        test_model_name = current_user.llm_model_name
+    if is_intent_test:
+        # 测试意图识别模型
+        test_api_key = config_update.intent_api_key
+        test_base_url = config_update.intent_base_url
+        test_model_name = config_update.intent_model_name
 
-    # 如果仍为 None，回退到系统配置
-    if test_api_key is None or test_base_url is None or test_model_name is None:
-        sys_cfg = get_llm_config(session, user_id=None)
-        test_api_key = test_api_key or sys_cfg.api_key
-        test_base_url = test_base_url or sys_cfg.base_url
-        test_model_name = test_model_name or sys_cfg.model_name
+        # 如果测试值中某些字段为 None，回退到用户现有配置
+        if test_api_key is None and current_user.intent_api_key is not None:
+            test_api_key = current_user.intent_api_key
+        if test_base_url is None and current_user.intent_base_url is not None:
+            test_base_url = current_user.intent_base_url
+        if test_model_name is None and current_user.intent_model_name is not None:
+            test_model_name = current_user.intent_model_name
+
+        # 如果仍为 None，回退到意图识别系统配置，再回退到主模型
+        if test_api_key is None or test_base_url is None or test_model_name is None:
+            intent_cfg = get_intent_llm_config(session, user_id=None)
+            test_api_key = test_api_key or intent_cfg.api_key
+            test_base_url = test_base_url or intent_cfg.base_url
+            test_model_name = test_model_name or intent_cfg.model_name
+    else:
+        # 测试主模型（原有逻辑）
+        test_api_key = config_update.llm_api_key
+        test_base_url = config_update.llm_base_url
+        test_model_name = config_update.llm_model_name
+
+        # 如果测试值中某些字段为 None，回退到用户现有配置
+        if test_api_key is None and current_user.llm_api_key is not None:
+            test_api_key = current_user.llm_api_key
+        if test_base_url is None and current_user.llm_base_url is not None:
+            test_base_url = current_user.llm_base_url
+        if test_model_name is None and current_user.llm_model_name is not None:
+            test_model_name = current_user.llm_model_name
+
+        # 如果仍为 None，回退到系统配置
+        if test_api_key is None or test_base_url is None or test_model_name is None:
+            sys_cfg = get_llm_config(session, user_id=None)
+            test_api_key = test_api_key or sys_cfg.api_key
+            test_base_url = test_base_url or sys_cfg.base_url
+            test_model_name = test_model_name or sys_cfg.model_name
 
     is_local = _is_local_model(test_base_url)
 

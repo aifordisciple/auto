@@ -42,6 +42,12 @@ class SystemConfig(SQLModel, table=True):
     vision_model: str = Field(default="qwen3.5-plus", description="视觉模型名称，默认使用qwen3.5-plus")
     use_shared_vision_config: bool = Field(default=True, description="是否与主模型共用配置")
 
+    # ✨ 意图识别模型配置（用于 L1 意图解构）
+    # 未配置时回退到主模型配置，保持向后兼容
+    intent_api_key: Optional[str] = Field(default=None, description="意图识别模型API密钥，None表示回退到主模型")
+    intent_base_url: Optional[str] = Field(default=None, description="意图识别模型API端点，None表示回退到主模型")
+    intent_model: str = Field(default="gpt-4o-mini", description="意图识别模型名称，默认使用轻量模型")
+
     # 其他设置
     theme: str = Field(default="dark")
 

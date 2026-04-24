@@ -40,8 +40,9 @@ class SettingsUpdate(BaseModel):
     """
     系统设置更新请求体
 
-    支持三套配置：
+    支持四套配置：
     - 主模型配置：用于文本对话和主要推理
+    - 意图识别模型配置：用于 L1 意图解构（可选独立配置，未配置时回退到主模型）
     - 视觉模型配置：用于图像识别（可选独立配置）
     - 嵌入模型配置：用于技能推荐向量检索
     """
@@ -49,6 +50,10 @@ class SettingsUpdate(BaseModel):
     openai_api_key: Optional[str] = None
     openai_base_url: str = settings.OPENAI_BASE_URL
     default_model: str = "gpt-3.5-turbo"
+    # 意图识别模型配置
+    intent_api_key: Optional[str] = None
+    intent_base_url: Optional[str] = None
+    intent_model: Optional[str] = None
     # 视觉模型配置
     vision_api_key: Optional[str] = None
     vision_base_url: Optional[str] = None
@@ -90,6 +95,21 @@ async def update_settings(settings: SettingsUpdate, session: Session = Depends(g
 
     config.openai_base_url = settings.openai_base_url
     config.default_model = settings.default_model
+
+    # ==========================================
+    # 意图识别模型配置更新
+    # ==========================================
+    # 意图识别 API Key（如果提供且不是掩码）
+    if settings.intent_api_key is not None and not settings.intent_api_key.startswith("sk-***"):
+        config.intent_api_key = settings.intent_api_key
+
+    # 意图识别 Base URL（如果提供）
+    if settings.intent_base_url is not None:
+        config.intent_base_url = settings.intent_base_url
+
+    # 意图识别模型名称
+    if settings.intent_model is not None:
+        config.intent_model = settings.intent_model
 
     # ==========================================
     # 视觉模型配置更新

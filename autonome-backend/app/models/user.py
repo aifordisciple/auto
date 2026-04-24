@@ -41,9 +41,16 @@ class User(SQLModel, table=True):
     # ==========================================
     # 🤖 用户级 AI 模型配置（覆盖系统全局配置）
     # ==========================================
+    # 主模型配置（用于文本对话和主要推理）
     llm_api_key: Optional[str] = Field(default=None, max_length=500, description="用户自定义 LLM API Key")
     llm_base_url: Optional[str] = Field(default=None, max_length=500, description="用户自定义 LLM Base URL")
     llm_model_name: Optional[str] = Field(default=None, max_length=100, description="用户自定义模型名称")
+
+    # 意图识别模型配置（用于 L1 意图解构，覆盖系统全局配置）
+    # 未配置时回退到主模型配置，保持向后兼容
+    intent_api_key: Optional[str] = Field(default=None, max_length=500, description="用户自定义意图识别 API Key")
+    intent_base_url: Optional[str] = Field(default=None, max_length=500, description="用户自定义意图识别 Base URL")
+    intent_model_name: Optional[str] = Field(default=None, max_length=100, description="用户自定义意图识别模型名称")
 
     # ✨ 安全相关
     is_active: bool = Field(default=True)
