@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""          # 发件人地址（默认与 SMTP_USER 相同）
     SMTP_TLS: bool = True        # 是否使用 TLS
 
+    # Cloudflare Turnstile 人机验证配置（空则跳过校验，开发环境可不配置）
+    TURNSTILE_SECRET_KEY: str = ""
+
     # OAuth 第三方登录配置
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""

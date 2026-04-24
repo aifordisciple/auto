@@ -35,6 +35,7 @@ interface UserState {
   is_email_verified: boolean;
   is_2fa_enabled: boolean;
   credits_balance: number;
+  last_password_change: string | null;
 }
 
 interface AuthState {
@@ -52,6 +53,8 @@ interface AuthState {
   fetchProfile: () => Promise<void>;
   logout: () => Promise<void>;
   clearAll: () => void;
+  /** 应用启动时校验持久化会话有效性，失效则清除本地状态 */
+  initializeAuth: () => Promise<void>;
 }
 
 // ==========================================
@@ -70,6 +73,7 @@ const defaultUser: UserState = {
   is_email_verified: false,
   is_2fa_enabled: false,
   credits_balance: 0,
+  last_password_change: null,
 };
 
 // ==========================================
@@ -118,6 +122,7 @@ export const useAuthStore = create<AuthState>()(
               is_email_verified: data.is_email_verified,
               is_2fa_enabled: data.is_2fa_enabled,
               credits_balance: data.credits_balance ?? 0,
+              last_password_change: data.last_password_change ?? null,
             },
             isAuthenticated: true,
           });
@@ -143,6 +148,24 @@ export const useAuthStore = create<AuthState>()(
           token: null,
           isAuthenticated: false,
         });
+      },
+
+      /**
+       * 应用启动时校验持久化会话有效性
+       *
+       * 场景：用户刷新页面后，localStorage 中 isAuthenticated=true，
+       * 但服务端可能已撤销该 session（如用户在其他设备上修改了密码）。
+       * 此方法主动调用 /auth/me 验证会话，失败则清除本地状态。
+       */
+      initializeAuth: async () => {
+        const { isAuthenticated } = get();
+        if (!isAuthenticated) return; // 未登录，无需校验
+        try {
+          await get().fetchProfile();
+        } catch {
+          // 会话已失效（服务端已撤销），清除本地状态
+          get().clearAll();
+        }
       },
     }),
     {

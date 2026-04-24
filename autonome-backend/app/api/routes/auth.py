@@ -27,6 +27,9 @@
 - POST   /api/auth/2fa/login       - 2FA 登录验证
 - POST   /api/auth/change-password - 已登录用户修改密码
 - POST   /api/auth/change-phone    - 已登录用户修改手机号
+
+### 阶段4端点（人机验证 + 会话管理增强）
+- POST   /api/auth/sessions/revoke-others - 撤销除当前会话外的所有会话
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
@@ -55,6 +58,7 @@ from app.services.auth_risk_control import (
     check_login_risk, record_login_failure, clear_login_failure,
 )
 from app.services.sms_service import get_sms_service
+from app.services.turnstile_service import verify_turnstile_token
 from app.schemas.auth import (
     UserCreate, SMSLoginRequest, PasswordLoginRequest,
     SendSMSRequest, LoginResponse, RefreshResponse,
@@ -86,6 +90,7 @@ def _build_user_info(user: User) -> dict:
         "is_email_verified": user.is_email_verified,
         "is_2fa_enabled": user.is_2fa_enabled,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_password_change": user.last_password_change.isoformat() if user.last_password_change else None,
     }
 
 
@@ -226,7 +231,7 @@ async def send_sms(
     """
     发送短信验证码
 
-    流程：风控检查 → 生成 OTP → Redis 存储 → 异步发送 SMS
+    流程：人机验证 → 风控检查 → 生成 OTP → Redis 存储 → 异步发送 SMS
 
     限流策略：
     - 60 秒内不可重发
@@ -239,6 +244,14 @@ async def send_sms(
     forwarded = http_request.headers.get("X-Forwarded-For")
     if forwarded:
         client_ip = forwarded.split(",")[0].strip()
+
+    # [安全防线 L0] Cloudflare Turnstile 人机验证
+    if request.captcha_token:
+        if not await verify_turnstile_token(request.captcha_token, client_ip):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="人机验证失败，请重试",
+            )
 
     # 风控检查
     allowed, reason = check_sms_rate_limit(request.phone_number, client_ip)
@@ -601,6 +614,50 @@ async def revoke_session(
     session.commit()
 
     return {"status": "success", "message": "设备已下线"}
+
+
+@router.post("/sessions/revoke-others")
+async def revoke_other_sessions(
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    撤销除当前会话外的所有其他会话（一键下线其他设备）
+
+    流程：
+    1. 从 Cookie 中提取当前 refresh_token 的哈希值
+    2. 撤销该用户所有非当前、非已撤销的 ActiveSession
+    3. 返回撤销数量
+    """
+    # 从 Cookie 中识别当前会话
+    current_rt_hash = None
+    rt_cookie = http_request.cookies.get("refresh_token")
+    if rt_cookie:
+        current_rt_hash = hash_refresh_token(rt_cookie)
+
+    # 查找所有活跃会话
+    now = datetime.now(timezone.utc)
+    active_sessions = session.exec(
+        select(ActiveSession).where(
+            ActiveSession.user_id == current_user.id,
+            ActiveSession.is_revoked == False,  # noqa: E712
+            ActiveSession.expires_at > now,
+        )
+    ).all()
+
+    revoked_count = 0
+    for s in active_sessions:
+        # 跳过当前会话（通过 RT 哈希匹配）
+        if current_rt_hash and s.refresh_token_hash == current_rt_hash:
+            continue
+        s.is_revoked = True
+        session.add(s)
+        revoked_count += 1
+
+    session.commit()
+
+    return {"status": "success", "revoked_count": revoked_count, "message": f"已下线 {revoked_count} 台设备"}
 
 
 # ==========================================

@@ -110,8 +110,8 @@ export function SecurityPanel() {
   const [twoFADisableCode, setTwoFADisableCode] = useState('');
   const [twoFADisableLoading, setTwoFADisableLoading] = useState(false);
 
-  // 上次密码修改时间（模拟数据，实际应从后端获取）
-  const [lastPasswordChange] = useState<string | null>(null);
+  // 上次密码修改时间（从用户信息中获取）
+  const lastPasswordChange = user?.last_password_change ?? null;
 
   // ── OAuth 账号管理状态 ──
   const [oauthAccounts, setOauthAccounts] = useState<Array<{
@@ -143,6 +143,7 @@ export function SecurityPanel() {
   }>>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [revokeLoading, setRevokeLoading] = useState<number | null>(null);
+  const [revokeAllLoading, setRevokeAllLoading] = useState(false);
 
   // 加载 OAuth 账号列表 + 设备会话列表
   useEffect(() => {
@@ -337,6 +338,23 @@ export function SecurityPanel() {
       // 静默失败
     } finally {
       setRevokeLoading(null);
+    }
+  };
+
+  // ── 设备管理：撤销所有其他会话 ──
+  const handleRevokeAllOthers = async () => {
+    const otherCount = sessions.filter(s => !s.is_current).length;
+    if (!confirm(`确定要下线所有其他设备（共 ${otherCount} 台）吗？`)) return;
+
+    setRevokeAllLoading(true);
+    try {
+      await fetchAPI('/auth/sessions/revoke-others', { method: 'POST' });
+      // 刷新会话列表
+      await loadSessions();
+    } catch {
+      // 静默失败
+    } finally {
+      setRevokeAllLoading(false);
     }
   };
 
@@ -986,13 +1004,24 @@ export function SecurityPanel() {
           )}
 
           {!sessionsLoading && sessions.length > 0 && (
-            <div className="mt-3 text-right">
+            <div className="mt-3 flex items-center justify-between">
               <button
                 onClick={loadSessions}
                 className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
               >
                 刷新列表
               </button>
+              {/* 下线所有其他设备按钮：仅当存在 2+ 个会话时显示 */}
+              {sessions.filter(s => !s.is_current).length > 0 && (
+                <button
+                  onClick={handleRevokeAllOthers}
+                  disabled={revokeAllLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {revokeAllLoading ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                  下线所有其他设备
+                </button>
+              )}
             </div>
           )}
         </div>

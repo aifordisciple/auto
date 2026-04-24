@@ -51,6 +51,10 @@ class SendSMSRequest(BaseModel):
         default="login",
         description="验证码用途: login(登录), change_phone(修改手机号)"
     )
+    captcha_token: Optional[str] = Field(
+        default=None,
+        description="Turnstile 人机验证通过凭证（未配置 Turnstile 时可不传）"
+    )
 
 
 # ============================================================

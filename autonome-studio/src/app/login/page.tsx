@@ -19,6 +19,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { fetchAPI, BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import { BindPhoneModal } from '@/components/overlays/Auth/BindPhoneModal';
+import { TurnstileWidget } from '@/components/TurnstileWidget';
 import { Phone, Mail, Lock, MessageSquare, Send, Loader2, Eye, EyeOff, ArrowRight, Github, QrCode } from 'lucide-react';
 
 // ==========================================
@@ -111,6 +112,9 @@ export default function LoginPage() {
   // 通用状态
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Turnstile 人机验证 token
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   // 2FA 验证状态
   const [show2FA, setShow2FA] = useState(false);
@@ -227,7 +231,7 @@ export default function LoginPage() {
     try {
       await fetchAPI('/auth/send-sms', {
         method: 'POST',
-        body: JSON.stringify({ phone_number: smsPhone }),
+        body: JSON.stringify({ phone_number: smsPhone, captcha_token: captchaToken }),
       });
       setCountdown(60);
     } catch (err: unknown) {
@@ -467,6 +471,13 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {/* Turnstile 人机验证 */}
+            <TurnstileWidget
+              onVerify={(token) => setCaptchaToken(token)}
+              onError={() => setCaptchaToken(null)}
+              onExpire={() => setCaptchaToken(null)}
+            />
 
             <button
               onClick={handleSMSLogin}

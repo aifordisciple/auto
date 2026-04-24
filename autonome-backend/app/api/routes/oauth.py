@@ -463,10 +463,12 @@ async def list_oauth_accounts(
 # ──────────────────────────────────────────────
 
 def _oauth_error_redirect(error: str):
-    """OAuth 错误时重定向到前端登录页，携带错误信息"""
+    """OAuth 错误时重定向到前端 OAuth 回调中间页，携带错误信息"""
     from fastapi.responses import RedirectResponse
+    from urllib.parse import urlencode
     frontend_url = settings.FRONTEND_URL or "http://localhost:3001"
-    return RedirectResponse(url=f"{frontend_url}/login?oauth_error={error}")
+    params = urlencode({"oauth_error": error})
+    return RedirectResponse(url=f"{frontend_url}/oauth/callback?{params}")
 
 
 def _oauth_bind_redirect(bind_token: str, provider_name: str = ""):
@@ -495,7 +497,7 @@ def _oauth_bind_redirect(bind_token: str, provider_name: str = ""):
         "bind_ref": bind_ref,
         "provider_name": provider_name,
     })
-    return RedirectResponse(url=f"{frontend_url}/login?{params}")
+    return RedirectResponse(url=f"{frontend_url}/oauth/callback?{params}")
 
 
 def _issue_tokens_and_redirect(user: User, db: Session, http_request: Request = None):
@@ -541,7 +543,7 @@ def _issue_tokens_and_redirect(user: User, db: Session, http_request: Request = 
 
     # 重定向到前端
     frontend_url = settings.FRONTEND_URL or "http://localhost:3001"
-    response = RedirectResponse(url=f"{frontend_url}/?oauth_login=success")
+    response = RedirectResponse(url=f"{frontend_url}/oauth/callback?status=success")
 
     # 使用统一的 Cookie 设置函数（与 auth.py /login 保持一致）
     set_auth_cookies(response, access_token, refresh_token_val)

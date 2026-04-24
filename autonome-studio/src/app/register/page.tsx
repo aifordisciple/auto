@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { fetchAPI } from '@/lib/api';
+import { TurnstileWidget } from '@/components/TurnstileWidget';
 
 // ==========================================
 // 注册页面 —— 手机号 + 短信验证码 + 设置密码
@@ -29,6 +30,12 @@ export default function RegisterPage() {
   // ---- UI 状态 ----
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Turnstile 人机验证 token
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
+  // 隐私协议勾选
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
   // ---- 倒计时逻辑 ----
@@ -55,7 +62,7 @@ export default function RegisterPage() {
     try {
       await fetchAPI('/auth/send-sms', {
         method: 'POST',
-        body: JSON.stringify({ phone_number: phoneNumber.trim() }),
+        body: JSON.stringify({ phone_number: phoneNumber.trim(), captcha_token: captchaToken }),
       });
       setCountdown(60);
     } catch (err: any) {
@@ -213,6 +220,13 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* Turnstile 人机验证 */}
+            <TurnstileWidget
+              onVerify={(token) => setCaptchaToken(token)}
+              onError={() => setCaptchaToken(null)}
+              onExpire={() => setCaptchaToken(null)}
+            />
+
             {/* 下一步按钮 */}
             <button
               onClick={handleStep1Next}
@@ -264,10 +278,26 @@ export default function RegisterPage() {
               />
             </div>
 
+            {/* 隐私协议勾选 */}
+            <label className="flex items-start gap-2 text-sm text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              />
+              <span>
+                我已阅读并同意
+                <a href="/terms" className="text-blue-400 hover:text-blue-300" target="_blank">《服务条款》</a>
+                和
+                <a href="/privacy" className="text-blue-400 hover:text-blue-300" target="_blank">《隐私政策》</a>
+              </span>
+            </label>
+
             {/* 注册按钮 */}
             <button
               onClick={handleRegister}
-              disabled={loading}
+              disabled={loading || !agreedToTerms}
               className="w-full py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '注册中...' : '注册'}

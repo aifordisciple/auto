@@ -15,6 +15,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAPI } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
+import { TurnstileWidget } from '@/components/TurnstileWidget';
 import {
   Smartphone,
   ShieldCheck,
@@ -41,6 +42,9 @@ export function BindPhoneModal({ bindRef, providerName, onComplete }: BindPhoneM
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Turnstile 人机验证 token
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
   // 倒计时逻辑
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -62,7 +66,7 @@ export function BindPhoneModal({ bindRef, providerName, onComplete }: BindPhoneM
     try {
       await fetchAPI('/auth/send-sms', {
         method: 'POST',
-        body: JSON.stringify({ phone_number: phone }),
+        body: JSON.stringify({ phone_number: phone, captcha_token: captchaToken }),
       });
       setCountdown(60);
       setSuccess('验证码已发送');
@@ -182,6 +186,13 @@ export function BindPhoneModal({ bindRef, providerName, onComplete }: BindPhoneM
               {!isSending && (countdown > 0 ? `${countdown}s` : '获取验证码')}
             </button>
           </div>
+
+          {/* Turnstile 人机验证 */}
+          <TurnstileWidget
+            onVerify={(token) => setCaptchaToken(token)}
+            onError={() => setCaptchaToken(null)}
+            onExpire={() => setCaptchaToken(null)}
+          />
 
           {/* 绑定按钮 */}
           <button
