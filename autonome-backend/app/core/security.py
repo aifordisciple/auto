@@ -287,3 +287,51 @@ def clear_auth_cookies(response: Response):
     response.delete_cookie(key="access_token", httponly=True)
     response.delete_cookie(key="refresh_token", httponly=True)
     response.delete_cookie(key="authenticated")
+
+
+# ==========================================
+# OAuth Token 加密存储（防脱库泄露）
+# ==========================================
+# 为什么需要加密：OAuthAccount.access_token 存储了第三方（GitHub/微信）的
+# access_token，若数据库被脱库，攻击者可用此 token 访问用户第三方账号。
+# 使用 Fernet 对称加密（密钥从 SECRET_KEY 派生），存储密文，读取时解密。
+
+import base64
+from cryptography.fernet import Fernet
+
+
+def _get_fernet_key() -> bytes:
+    """从 SECRET_KEY 派生 Fernet 对称加密密钥
+
+    Fernet 要求 32 字节 base64url 编码密钥，
+    取 SECRET_KEY 的 SHA-256 哈希前 32 字节转换而来。
+    """
+    key_hash = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(key_hash)
+
+
+def encrypt_oauth_token(token: str) -> str:
+    """加密 OAuth access_token（存储前调用）
+
+    返回 Fernet 密文（str），存入 OAuthAccount.access_token 字段。
+    """
+    if not token:
+        return ""
+    f = Fernet(_get_fernet_key())
+    return f.encrypt(token.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_oauth_token(encrypted: str) -> str:
+    """解密 OAuth access_token（读取时调用）
+
+    返回原始 token（str）。
+    解密失败时返回原值（兼容未加密的旧数据，平滑迁移）。
+    """
+    if not encrypted:
+        return ""
+    try:
+        f = Fernet(_get_fernet_key())
+        return f.decrypt(encrypted.encode("utf-8")).decode("utf-8")
+    except Exception:
+        # 解密失败（可能是旧数据未加密），返回原值
+        return encrypted

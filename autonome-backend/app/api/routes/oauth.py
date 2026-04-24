@@ -19,6 +19,8 @@ from app.core.security import (
     generate_refresh_token, hash_refresh_token, get_refresh_token_expires_at,
     set_auth_cookies,
     create_bind_token,
+    encrypt_oauth_token,
+    decrypt_oauth_token,
 )
 from app.models.user import User, OAuthAccount
 from app.services.auth_risk_control import generate_otp
@@ -166,8 +168,8 @@ async def github_callback(
         if not user:
             logger.error("OAuthAccount 关联的用户不存在: user_id={}", oauth_account.user_id)
             return _oauth_error_redirect("关联用户不存在")
-        # 更新 OAuth 账号信息
-        oauth_account.access_token = access_token
+        # 更新 OAuth 账号信息（access_token 加密存储，防脱库泄露）
+        oauth_account.access_token = encrypt_oauth_token(access_token)
         oauth_account.provider_name = github_name
         oauth_account.provider_avatar_url = github_avatar
         db.commit()
@@ -184,7 +186,7 @@ async def github_callback(
                 user_id=user.id,
                 provider="github",
                 provider_account_id=github_id,
-                access_token=access_token,
+                access_token=encrypt_oauth_token(access_token),
                 provider_name=github_name,
                 provider_avatar_url=github_avatar,
             )
@@ -315,8 +317,8 @@ async def wechat_callback(
         if not user:
             logger.error("微信 OAuthAccount 关联的用户不存在: user_id={}", oauth_account.user_id)
             return _oauth_error_redirect("关联用户不存在")
-        # 更新 OAuth 账号信息
-        oauth_account.access_token = access_token
+        # 更新 OAuth 账号信息（access_token 加密存储，防脱库泄露）
+        oauth_account.access_token = encrypt_oauth_token(access_token)
         oauth_account.provider_name = wechat_nickname
         oauth_account.provider_avatar_url = wechat_avatar
         db.commit()
@@ -387,7 +389,7 @@ async def bind_oauth_account(
         user_id=current_user.id,
         provider=provider,
         provider_account_id=provider_account_id,
-        access_token=oauth_info.get("access_token", ""),
+        access_token=encrypt_oauth_token(oauth_info.get("access_token", "")),
         provider_name=oauth_info.get("name", ""),
         provider_avatar_url=oauth_info.get("avatar_url", ""),
     )
