@@ -1352,15 +1352,22 @@ async def verify_and_enable_2fa(
     cache.delete(f"2fa:setup:{current_user.id}")
 
     # 生成备用恢复码（10 个随机 8 位码，用户应保存）
+    # 为什么需要恢复码：用户丢失 TOTP 设备时，可用恢复码登录并重新设置 2FA
     import secrets as _secrets
     recovery_codes = [_secrets.token_hex(4).upper() for _ in range(10)]
 
-    # 将恢复码哈希存入 Redis（用于后续验证）
-    from app.core.security import get_password_hash
-    hashed_codes = [get_password_hash(code) for code in recovery_codes]
-    # 存储为 JSON 列表，TTL 无限期（直到用户重新生成或禁用 2FA）
-    import json
-    cache.set(f"2fa:recovery:{current_user.id}", json.dumps(hashed_codes), ttl=86400 * 365)
+    # 将恢复码哈希存入数据库（替代 Redis，防止 Redis 重启丢失）
+    # 为什么改用数据库：Redis 重启或故障会导致恢复码丢失，用户无法恢复 2FA 访问
+    # 恢复码使用 bcrypt 哈希存储，即使脱库也无法还原原始码
+    from app.models.user import TwoFactorRecoveryCode
+    for code in recovery_codes:
+        hashed_code = get_password_hash(code)
+        recovery_record = TwoFactorRecoveryCode(
+            user_id=current_user.id,
+            code_hash=hashed_code,
+        )
+        session.add(recovery_record)
+    session.commit()
 
     return {
         "status": "success",
@@ -1402,10 +1409,14 @@ async def disable_2fa(
     session.add(current_user)
     session.commit()
 
-    # 清除恢复码
-    from app.services.cache_service import RedisCache
-    cache = RedisCache()
-    cache.delete(f"2fa:recovery:{current_user.id}")
+    # 清除数据库中的恢复码（替代 Redis 删除）
+    # 为什么：2FA 禁用后恢复码不再有效，应清除防止误用
+    from app.models.user import TwoFactorRecoveryCode
+    recovery_codes = session.exec(
+        select(TwoFactorRecoveryCode).where(TwoFactorRecoveryCode.user_id == current_user.id)
+    ).all()
+    for rc in recovery_codes:
+        session.delete(rc)
 
     return {"status": "success", "message": "2FA 已禁用"}
 
