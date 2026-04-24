@@ -95,11 +95,9 @@ if not settings.SECRET_KEY:
 # 可通过 HTTP 传输（而非 HTTPS），攻击者可嗅探或中间人截获 refresh_token，
 # 导致会话劫持。生产环境必须启用 SECURE_COOKIES=True（要求 HTTPS）。
 if settings.ENVIRONMENT == "production" and not settings.SECURE_COOKIES:
-    import warnings
-    warnings.warn(
-        "⚠️ SECURE_COOKIES=False 在生产环境中不安全！"
-        "请在 .env 中设置 SECURE_COOKIES=True（要求 HTTPS）",
-        stacklevel=2,
+    raise ValueError(
+        "SECURE_COOKIES=False 在生产环境中不安全！"
+        "请在 .env 中设置 SECURE_COOKIES=True（要求 HTTPS）"
     )
 
 # 确保上传目录存在
