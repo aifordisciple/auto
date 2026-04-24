@@ -1015,6 +1015,7 @@ async def reset_password(
 @router.post("/change-password")
 async def change_password(
     request: ChangePasswordRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -1026,6 +1027,11 @@ async def change_password(
     2. 密码强度验证
     3. 更新密码
     4. 撤销所有其他会话（保留当前会话，安全动作）
+
+    为什么保留当前会话：
+    - 用户修改密码后不应被强制重新登录当前设备
+    - 其他设备使用旧 Token 应被强制下线（密码已变，旧 Token 全部失效）
+    - 保留当前会话通过匹配 refresh_token_hash 实现
     """
     # 验证旧密码
     if not current_user.hashed_password or not verify_password(
@@ -1063,20 +1069,32 @@ async def change_password(
     current_user.updated_at = datetime.now(timezone.utc)
     session.add(current_user)
 
-    # 【安全动作】撤销该用户所有 ActiveSession（密码已变，旧 Token 全部失效）
+    # 【安全动作】撤销该用户除当前会话外的所有 ActiveSession
+    # 保留当前设备在线，其他设备强制下线
+    # 为什么：密码修改后旧 Token 应失效，但当前设备不应被踢出
+    current_rt_hash = None
+    rt_cookie = http_request.cookies.get("refresh_token")
+    if rt_cookie:
+        current_rt_hash = hash_refresh_token(rt_cookie)
+
     active_sessions = session.exec(
         select(ActiveSession).where(
             ActiveSession.user_id == current_user.id,
             ActiveSession.is_revoked == False,
         )
     ).all()
+    revoked_count = 0
     for s in active_sessions:
+        # 跳过当前会话（通过 refresh_token_hash 匹配）
+        if current_rt_hash and s.refresh_token_hash == current_rt_hash:
+            continue
         s.is_revoked = True
         session.add(s)
+        revoked_count += 1
 
     session.commit()
 
-    return {"status": "success", "message": "密码修改成功，请重新登录"}
+    return {"status": "success", "message": "密码修改成功，其他设备已下线"}
 
 
 # ==========================================
