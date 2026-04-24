@@ -614,6 +614,17 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-xs text-neutral-600">
           登录即表示同意服务条款和隐私政策
         </p>
+
+        {/* 注册链接 */}
+        <p className="mt-3 text-center text-sm text-neutral-500">
+          没有账户？{' '}
+          <button
+            onClick={() => router.push('/register')}
+            className="text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            注册
+          </button>
+        </p>
       </div>
 
       {/* OAuth 强制绑定手机号模态框 */}
