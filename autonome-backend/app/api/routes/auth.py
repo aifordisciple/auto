@@ -101,33 +101,88 @@ def _build_user_info(user: User) -> dict:
 @router.post("/register")
 async def register(
     user_create: UserCreate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """
-    邮箱注册
+    用户注册（支持两种方式）
 
-    创建新用户并返回 JWT Token
+    方式一：邮箱 + 密码注册
+      - 检查邮箱唯一性 → 创建用户 → 签发 Token
+
+    方式二：手机号 + 短信验证码 + 密码注册
+      - 验证 OTP（verify_otp）→ 检查手机号唯一性 → 创建用户（虚拟邮箱） → 签发 Token
+      - 虚拟邮箱格式：{phone}@phone.placeholder（与 login/sms 自动注册逻辑一致）
+
+    两种方式均支持 full_name 字段。
     """
-    # 检查邮箱是否已注册
-    existing = session.exec(select(User).where(User.email == user_create.email)).first()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该邮箱已注册"
+    # ---- 判断注册方式 ----
+    is_phone_register = user_create.phone_number is not None
+
+    if is_phone_register:
+        # ============================================================
+        # 手机号 + 验证码注册
+        # 为什么先验证 OTP 再检查唯一性：
+        # - OTP 验证有次数限制（3次错误销毁），先验证可尽早消耗 OTP
+        # - 避免手机号已注册时暴露"该手机号已注册"信息给未验证 OTP 的请求
+        # ============================================================
+        valid, reason = verify_otp(user_create.phone_number, user_create.sms_code)
+        if not valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=reason,
+            )
+
+        # 检查手机号唯一性
+        existing = session.exec(
+            select(User).where(User.phone_number == user_create.phone_number)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该手机号已注册",
+            )
+
+        # 创建用户：虚拟邮箱 + 手机号 + 密码
+        # 为什么使用虚拟邮箱：User 模型 email 字段有唯一约束，不能为空，
+        # 手机号注册时无真实邮箱，故用占位符格式，与 login/sms 自动注册逻辑一致
+        user = User(
+            email=f"{user_create.phone_number}@phone.placeholder",
+            phone_number=user_create.phone_number,
+            hashed_password=get_password_hash(user_create.password),
+            full_name=user_create.full_name,
+        )
+    else:
+        # ============================================================
+        # 邮箱 + 密码注册（保留原有逻辑）
+        # ============================================================
+        # 检查邮箱唯一性
+        existing = session.exec(
+            select(User).where(User.email == user_create.email)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该邮箱已注册",
+            )
+
+        # 创建用户
+        user = User(
+            email=user_create.email,
+            hashed_password=get_password_hash(user_create.password),
+            full_name=user_create.full_name,
         )
 
-    # 创建用户
-    user = User(
-        email=user_create.email,
-        hashed_password=get_password_hash(user_create.password),
-    )
     session.add(user)
     session.commit()
     session.refresh(user)
 
     # 生成 Token
     access_token = create_access_token(data={"sub": str(user.id)})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": _build_user_info(user),
+    }
 
 
 @router.post("/login", response_model=LoginResponse)

@@ -8,7 +8,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 # ============================================================
@@ -16,10 +16,76 @@ from pydantic import BaseModel, EmailStr, Field
 # ============================================================
 
 class UserCreate(BaseModel):
-    """用户注册请求（邮箱+密码）"""
-    email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    """
+    用户注册请求（支持两种注册方式）
+
+    方式一：邮箱 + 密码注册（传统方式）
+    方式二：手机号 + 短信验证码注册（需配合密码）
+
+    至少提供 email+password 或 phone_number+sms_code 之一，
+    后端 register 路由会根据提供的字段自动判断注册方式。
+    """
+    # ---- 邮箱注册字段（可选，与 phone_number 互斥） ----
+    email: Optional[EmailStr] = Field(
+        default=None,
+        description="邮箱地址（邮箱注册时必填）",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        description="密码（邮箱注册时必填；手机号注册时也必填，用于后续密码登录）",
+    )
+    # ---- 手机号注册字段（可选，与 email 互斥） ----
+    phone_number: Optional[str] = Field(
+        default=None,
+        pattern=r"^1[3-9]\d{9}$",
+        description="手机号码（手机号注册时必填）",
+    )
+    sms_code: Optional[str] = Field(
+        default=None,
+        min_length=6,
+        max_length=6,
+        description="6 位短信验证码（手机号注册时必填，服务端会调用 verify_otp 校验）",
+    )
+    # ---- 通用字段 ----
     username: Optional[str] = None
+    full_name: Optional[str] = Field(
+        default=None,
+        description="用户真实姓名（可选，两种注册方式均可携带）",
+    )
+
+    @model_validator(mode="after")
+    def _validate_registration_method(self) -> "UserCreate":
+        """
+        校验注册方式：至少提供 email+password 或 phone_number+sms_code
+
+        为什么需要此校验：
+        - 防止客户端发送空请求导致创建无效用户
+        - 明确注册方式，避免模糊的半填写状态
+        - 手机号注册时 password 仍然必填（用于后续密码登录）
+        """
+        has_email = self.email is not None and self.password is not None
+        has_phone = self.phone_number is not None and self.sms_code is not None
+
+        if not has_email and not has_phone:
+            raise ValueError(
+                "必须提供 email+password 或 phone_number+sms_code 至少一组完整凭证"
+            )
+
+        # 互斥校验：不允许同时使用两种注册方式，避免逻辑混乱
+        if has_email and has_phone:
+            raise ValueError(
+                "email+password 和 phone_number+sms_code 不能同时提供，请选择一种注册方式"
+            )
+
+        # 手机号注册时，password 仍然必填（用户需要设置密码用于后续密码登录）
+        if has_phone and not self.password:
+            raise ValueError(
+                "手机号注册时也必须设置密码，用于后续密码登录"
+            )
+
+        return self
 
 
 class EmailLoginRequest(BaseModel):

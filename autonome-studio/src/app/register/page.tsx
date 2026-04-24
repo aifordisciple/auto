@@ -72,34 +72,30 @@ export default function RegisterPage() {
     }
   }, [phoneNumber]);
 
-  // ---- Step 1 下一步：验证短信验证码 ----
+  // ---- Step 1 下一步：前端校验手机号与验证码格式 ----
+  // 注意：短信验证码的真实校验在 Step 2 提交注册时由后端 /auth/register 完成，
+  // 此处仅做前端格式校验，避免使用错误的 /auth/forgot-password/verify 端点。
   const handleStep1Next = useCallback(async () => {
     if (!phoneNumber.trim()) {
       setError('请输入手机号');
+      return;
+    }
+    // 中国手机号格式校验
+    if (!/^1[3-9]\d{9}$/.test(phoneNumber.trim())) {
+      setError('请输入有效的手机号');
       return;
     }
     if (!smsCode.trim()) {
       setError('请输入验证码');
       return;
     }
-
-    setError('');
-    setLoading(true);
-    try {
-      // 先验证短信验证码是否正确（调用 verify 接口）
-      await fetchAPI('/auth/forgot-password/verify', {
-        method: 'POST',
-        body: JSON.stringify({
-          phone_number: phoneNumber.trim(),
-          code: smsCode.trim(),
-        }),
-      });
-      setStep(2);
-    } catch (err: any) {
-      setError(err.message || '验证码校验失败');
-    } finally {
-      setLoading(false);
+    if (smsCode.trim().length !== 6) {
+      setError('验证码应为 6 位');
+      return;
     }
+
+    // 前端校验通过，进入 Step 2
+    setStep(2);
   }, [phoneNumber, smsCode]);
 
   // ---- Step 2 提交注册 ----
