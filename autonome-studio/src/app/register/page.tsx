@@ -89,8 +89,8 @@ export default function RegisterPage() {
       setError('请输入验证码');
       return;
     }
-    if (smsCode.trim().length !== 6) {
-      setError('验证码应为 6 位');
+    if (smsCode.trim().length !== 6 || !/^\d{6}$/.test(smsCode.trim())) {
+      setError('请输入6位数字验证码');
       return;
     }
 

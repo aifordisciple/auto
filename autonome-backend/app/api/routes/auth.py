@@ -35,6 +35,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -111,7 +112,7 @@ async def register(
 
     方式二：手机号 + 短信验证码 + 密码注册
       - 验证 OTP（verify_otp）→ 检查手机号唯一性 → 创建用户（虚拟邮箱） → 签发 Token
-      - 虚拟邮箱格式：{phone}@phone.placeholder（与 login/sms 自动注册逻辑一致）
+      - 虚拟邮箱格式：{phone}@phone.internal.invalid（RFC 2606 保留域名，与 login/sms 自动注册逻辑一致）
 
     两种方式均支持 full_name 字段。
     """
@@ -146,7 +147,7 @@ async def register(
         # 为什么使用虚拟邮箱：User 模型 email 字段有唯一约束，不能为空，
         # 手机号注册时无真实邮箱，故用占位符格式，与 login/sms 自动注册逻辑一致
         user = User(
-            email=f"{user_create.phone_number}@phone.placeholder",
+            email=f"{user_create.phone_number}@phone.internal.invalid",
             phone_number=user_create.phone_number,
             hashed_password=get_password_hash(user_create.password),
             full_name=user_create.full_name,
@@ -155,6 +156,15 @@ async def register(
         # ============================================================
         # 邮箱 + 密码注册（保留原有逻辑）
         # ============================================================
+        # 安全检查：禁止注册 @phone.internal.invalid 域名的邮箱
+        # 为什么：该域名为手机号注册的虚拟邮箱保留域（RFC 2606），
+        # 允许注册会导致与手机号自动创建的虚拟邮箱冲突
+        if user_create.email and user_create.email.endswith("@phone.internal.invalid"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该邮箱域名为系统保留域名，不可注册",
+            )
+
         # 检查邮箱唯一性
         existing = session.exec(
             select(User).where(User.email == user_create.email)
@@ -172,9 +182,23 @@ async def register(
             full_name=user_create.full_name,
         )
 
-    session.add(user)
-    session.commit()
-    session.refresh(user)
+    # 写入数据库，处理并发唯一约束冲突
+    # 为什么需要 try/except：两个并发注册请求可能同时通过上面的唯一性检查，
+    # 但数据库唯一约束会阻止第二次插入，此时应返回 400 而非 500
+    try:
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    except IntegrityError:
+        session.rollback()
+        if is_phone_register:
+            detail = "该手机号已注册"
+        else:
+            detail = "该邮箱已注册"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
 
     # 生成 Token
     access_token = create_access_token(data={"sub": str(user.id)})
@@ -369,7 +393,7 @@ async def login_with_sms(
     if not user:
         # 自动注册：手机号即账号
         user = User(
-            email=f"{request.phone_number}@phone.placeholder",
+            email=f"{request.phone_number}@phone.internal.invalid",
             phone_number=request.phone_number,
             hashed_password=None,  # 纯验证码用户，无密码
         )
@@ -804,7 +828,7 @@ async def bind_phone(
     else:
         # 手机号是新号 → 创建新用户 + OAuthAccount
         user = User(
-            email=oauth_email or f"{request.phone}@phone.placeholder",
+            email=oauth_email or f"{request.phone}@phone.internal.invalid",
             phone_number=request.phone,
             hashed_password=None,
             full_name=oauth_name,
