@@ -114,12 +114,8 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this chat?")) return;
 
-    const token = getToken();
     try {
-      await fetch(`${BASE_URL}/api/chat/sessions/${id}`, {
-        method: "DELETE",
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      await fetchAPI(`/chat/sessions/${id}`, { method: "DELETE" });
       fetchSessions();
       if (currentSessionId === id) handleNewChat();
     } catch (e) {
@@ -132,11 +128,9 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
       setEditingId(null);
       return;
     }
-    const token = getToken();
     try {
-      await fetch(`${BASE_URL}/api/chat/sessions/${id}`, {
+      await fetchAPI(`/chat/sessions/${id}`, {
         method: "PUT",
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ title: editTitle.trim() })
       });
       setEditingId(null);

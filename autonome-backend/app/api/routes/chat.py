@@ -157,8 +157,12 @@ async def chat_stream(
     7. 持久化助手消息 + 扣费
     """
     # 1. 安全校验：越权检查
+    # DEBUG: 临时排查 403 问题
+    from loguru import logger
+    logger.warning(f"[DEBUG 403] project_id={request.project_id}, user_id={current_user.id}")
     project = session.get(Project, request.project_id)
     if not project or project.owner_id != current_user.id:
+        logger.error(f"[DEBUG 403] project={'None' if not project else project.id}, owner_id={'None' if not project else project.owner_id}, user_id={current_user.id}")
         raise HTTPException(status_code=403, detail="无权操作该项目")
 
     # 2. 计费拦截
