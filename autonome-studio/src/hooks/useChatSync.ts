@@ -184,12 +184,6 @@ export function useChatSync({ messages, isLoading, pendingAttachmentsRef }: UseC
   // ==========================================
   useEffect(() => {
     for (const msg of messages) {
-      // ✨ DEBUG: 打印每条消息的 parts 类型，追踪 data-thinking 是否到达
-      if (msg.role === 'assistant' && msg.parts && msg.parts.length > 0) {
-        const partTypes = msg.parts.map((p: any) => p.type);
-        console.log('[useChatSync] msg parts types:', partTypes);
-      }
-
       // ✨ 兼容 Vercel AI SDK: 事件可能在 parts 也可能在 annotations (v5 注解协议)
       let dataParts: any[] = [];
 
@@ -230,7 +224,6 @@ export function useChatSync({ messages, isLoading, pendingAttachmentsRef }: UseC
               const thinkingContent = useChatStore.getState().thinkingContent;
               // ✨ 兼容：思考内容可能在 content 或 text 字段
               const newContent = (event.content || event.text || '') as string;
-              console.log('[useChatSync] thinking event:', { eventName, partType: part.type, newContentLen: newContent.length, event });
               setThinkingContent(thinkingContent + newContent);
               setIsThinking(true);
             }

@@ -142,8 +142,8 @@ export function ChatStage() {
         toast.error('对话出错，请稍后重试');
       }
     },
-    onFinish: ({ finishReason }) => {
-      console.log('[useChat] Stream finished:', finishReason);
+    onFinish: () => {
+      // 流结束处理（如需可在此添加逻辑）
     },
   });
 

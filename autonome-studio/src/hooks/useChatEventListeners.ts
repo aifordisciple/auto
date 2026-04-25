@@ -11,7 +11,7 @@
 import { useEffect, useCallback } from 'react';
 import { useChatStore, ChatState } from '@/store/useChatStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { BASE_URL } from '@/lib/api';
+import { fetchAPI } from '@/lib/api';
 
 // ==========================================
 // 类型定义
@@ -40,12 +40,8 @@ export function useChatEventListeners(config: ChatEventListenersConfig) {
    */
   const refreshChatMessages = useCallback(async () => {
     if (!currentSessionId) return;
-    const token = localStorage.getItem('autonome_access_token');
     try {
-      const res = await fetch(`${BASE_URL}/api/chat/sessions/${currentSessionId}/messages`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
+      const data = await fetchAPI(`/api/chat/sessions/${currentSessionId}/messages`);
       if (data.data && data.data.length > 0) {
         const formattedMessages = data.data.map((msg: { role: string; content: string; id: number; attachments?: any }) => ({
           id: String(msg.id),
