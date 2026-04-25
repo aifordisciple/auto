@@ -45,19 +45,37 @@ function normalizeEndpoint(endpoint: string): string {
 }
 
 // ==========================================
-// 并发刷新锁
+// 并发刷新锁 + 刷新失败标记
 // ==========================================
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+// refresh 彻底失败后置 true，阻止所有后续 401 触发无意义的 refresh 重试
+// 用户重新登录后由 resetAuthState() 重置
+let refreshFailed = false;
 
 /**
- * 执行 Refresh Token 刷新（带并发锁）
+ * 重置认证状态（登录成功后调用，清除 refreshFailed 标记）
+ */
+export function resetAuthState(): void {
+  refreshFailed = false;
+  isRefreshing = false;
+  refreshPromise = null;
+}
+
+/**
+ * 执行 Refresh Token 刷新（带并发锁 + 失败短路）
  *
  * 多个请求同时收到 401 时，只触发一次 refresh，
- * 其他请求等待同一个 Promise 结果
+ * 其他请求等待同一个 Promise 结果。
+ * refresh 失败后标记 refreshFailed，后续 401 直接跳过刷新。
  */
 async function refreshAccessToken(): Promise<boolean> {
+  // refresh 已彻底失败，不再重试，直接返回 false
+  if (refreshFailed) {
+    return false;
+  }
+
   // 如果已经在刷新中，复用同一个 Promise
   if (isRefreshing && refreshPromise) {
     return refreshPromise;
@@ -73,7 +91,8 @@ async function refreshAccessToken(): Promise<boolean> {
       });
 
       if (!response.ok) {
-        // Refresh 失败，直接清除本地状态（不调后端 logout，避免死循环）
+        // Refresh 彻底失败，标记并清除本地状态
+        refreshFailed = true;
         const { clearAll } = useAuthStore.getState();
         clearAll();
         if (typeof window !== 'undefined') {
@@ -92,7 +111,8 @@ async function refreshAccessToken(): Promise<boolean> {
 
       return true;
     } catch {
-      // 网络错误等，直接清除本地状态（不调后端 logout，避免死循环）
+      // 网络错误等，标记失败并清除本地状态
+      refreshFailed = true;
       const { clearAll } = useAuthStore.getState();
       clearAll();
       if (typeof window !== 'undefined') {
@@ -157,9 +177,9 @@ export async function fetchAPI(
 
   // ==========================================
   // 401 拦截器：自动刷新 Token
-  // 跳过条件：显式 skipRefresh 或认证端点（logout/refresh）
+  // 跳过条件：显式 skipRefresh 或认证端点（logout/refresh）或 refresh 已彻底失败
   // ==========================================
-  const shouldRefresh = !skipRefresh && !shouldSkipRefresh(endpoint);
+  const shouldRefresh = !skipRefresh && !shouldSkipRefresh(endpoint) && !refreshFailed;
   if (response.status === 401 && shouldRefresh) {
     // 尝试刷新 Token
     const refreshed = await refreshAccessToken();
@@ -189,6 +209,17 @@ export async function fetchAPI(
     } else {
       throw new Error('认证已过期，请重新登录');
     }
+  }
+
+  // 401 且无法刷新（refreshFailed 或 skipRefresh 端点），确保跳转登录
+  if (response.status === 401 && !shouldRefresh) {
+    // refreshFailed 时只跳转一次，避免多个并发请求重复跳转
+    if (refreshFailed && typeof window !== 'undefined') {
+      // clearAll 已在 refreshAccessToken 中调用，此处仅确保跳转
+      // 使用 replace 避免回退到已失效的页面
+      window.location.replace('/login');
+    }
+    throw new Error('认证已过期，请重新登录');
   }
 
   // ==========================================
@@ -296,8 +327,9 @@ export async function uploadFile(
 
   // ==========================================
   // 401 拦截器：与 fetchAPI 一致的静默刷新
+  // refreshFailed 时直接抛错跳转，不再尝试刷新
   // ==========================================
-  if (response.status === 401) {
+  if (response.status === 401 && !refreshFailed) {
     const refreshed = await refreshAccessToken();
 
     if (refreshed) {

@@ -17,7 +17,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { fetchAPI } from '@/lib/api';
+import { fetchAPI, resetAuthState } from '@/lib/api';
 
 // ==========================================
 // 类型定义
@@ -88,6 +88,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
 
       setUser: (userData) => {
+        // 登录成功，重置 refresh 失败标记
+        resetAuthState();
         set({
           user: { ...defaultUser, ...userData },
           isAuthenticated: true,
