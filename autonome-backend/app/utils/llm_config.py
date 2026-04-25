@@ -16,7 +16,7 @@
 """
 
 import os
-from typing import Optional, NamedTuple
+from typing import Literal, NamedTuple, Optional
 
 from sqlmodel import Session
 
@@ -35,7 +35,7 @@ class LLMConfig(NamedTuple):
     api_key: str
     base_url: str
     model_name: str
-    source: str  # "user" | "system" | "env"
+    source: Literal["user", "system", "user_fast", "system_fast"]
 
 
 # ==========================================
@@ -43,6 +43,8 @@ class LLMConfig(NamedTuple):
 # ==========================================
 
 API_KEY_MASK = "sk-************************"
+API_KEY_MASK_PREFIX = "sk-***"
+OLLAMA_LOCAL_KEY = "ollama-local"
 
 
 # ==========================================
@@ -112,7 +114,7 @@ def _resolve_user_thinking_config(user: User, session: Session) -> LLMConfig:
         if is_local_model:
             api_key = sys_api_key if sys_api_key is not None else ""
         else:
-            api_key = sys_api_key if sys_api_key and sys_api_key != "ollama-local" else (env_api_key or "")
+            api_key = sys_api_key if sys_api_key and sys_api_key != OLLAMA_LOCAL_KEY else (env_api_key or "")
 
     log.debug(f"🤖 [Thinking LLM Config] user={user.id}, source=user, model={model_name}, base_url={base_url}")
 
@@ -433,3 +435,8 @@ def mask_api_key(api_key: Optional[str]) -> Optional[str]:
     if len(api_key) <= 8:
         return "sk-***"
     return "sk-***" + api_key[-4:]
+
+
+def is_masked_api_key(key: Optional[str]) -> bool:
+    """判断 API Key 是否为脱敏占位符（前端未修改时回传的掩码值）"""
+    return bool(key and key.startswith(API_KEY_MASK_PREFIX))

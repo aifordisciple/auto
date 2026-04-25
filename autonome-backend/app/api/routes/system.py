@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from app.core.database import get_session
 from app.core.config import settings
 from app.core.logger import log
+from app.utils.llm_config import is_masked_api_key
 from app.models.domain import SystemConfig
 
 # 初始化路由器 (Router)
@@ -46,7 +47,7 @@ class SettingsUpdate(BaseModel):
     - 视觉模型配置：用于图像识别（可选独立配置）
     - 嵌入模型配置：用于技能推荐向量检索
     """
-    # 思考模型配置（原"主模型"）
+    # 思考模型配置
     thinking_api_key: Optional[str] = None
     thinking_base_url: Optional[str] = None
     thinking_model: Optional[str] = None
@@ -87,10 +88,10 @@ async def update_settings(settings: SettingsUpdate, session: Session = Depends(g
         session.add(config)
 
     # ==========================================
-    # 思考模型配置更新（原"主模型"）
+    # 思考模型配置更新
     # ==========================================
     # 核心修复：使用 is not None 判断，允许用户传入空字符串 "" (Ollama 必备)
-    if settings.thinking_api_key is not None and not settings.thinking_api_key.startswith("sk-***"):
+    if settings.thinking_api_key is not None and not is_masked_api_key(settings.thinking_api_key):
         config.thinking_api_key = settings.thinking_api_key
 
     if settings.thinking_base_url is not None:
@@ -100,10 +101,10 @@ async def update_settings(settings: SettingsUpdate, session: Session = Depends(g
         config.thinking_model = settings.thinking_model
 
     # ==========================================
-    # 极速模型配置更新（原"意图识别模型"）
+    # 极速模型配置更新
     # ==========================================
     # 极速模型 API Key（如果提供且不是掩码）
-    if settings.fast_api_key is not None and not settings.fast_api_key.startswith("sk-***"):
+    if settings.fast_api_key is not None and not is_masked_api_key(settings.fast_api_key):
         config.fast_api_key = settings.fast_api_key
 
     # 极速模型 Base URL（如果提供）

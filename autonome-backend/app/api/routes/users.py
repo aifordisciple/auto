@@ -183,7 +183,7 @@ async def get_user_llm_config(
     返回用户配置（API Key 脱敏）+ 系统回退信息，
     前端据此判断当前使用的是个人配置还是系统全局配置。
     """
-    from app.utils.llm_config import mask_api_key
+    from app.utils.llm_config import mask_api_key, is_masked_api_key
 
     config = session.get(SystemConfig, 1)
 
@@ -237,13 +237,12 @@ async def update_user_llm_config(
     # 脱敏值跳过：前端未修改 API Key 时会发回脱敏值
     if "thinking_api_key" in update_data:
         val = update_data["thinking_api_key"]
-        if val and val.startswith("sk-***"):
+        if is_masked_api_key(val):
             del update_data["thinking_api_key"]
 
-    # 极速模型 API Key 同样跳过脱敏值
     if "fast_api_key" in update_data:
         val = update_data["fast_api_key"]
-        if val and val.startswith("sk-***"):
+        if is_masked_api_key(val):
             del update_data["fast_api_key"]
 
     for field, value in update_data.items():
