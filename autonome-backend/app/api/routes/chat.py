@@ -206,12 +206,13 @@ async def chat_stream(
     user_id = current_user.id
 
     # 5. 加载 LLM 配置（共享工具：per-user override → system global → env fallback）
-    from app.utils.llm_config import get_llm_config, _is_local_model
+    from app.utils.llm_config import get_llm_config, _is_local_model, _is_ollama
     llm_cfg = get_llm_config(session, user_id=current_user.id)
     api_key = llm_cfg.api_key
     base_url = llm_cfg.base_url
     model_name = llm_cfg.model_name
     is_local_model = _is_local_model(base_url)
+    is_ollama_service = _is_ollama(base_url)
 
     # 6. 意图分类：使用 Intent Router Engine 2.0 (L0+L1+L2 漏斗式架构)
     # 替换旧的 SkillMatcher 关键词匹配，支持规则拦截 + LLM 语义分类 + 槽位提取
@@ -419,12 +420,11 @@ async def chat_stream(
 
             # ✨ 深度思考模式：本地 Ollama 使用原生客户端，第三方 API 使用 extra_body
             enable_think = request.enable_think
-            # ✨ 修复：Ollama 本地模型始终使用原生客户端
-            # Qwen3 等模型默认自带思考模式，即使用户未开启深度思考，
-            # 模型也会输出 <think> 标签，导致：(1) 思考占用大量时间；
-            # (2) 思考标签后的正常文本被 StreamContentFilter 误吞。
-            # 使用原生客户端 + think=False 可显式关闭模型内置思考。
-            use_native_ollama = is_local_model
+            # ✨ 修复：仅 Ollama 原生服务使用 ollama SDK 客户端
+            # host.docker.internal:8008/v1 等本地 OpenAI 兼容 API（vLLM/LiteLLM）
+            # 不应走 ollama 原生客户端，否则会请求 /api/chat 端点导致 404
+            # Ollama 原生客户端支持 think 参数控制 Qwen3 等模型的内置思考
+            use_native_ollama = is_ollama_service
 
             try:
                 # ✨ 判断是否为 data_probe 意图（需要绑定探针工具）

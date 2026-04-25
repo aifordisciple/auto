@@ -381,7 +381,11 @@ def get_intent_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig
 # ==========================================
 
 def _is_local_model(base_url: Optional[str]) -> bool:
-    """检测是否为本地模型（Ollama / localhost / host.docker.internal）"""
+    """检测是否为本地模型（Ollama / localhost / host.docker.internal）
+
+    用于判断是否需要 API Key：本地部署的模型通常不需要或使用空 Key。
+    注意：这不等于"是否使用 Ollama 原生客户端"，后者由 _is_ollama() 判断。
+    """
     if not base_url:
         return False
     return (
@@ -389,6 +393,37 @@ def _is_local_model(base_url: Optional[str]) -> bool:
         or "ollama" in base_url
         or "localhost" in base_url
     )
+
+
+def _is_ollama(base_url: Optional[str]) -> bool:
+    """检测是否为 Ollama 原生服务（需要使用 ollama SDK 原生客户端）
+
+    判断依据：
+    - URL 中包含 "ollama" 关键字（如 http://ollama.example.com）
+    - 端口为 Ollama 默认端口 11434
+    - 不包含 /v1 后缀的 localhost/host.docker.internal（Ollama 不使用 /v1 路径）
+
+    排除：
+    - host.docker.internal:8008/v1 → 这是 OpenAI 兼容 API（vLLM/LiteLLM 等），不是 Ollama
+    - localhost:8080/v1 → 同上
+    """
+    if not base_url:
+        return False
+    # URL 中明确包含 "ollama" 关键字
+    if "ollama" in base_url.lower():
+        return True
+    # 解析端口判断是否为 Ollama 默认端口 11434
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(base_url)
+        port = parsed.port
+        if port == 11434:
+            return True
+        # 无显式端口的 localhost/host.docker.internal 默认也非 Ollama
+        # （Ollama 默认 11434，不写端口时 urlparse 返回 None）
+    except Exception:
+        pass
+    return False
 
 
 def mask_api_key(api_key: Optional[str]) -> Optional[str]:
