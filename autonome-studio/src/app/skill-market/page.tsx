@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, ReactNode, ChangeEvent } from 'react'
 import { Search, Star, Heart, Filter, ChevronLeft, ChevronRight, Loader2, Code, GitBranch, BarChart3, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { BASE_URL, getToken } from '@/lib/api';
+import { fetchAPI } from '@/lib/api';
 
 import { SkillCard } from './components/SkillCard';
 import { SkillDetailDrawer } from './components/SkillDetailDrawer';
@@ -75,12 +75,7 @@ export default function SkillMarketPage() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await fetch(`${BASE_URL}/api/skills/market/categories`, {
-          headers: {
-            'Authorization': `Bearer ${getToken()}`
-          }
-        });
-        const data = await response.json();
+        const data = await fetchAPI('/api/skills/market/categories');
         setCategories(data.categories || []);
       } catch (error) {
         console.error('获取分类失败:', error);
@@ -100,13 +95,7 @@ export default function SkillMarketPage() {
       if (searchQuery) params.set('search', searchQuery);
       if (selectedCategory) params.set('category', selectedCategory);
 
-      const response = await fetch(`${BASE_URL}/api/skills/market/skills?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
-      });
-
-      const data: PaginatedResponse = await response.json();
+      const data: PaginatedResponse = await fetchAPI(`/api/skills/market/skills?${params}`);
       setSkills(data.skills || []);
       setTotal(data.total);
       setTotalPages(data.total_pages);
@@ -139,14 +128,9 @@ export default function SkillMarketPage() {
   // 收藏切换
   const handleFavoriteToggle = async (skillId: string) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/market/skills/${skillId}/favorite`, {
+      const data = await fetchAPI(`/api/skills/market/skills/${skillId}/favorite`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
       });
-
-      const data = await response.json();
 
       // 更新本地状态
       setSkills(prev => prev.map(skill =>

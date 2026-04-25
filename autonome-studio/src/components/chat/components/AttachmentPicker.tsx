@@ -20,7 +20,8 @@ import {
   CloudUpload,
   Check,
 } from "lucide-react";
-import { BASE_URL } from "@/lib/api";
+import { fetchAPI, BASE_URL } from "@/lib/api";
+import { useAuthStore } from "@/store/useAuthStore";
 
 // ==========================================
 // 附件树节点接口定义
@@ -163,15 +164,11 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 加载项目文件
+  // 加载项目文件（使用 fetchAPI 统一处理认证 + Cookie）
   useEffect(() => {
     if (isOpen && projectId && activeTab === 'project') {
       setIsLoading(true);
-      const token = localStorage.getItem('autonome_access_token');
-      fetch(`${BASE_URL}/api/projects/${projectId}/files`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      })
-        .then(res => res.json())
+      fetchAPI(`/api/projects/${projectId}/files`)
         .then(data => {
           // ✨ 增强对不同结构 API 的兼容性
           if (Array.isArray(data)) setFiles(data);
@@ -235,7 +232,8 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
     if (!projectId || localFiles.length === 0) return;
 
     setIsUploading(true);
-    const token = localStorage.getItem('autonome_access_token');
+    // 从 authStore 获取 token，与 fetchAPI 保持一致的认证来源
+    const token = useAuthStore.getState().token;
     const uploadedPaths: string[] = [];
 
     try {
@@ -248,6 +246,7 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `${BASE_URL}/api/projects/${projectId}/files/upload`);
+        xhr.withCredentials = true; // 携带 httpOnly Cookie
 
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);

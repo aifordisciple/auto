@@ -171,12 +171,8 @@ export function DataCenter() {
     setIsSyncing(true); // 借用同步状态显示 Loading
     try {
       // 并发发送多条删除请求
-      const token = getToken();
       const promises = Array.from(selectedPaths).map(path =>
-        fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${path}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        fetchAPI(`/api/projects/${currentProjectId}/files/${path}`, { method: 'DELETE' })
       );
 
       await Promise.all(promises);
@@ -427,20 +423,10 @@ export function DataCenter() {
 
     setIsSaving(true);
     try {
-      const token = getToken();
-      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${previewPath}/content`, {
+      await fetchAPI(`/api/projects/${currentProjectId}/files/${previewPath}/content`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({ content: editContent })
       });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || '保存失败');
-      }
 
       // 更新预览内容
       setPreviewContent(editContent);

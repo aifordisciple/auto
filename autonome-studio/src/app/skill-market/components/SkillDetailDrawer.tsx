@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { X, Star, Heart, Copy, Play, Code, GitBranch, Clock, Users, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BASE_URL, getToken } from '@/lib/api';
+import { fetchAPI } from '@/lib/api';
 
 interface SkillDetail {
   skill_id: string;
@@ -66,13 +66,7 @@ export function SkillDetailDrawer({ skillId, isOpen, onClose, onFavoriteToggle }
   const loadSkillDetail = async (id: string) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/market/skills/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await fetchAPI(`/api/skills/market/skills/${id}`);
       setSkill(data);
       setUserRating(data.user_rating);
     } catch (error) {
@@ -88,19 +82,13 @@ export function SkillDetailDrawer({ skillId, isOpen, onClose, onFavoriteToggle }
 
     setIsSubmittingRating(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/market/skills/${skill.skill_id}/rate`, {
+      const data = await fetchAPI(`/api/skills/market/skills/${skill.skill_id}/rate`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
-        },
         body: JSON.stringify({
           rating: userRating,
           comment: ratingComment || undefined
         })
       });
-
-      const data = await response.json();
 
       // 更新本地状态
       if (skill) {

@@ -52,7 +52,7 @@ import {
   AttachmentPicker,
 } from "./components";
 import { DAGProgressView } from "./DAGProgressView";
-import { BASE_URL, getToken } from "@/lib/api";
+import { fetchAPI, getToken } from "@/lib/api";
 
 // ==========================================
 // 主组件
@@ -342,12 +342,8 @@ export function ChatStage() {
       // 此时绝对不能去服务端拉历史，否则空历史会直接清空掉用户的消息和正在打字的屏幕。
       if (isLoadingRef.current) return;
 
-      const token = getToken();
       try {
-        const res = await fetch(`${BASE_URL}/api/chat/sessions/${currentSessionId}/messages`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
+        const data = await fetchAPI(`/api/chat/sessions/${currentSessionId}/messages`);
         if (data.data && data.data.length > 0) {
           const formattedMessages = data.data.map((msg: { role: string; content: string; id: number; attachments?: any }) => ({
             id: String(msg.id),

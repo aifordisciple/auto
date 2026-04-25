@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Search, X, Loader2, MessageSquare } from "lucide-react";
-import { BASE_URL, getToken } from "@/lib/api";
+import { fetchAPI } from "@/lib/api";
 import { useUIStore } from "@/store/useUIStore";
 import { SearchResult } from "@/store/useChatStore";
 import { useDebounce } from "@/hooks/usePerformance";
@@ -71,20 +71,12 @@ export function ChatSearchModal({ projectId, onSelectSession }: ChatSearchModalP
   // 搜索 API 调用
   const performSearch = async (searchQuery: string) => {
     setIsSearching(true);
-    const token = getToken();
     try {
-      const res = await fetch(`${BASE_URL}/api/chat/search`, {
+      const data = await fetchAPI('/api/chat/search', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({ query: searchQuery, project_id: projectId })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data.results || []);
-      }
+      setResults(data.results || []);
     } catch (e) {
       console.error('Search failed:', e);
     } finally {

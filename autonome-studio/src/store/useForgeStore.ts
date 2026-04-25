@@ -5,7 +5,7 @@
  */
 
 import { create } from 'zustand';
-import { BASE_URL, getToken } from '@/lib/api';
+import { fetchAPI } from '@/lib/api';
 
 // 执行器类型
 export type ExecutorType = 'Python_env' | 'R_env' | 'Logical_Blueprint' | 'Python_Package';
@@ -562,13 +562,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   // 刷新会话列表（用于保存/提交后）
   refreshSessionList: async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await fetchAPI('/api/skills/forge/sessions');
       set({ sessionList: data.sessions || [] });
     } catch (error) {
       console.error('刷新会话列表失败:', error);
@@ -580,19 +574,14 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     const { executorType } = get();
 
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/forge/session`, {
+      const data = await fetchAPI('/api/skills/forge/session', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
-        },
         body: JSON.stringify({
           title: '新技能锻造',
           executor_type: executorType
         })
       });
 
-      const data = await response.json();
       set({
         sessionId: data.session_id,
         sessionTitle: data.title,
@@ -611,13 +600,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   // 加载会话
   loadSession: async (sessionId) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/forge/session/${sessionId}`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await fetchAPI(`/api/skills/forge/session/${sessionId}`);
       const draft = data.skill_draft || initialDraft;
       const execType = data.executor_type || draft.executor_type || 'Python_env';
 
@@ -650,13 +633,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
   // 加载会话列表
   loadSessionList: async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await fetchAPI('/api/skills/forge/sessions');
       set({ sessionList: data.sessions || [] });
     } catch (error) {
       console.error('加载会话列表失败:', error);

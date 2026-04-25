@@ -14,7 +14,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useForgeStore, ExecutorType } from '@/store/useForgeStore';
 import { SkillDraftEditor } from '@/app/skill-forge/components/SkillDraftEditor';
-import { skillForgeApi, forgeSessionApi, BASE_URL, getToken } from '@/lib/api';
+import { skillForgeApi, forgeSessionApi, fetchAPI, BASE_URL, getToken } from '@/lib/api';
 import { toast } from 'sonner';
 import { PendingDraftsList } from './PendingDraftsList';
 
@@ -264,13 +264,7 @@ export function ForgePanel({ transformDraft, editSkillId, onEditComplete, onTran
       // 场景3：检查是否有草稿会话
       // ==========================================
       try {
-        const response = await fetch(`${BASE_URL}/api/skills/forge/sessions`, {
-          headers: {
-            'Authorization': `Bearer ${getToken()}`
-          }
-        });
-
-        const data = await response.json();
+        const data = await fetchAPI('/api/skills/forge/sessions');
         const sessions = data.sessions || [];
 
         // 查找最近的草稿会话（status 为 drafting 且有 skill_draft 内容）

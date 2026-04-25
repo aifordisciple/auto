@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, MouseEvent, ReactNode } from 'react';
 import { X, Folder, FolderOpen, FileText, ChevronRight, ChevronDown, Loader2, Check } from "lucide-react";
-import { BASE_URL, getToken } from "@/lib/api";
+import { fetchAPI } from "@/lib/api";
 import { CreateFolderModal } from "./overlays/CreateFolderModal";
 
 // ==========================================
@@ -109,11 +109,7 @@ export function FilePicker({
   const fetchFiles = async () => {
     setIsLoading(true);
     try {
-      const token = getToken();
-      const res = await fetch(`${BASE_URL}/api/projects/${projectId}/files`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      const data = await res.json();
+      const data = await fetchAPI(`/api/projects/${projectId}/files`);
       if (data.data) {
         setFiles(data.data);
       } else if (data.files) {
