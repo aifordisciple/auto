@@ -2,16 +2,16 @@
 """
 共享 LLM 配置解析工具
 
-统一管理 LLM 配置的获取逻辑，消除 5+ 处重复代码。
+统一管理思考模型 / 极速模型配置的获取逻辑，消除 5+ 处重复代码。
 
 优先级：
-1. 用户级配置（User.llm_* 字段，per-user override）
-2. 系统全局配置（SystemConfig id=1）
+1. 用户级配置（User.thinking_* / User.fast_* 字段，per-user override）
+2. 系统全局配置（SystemConfig id=1 的 thinking_* / fast_* 字段）
 3. 环境变量（.env 中的 OPENAI_API_KEY 等）
 
 使用方式：
-    from app.utils.llm_config import get_llm_config
-    cfg = get_llm_config(session, user_id=current_user.id)
+    from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config
+    cfg = get_thinking_llm_config(session, user_id=current_user.id)
     llm = ChatOpenAI(api_key=cfg.api_key, base_url=cfg.base_url, model=cfg.model_name)
 """
 
@@ -49,9 +49,9 @@ API_KEY_MASK = "sk-************************"
 # 核心解析函数
 # ==========================================
 
-def get_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig:
+def get_thinking_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig:
     """
-    解析 LLM 配置：per-user override → system global → env fallback
+    解析思考模型配置：per-user override → system global → env fallback
 
     Args:
         session: 数据库会话
@@ -63,29 +63,29 @@ def get_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig
     # --- 1. 尝试 per-user 配置 ---
     if user_id is not None:
         user = session.get(User, user_id)
-        if user and _has_user_llm_config(user):
-            return _resolve_user_config(user, session)
+        if user and _has_user_thinking_config(user):
+            return _resolve_user_thinking_config(user, session)
 
     # --- 2. 回退到系统全局配置 ---
-    return _resolve_system_config()
+    return _resolve_system_thinking_config()
 
 
-def _has_user_llm_config(user: User) -> bool:
-    """判断用户是否配置了至少一个 LLM 字段"""
+def _has_user_thinking_config(user: User) -> bool:
+    """判断用户是否配置了至少一个思考模型字段"""
     return (
-        user.llm_api_key is not None
-        or user.llm_base_url is not None
-        or user.llm_model_name is not None
+        user.thinking_api_key is not None
+        or user.thinking_base_url is not None
+        or user.thinking_model_name is not None
     )
 
 
-def _resolve_user_config(user: User, session: Session) -> LLMConfig:
+def _resolve_user_thinking_config(user: User, session: Session) -> LLMConfig:
     """
-    解析用户级配置，未设置的字段从 SystemConfig 回退
+    解析用户级思考模型配置，未设置的字段从 SystemConfig 回退
 
     逻辑：
-    - 用户设置了 llm_api_key → 使用用户的
-    - 用户未设置 llm_api_key → 从 SystemConfig 回退
+    - 用户设置了 thinking_api_key → 使用用户的
+    - 用户未设置 thinking_api_key → 从 SystemConfig 回退
     - base_url 和 model_name 同理
     - 对 base_url 进行 local model 检测
     """
@@ -94,27 +94,27 @@ def _resolve_user_config(user: User, session: Session) -> LLMConfig:
     env_api_key = os.getenv("OPENAI_API_KEY")
 
     # 逐字段回退
-    base_url = user.llm_base_url or (sys_config.openai_base_url if sys_config else None) or settings.OPENAI_BASE_URL
-    model_name = user.llm_model_name or (sys_config.default_model if sys_config else None) or "gpt-3.5-turbo"
+    base_url = user.thinking_base_url or (sys_config.thinking_base_url if sys_config else None) or settings.OPENAI_BASE_URL
+    model_name = user.thinking_model_name or (sys_config.thinking_model if sys_config else None) or "gpt-3.5-turbo"
 
     # API Key 解析（含 local model 检测）
     is_local_model = _is_local_model(base_url)
 
-    if user.llm_api_key is not None:
+    if user.thinking_api_key is not None:
         # 用户显式设置了 API Key
         if is_local_model:
-            api_key = user.llm_api_key if user.llm_api_key else ""
+            api_key = user.thinking_api_key if user.thinking_api_key else ""
         else:
-            api_key = user.llm_api_key
+            api_key = user.thinking_api_key
     else:
         # 从系统配置回退
-        sys_api_key = sys_config.openai_api_key if sys_config else None
+        sys_api_key = sys_config.thinking_api_key if sys_config else None
         if is_local_model:
             api_key = sys_api_key if sys_api_key is not None else ""
         else:
             api_key = sys_api_key if sys_api_key and sys_api_key != "ollama-local" else (env_api_key or "")
 
-    log.debug(f"🤖 [LLM Config] user={user.id}, source=user, model={model_name}, base_url={base_url}")
+    log.debug(f"🤖 [Thinking LLM Config] user={user.id}, source=user, model={model_name}, base_url={base_url}")
 
     return LLMConfig(
         api_key=api_key,
@@ -124,8 +124,8 @@ def _resolve_user_config(user: User, session: Session) -> LLMConfig:
     )
 
 
-def _resolve_system_config() -> LLMConfig:
-    """解析系统全局配置（原有逻辑）"""
+def _resolve_system_thinking_config() -> LLMConfig:
+    """解析系统全局思考模型配置（原有逻辑）"""
     try:
         from sqlmodel import Session as SQLModelSession
         from app.core.database import engine
@@ -135,9 +135,9 @@ def _resolve_system_config() -> LLMConfig:
     except Exception:
         config = None
 
-    db_api_key = config.openai_api_key if config else None
-    db_base_url = config.openai_base_url if config else None
-    db_model = config.default_model if config else None
+    db_api_key = config.thinking_api_key if config else None
+    db_base_url = config.thinking_base_url if config else None
+    db_model = config.thinking_model if config else None
 
     env_api_key = os.getenv("OPENAI_API_KEY")
     is_local = _is_local_model(db_base_url)
@@ -159,17 +159,17 @@ def _resolve_system_config() -> LLMConfig:
 
 
 # ==========================================
-# 意图识别模型配置解析
+# 极速模型配置解析
 # ==========================================
 
-def get_intent_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig:
+def get_fast_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig:
     """
-    解析意图识别模型配置：per-user intent → system intent → 主模型配置
+    解析极速模型配置：per-user fast → system fast → 思考模型配置
 
     三级回退链路：
-    1. 用户级 intent_* 字段（任一字段非 None 即视为使用用户配置）
-    2. 系统级 intent_* 字段
-    3. 主模型配置（get_llm_config 的结果，保持向后兼容）
+    1. 用户级 fast_* 字段（任一字段非 None 即视为使用用户配置）
+    2. 系统级 fast_* 字段
+    3. 思考模型配置（get_thinking_llm_config 的结果，保持向后兼容）
 
     Args:
         session: 数据库会话
@@ -178,81 +178,81 @@ def get_intent_llm_config(session: Session, user_id: Optional[int] = None) -> LL
     Returns:
         LLMConfig(api_key, base_url, model_name, source)
     """
-    # --- 1. 尝试 per-user 意图识别配置 ---
+    # --- 1. 尝试 per-user 极速模型配置 ---
     if user_id is not None:
         user = session.get(User, user_id)
-        if user and _has_user_intent_config(user):
-            return _resolve_user_intent_config(user, session)
+        if user and _has_user_fast_config(user):
+            return _resolve_user_fast_config(user, session)
 
-    # --- 2. 尝试系统级意图识别配置 ---
+    # --- 2. 尝试系统级极速模型配置 ---
     sys_config = session.get(SystemConfig, 1)
-    if sys_config and _has_system_intent_config(sys_config):
-        return _resolve_system_intent_config(sys_config)
+    if sys_config and _has_system_fast_config(sys_config):
+        return _resolve_system_fast_config(sys_config)
 
-    # --- 3. 回退到主模型配置 ---
-    return get_llm_config(session, user_id)
+    # --- 3. 回退到思考模型配置（极速未配时复用思考模型）---
+    return get_thinking_llm_config(session, user_id)
 
 
-def _has_user_intent_config(user: User) -> bool:
-    """判断用户是否配置了至少一个意图识别模型字段"""
+def _has_user_fast_config(user: User) -> bool:
+    """判断用户是否配置了至少一个极速模型字段"""
     return (
-        user.intent_api_key is not None
-        or user.intent_base_url is not None
-        or user.intent_model_name is not None
+        user.fast_api_key is not None
+        or user.fast_base_url is not None
+        or user.fast_model_name is not None
     )
 
 
-def _has_system_intent_config(sys_config: SystemConfig) -> bool:
-    """判断系统是否配置了至少一个意图识别模型字段"""
+def _has_system_fast_config(sys_config: SystemConfig) -> bool:
+    """判断系统是否配置了至少一个极速模型字段"""
     return (
-        sys_config.intent_api_key is not None
-        or sys_config.intent_base_url is not None
-        or (sys_config.intent_model is not None and sys_config.intent_model != "")
+        sys_config.fast_api_key is not None
+        or sys_config.fast_base_url is not None
+        or (sys_config.fast_model is not None and sys_config.fast_model != "")
     )
 
 
-def _resolve_user_intent_config(user: User, session: Session) -> LLMConfig:
+def _resolve_user_fast_config(user: User, session: Session) -> LLMConfig:
     """
-    解析用户级意图识别配置，未设置的字段逐级回退
+    解析用户级极速模型配置，未设置的字段逐级回退
 
-    回退链路：用户 intent_* → 系统 intent_* → 主模型配置
+    回退链路：用户 fast_* → 系统 fast_* → 思考模型配置
     """
     sys_config = session.get(SystemConfig, 1)
     env_api_key = os.getenv("OPENAI_API_KEY")
 
-    # 逐字段回退：用户 intent → 系统 intent → 主模型
+    # 逐字段回退：用户 fast → 系统 fast → 思考模型
     base_url = (
-        user.intent_base_url
-        or (sys_config.intent_base_url if sys_config else None)
-        or user.llm_base_url
-        or (sys_config.openai_base_url if sys_config else None)
+        user.fast_base_url
+        or (sys_config.fast_base_url if sys_config else None)
+        or user.thinking_base_url
+        or (sys_config.thinking_base_url if sys_config else None)
         or settings.OPENAI_BASE_URL
     )
     model_name = (
-        user.intent_model_name
-        or (sys_config.intent_model if sys_config else None)
-        or user.llm_model_name
-        or (sys_config.default_model if sys_config else None)
+        user.fast_model_name
+        or (sys_config.fast_model if sys_config else None)
+        or user.thinking_model_name
+        or (sys_config.thinking_model if sys_config else None)
         or "gpt-3.5-turbo"
     )
 
     # API Key 解析（含 local model 检测）
     is_local_model = _is_local_model(base_url)
 
-    # 优先使用用户 intent_api_key，然后回退到系统 intent_api_key，最后回退到主模型
+    # 优先使用用户 fast_api_key，然后回退到系统 fast_api_key，最后回退到思考模型
     api_key = _resolve_api_key_with_fallback(
-        primary_key=user.intent_api_key,
+        primary_key=user.fast_api_key,
         fallback_keys=[
-            sys_config.intent_api_key if sys_config else None,
-            user.llm_api_key,
-            sys_config.openai_api_key if sys_config else None,
+            sys_config.fast_api_key if sys_config else None,
+            user.thinking_api_key,
+            sys_config.thinking_api_key if sys_config else None,
         ],
         env_api_key=env_api_key,
         is_local_model=is_local_model,
     )
 
     log.debug(
-        f"🧠 [Intent LLM Config] user={user.id}, source=user_intent, "
+        f"🧠 [Fast LLM Config] user={user.id}, source=user_fast, "
         f"model={model_name}, base_url={base_url}"
     )
 
@@ -260,43 +260,43 @@ def _resolve_user_intent_config(user: User, session: Session) -> LLMConfig:
         api_key=api_key,
         base_url=base_url,
         model_name=model_name,
-        source="user_intent",
+        source="user_fast",
     )
 
 
-def _resolve_system_intent_config(sys_config: SystemConfig) -> LLMConfig:
+def _resolve_system_fast_config(sys_config: SystemConfig) -> LLMConfig:
     """
-    解析系统级意图识别配置，未设置的字段回退到主模型配置
+    解析系统级极速模型配置，未设置的字段回退到思考模型配置
 
-    回退链路：系统 intent_* → 主模型配置
+    回退链路：系统 fast_* → 思考模型配置
     """
     env_api_key = os.getenv("OPENAI_API_KEY")
 
-    # 逐字段回退：系统 intent → 主模型
+    # 逐字段回退：系统 fast → 思考模型
     base_url = (
-        sys_config.intent_base_url
-        or sys_config.openai_base_url
+        sys_config.fast_base_url
+        or sys_config.thinking_base_url
         or settings.OPENAI_BASE_URL
     )
     model_name = (
-        sys_config.intent_model
-        or sys_config.default_model
+        sys_config.fast_model
+        or sys_config.thinking_model
         or "gpt-3.5-turbo"
     )
 
     is_local_model = _is_local_model(base_url)
 
     api_key = _resolve_api_key_with_fallback(
-        primary_key=sys_config.intent_api_key,
+        primary_key=sys_config.fast_api_key,
         fallback_keys=[
-            sys_config.openai_api_key,
+            sys_config.thinking_api_key,
         ],
         env_api_key=env_api_key,
         is_local_model=is_local_model,
     )
 
     log.debug(
-        f"🧠 [Intent LLM Config] source=system_intent, "
+        f"🧠 [Fast LLM Config] source=system_fast, "
         f"model={model_name}, base_url={base_url}"
     )
 
@@ -304,7 +304,7 @@ def _resolve_system_intent_config(sys_config: SystemConfig) -> LLMConfig:
         api_key=api_key,
         base_url=base_url,
         model_name=model_name,
-        source="system_intent",
+        source="system_fast",
     )
 
 
@@ -350,9 +350,9 @@ def _resolve_api_key_with_fallback(
 # Celery Worker 专用（自建 Session）
 # ==========================================
 
-def get_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
+def get_thinking_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
     """
-    Celery Worker 专用：自建数据库会话获取 LLM 配置
+    Celery Worker 专用：自建数据库会话获取思考模型配置
 
     在 FastAPI 依赖注入不可用的后台任务中使用。
     """
@@ -360,12 +360,12 @@ def get_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
     from app.core.database import engine
 
     with SQLModelSession(engine) as session:
-        return get_llm_config(session, user_id=user_id)
+        return get_thinking_llm_config(session, user_id=user_id)
 
 
-def get_intent_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
+def get_fast_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
     """
-    Celery Worker 专用：自建数据库会话获取意图识别模型配置
+    Celery Worker 专用：自建数据库会话获取极速模型配置
 
     在 FastAPI 依赖注入不可用的后台任务中使用。
     """
@@ -373,7 +373,7 @@ def get_intent_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig
     from app.core.database import engine
 
     with SQLModelSession(engine) as session:
-        return get_intent_llm_config(session, user_id=user_id)
+        return get_fast_llm_config(session, user_id=user_id)
 
 
 # ==========================================
@@ -433,3 +433,10 @@ def mask_api_key(api_key: Optional[str]) -> Optional[str]:
     if len(api_key) <= 8:
         return "sk-***"
     return "sk-***" + api_key[-4:]
+
+
+# ========== 向后兼容别名（过渡期，Task 8 中删除）==========
+get_llm_config = get_thinking_llm_config
+get_intent_llm_config = get_fast_llm_config
+get_llm_config_standalone = get_thinking_llm_config_standalone
+get_intent_llm_config_standalone = get_fast_llm_config_standalone
