@@ -146,11 +146,17 @@ export const useAuthStore = create<AuthState>()(
       },
 
       clearAll: () => {
+        // 清除 localStorage 状态
         set({
           user: null,
           token: null,
           isAuthenticated: false,
         });
+        // 清除 authenticated Cookie，否则 Next.js middleware 会认为用户仍已登录
+        // 导致 window.location.href='/login' 被 middleware 重定向回首页，形成死循环
+        if (typeof document !== 'undefined') {
+          document.cookie = 'authenticated=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        }
       },
 
       /**

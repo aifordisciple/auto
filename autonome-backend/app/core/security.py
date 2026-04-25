@@ -283,10 +283,14 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
 
 
 def clear_auth_cookies(response: Response):
-    """清除认证 Cookie（包括前端路由守卫标记）"""
-    response.delete_cookie(key="access_token", httponly=True)
-    response.delete_cookie(key="refresh_token", httponly=True)
-    response.delete_cookie(key="authenticated")
+    """清除认证 Cookie（包括前端路由守卫标记）
+
+    注意：delete_cookie 必须指定与 set_cookie 相同的 path，
+    否则浏览器不会删除该 Cookie（Cookie 的 path 是匹配键的一部分）。
+    """
+    response.delete_cookie(key="access_token", httponly=True, path="/")
+    response.delete_cookie(key="refresh_token", httponly=True, path="/")
+    response.delete_cookie(key="authenticated", path="/")
 
 
 # ==========================================
