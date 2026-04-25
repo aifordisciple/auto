@@ -154,8 +154,8 @@ def _process_item_with_llm(session_id: str, item: ChatQueueItem):
         db.refresh(user_msg)
 
         # 加载 LLM 配置
-        from app.utils.llm_config import get_llm_config, _is_local_model
-        llm_cfg = get_llm_config(db, user_id=item.user_id)
+        from app.utils.llm_config import get_thinking_llm_config, _is_local_model
+        llm_cfg = get_thinking_llm_config(db, user_id=item.user_id)
         api_key = llm_cfg.api_key
         base_url = llm_cfg.base_url
         model_name = llm_cfg.model_name

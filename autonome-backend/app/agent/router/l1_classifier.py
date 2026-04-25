@@ -1,7 +1,7 @@
 """
 L1 LLM 解构层 - 大模型结构化意图解构与任务图谱生成。
 
-使用用户配置的 LLM（通过 get_llm_config 三级 fallback 解析），
+使用用户配置的 LLM（通过 get_thinking_llm_config 三级 fallback 解析），
 将用户输入解构为 TaskDAG（有向无环图），支持多任务分解、
 依赖标注和指代消解。
 
@@ -20,7 +20,7 @@ from langchain_openai import ChatOpenAI
 from app.agent.router.schemas import TaskDAG, TaskNode, IntentType
 from app.agent.router.context_builder import build_workspace_context, format_workspace_context_for_prompt
 from app.core.logger import log
-from app.utils.llm_config import get_llm_config, get_intent_llm_config, _is_local_model
+from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _is_local_model
 
 
 # L1 意图解构系统提示词（v3: 输出 TaskDAG，支持多任务分解）
@@ -117,17 +117,17 @@ class L1Classifier:
         初始化解构器。
 
         程序说明：
-        优先使用意图识别专用模型配置（get_intent_llm_config），
-        未配置时自动回退到主模型配置（get_llm_config）。
+        优先使用极速模型配置（get_fast_llm_config），
+        未配置时自动回退到思考模型配置（get_thinking_llm_config）。
         构建针对第三方 API 的 ChatOpenAI 实例。
         本地模式的客户端将在具体调用时动态生成。
 
         Args:
-            session: 数据库会话（用于 get_intent_llm_config 解析用户配置）
+            session: 数据库会话（用于 get_fast_llm_config 解析用户配置）
             user_id: 当前用户 ID
         """
-        # 优先使用意图识别专用模型，未配置时回退到主模型
-        self.llm_config = get_intent_llm_config(session, user_id)
+        # 优先使用极速模型，未配置时回退到思考模型
+        self.llm_config = get_fast_llm_config(session, user_id)
         self.is_local = _is_local_model(self.llm_config.base_url)
 
         # 构建第三方 API 使用的 LLM 实例

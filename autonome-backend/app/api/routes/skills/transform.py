@@ -16,7 +16,7 @@ from app.core.logger import log
 from app.core.content_filter import preprocess_llm_response
 from app.api.deps import get_current_user
 from app.models.domain import User, RoleEnum
-from app.utils.llm_config import get_llm_config
+from app.utils.llm_config import get_thinking_llm_config
 from app.schemas.skill import TransformFromLiveRequest
 
 router = APIRouter()
@@ -195,7 +195,7 @@ async def transform_from_live(
     raw_material = build_raw_material_from_session(messages, all_code_blocks, all_strategies)
 
     # 5. 获取 LLM 配置（共享工具：per-user override → system global → env fallback）
-    llm_cfg = get_llm_config(session, user_id=current_user.id)
+    llm_cfg = get_thinking_llm_config(session, user_id=current_user.id)
     api_key, base_url, model_name = llm_cfg.api_key, llm_cfg.base_url, llm_cfg.model_name
 
     # 6. 调用 Crafter Agent
@@ -286,7 +286,7 @@ async def consolidate_blueprint(
         raw_material = f"【蓝图数据】\n{json.dumps(blueprint, ensure_ascii=False, indent=2)}"
 
         # 获取 LLM 配置（共享工具：per-user override → system global → env fallback）
-        llm_cfg = get_llm_config(session, user_id=current_user.id)
+        llm_cfg = get_thinking_llm_config(session, user_id=current_user.id)
         api_key, base_url, model_name = llm_cfg.api_key, llm_cfg.base_url, llm_cfg.model_name
 
         # 调用 Crafter Agent

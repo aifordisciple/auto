@@ -13,7 +13,7 @@ import traceback
 from celery import Celery
 
 from app.core.logger import log
-from app.utils.llm_config import get_llm_config_standalone
+from app.utils.llm_config import get_thinking_llm_config_standalone
 from app.services.task_logger import create_task_logger, safe_add_chat_message, redis_client
 from app.utils.argparse_injector import inject_python_argparse_params, inject_r_argparse_params
 from app.tools.bio_tools import run_container
