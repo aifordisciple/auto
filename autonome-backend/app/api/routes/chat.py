@@ -763,6 +763,7 @@ async def chat_stream(
                                 if filtered_content:
                                     if content_type == "thinking":
                                         # ✨ 思考过程通过 data 事件推送给前端
+                                        log.info(f"[Chat] DEBUG thinking: len={len(filtered_content)}, preview={filtered_content[:80]}")
                                         yield encoder.from_thinking(filtered_content)
                                     else:
                                         # 首个文本块前发送 text-start
