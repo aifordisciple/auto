@@ -307,6 +307,55 @@ class VisualTweakRule(Rule):
         return None
 
 
+class DescriptionIntentRule(Rule):
+    """
+    优先级 6.8: 纯描述/大纲/解释意图拦截。
+
+    检测用户只是"索要大纲、列步骤、解释概念、介绍流程"等纯文本输出请求，
+    路由到 GENERAL_CHAT，防止被误判为 WORKFLOW_ORCHESTRATE 或 SKILL_FORGE。
+
+    ⚠️ 关键区分（与 CodeGenPatternRule / L1 WORKFLOW_ORCHESTRATE 的边界）：
+    - "给我列一个GATK WES分析的10步大纲" → 纯描述请求，属于 GENERAL_CHAT
+    - "介绍一下RNA-seq分析流程" → 知识解释，属于 GENERAL_CHAT
+    - "跑GATK WES分析" / "执行这个pipeline" → 需要真正执行，属于 SKILL_FORGE / WORKFLOW_ORCHESTRATE
+    - "帮我写一个Nextflow脚本" → 代码生成，属于 SKILL_FORGE
+
+    仅匹配明确包含"描述/大纲/介绍/解释/列出/列举/说明/概述/总结/梳理"
+    等纯输出意图词的模式，不匹配"跑/运行/执行/做"等执行意图词。
+    """
+
+    # 纯描述意图关键词正则
+    # 匹配模式：描述词 + (可选的"流程/步骤/方案/思路"等结构词)
+    DESCRIPTION_PATTERN = re.compile(
+        r'(给我列|列一个|列一下|列出|列举|介绍一下|介绍|解释一下|解释|说明一下|说明|概述|总结一下|总结|梳理一下|梳理|'
+        r'大纲|提纲|步骤大纲|流程大纲|方案大纲|'
+        r'describe|outline|explain|summarize|list\s+the\s+steps|give\s+me\s+an\s+overview)',
+        re.IGNORECASE
+    )
+
+    # 排除模式：如果同时包含明确的执行意图词，则不拦截（让 L1 判断）
+    # 例如："列一个大纲然后帮我跑一下" → 包含执行意图，不拦截
+    EXECUTION_EXCLUSION_PATTERN = re.compile(
+        r'(跑|运行|执行|做.*分析|run|execute|帮我跑|帮我做|帮我执行)',
+        re.IGNORECASE
+    )
+
+    def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        # 先排除：如果包含执行意图词，不拦截，交给 L1 判断
+        if self.EXECUTION_EXCLUSION_PATTERN.search(query):
+            return None
+
+        if self.DESCRIPTION_PATTERN.search(query):
+            log.debug("[L0] DescriptionIntentRule 命中: 纯描述/大纲/解释请求")
+            return IntentExtraction(
+                intent=IntentType.GENERAL_CHAT,
+                confidence=0.85,
+                entities={"description_type": "outline_or_explanation"},
+                requires_followup=False
+            )
+        return None
+
+
 class CodeGenPatternRule(Rule):
     """
     优先级 7: 代码生成模式拦截。
@@ -376,17 +425,18 @@ class L0RuleEngine:
     def __init__(self):
         # 按优先级排序（数值越小优先级越高），首个命中即返回
         self.rules: List[Rule] = [
-            SystemMacroRule(),       # 优先级 0.5: 系统宏指令（最高优先级）
-            SystemStateRule(),       # 优先级 1: 系统状态
-            ActiveViewRule(),        # 优先级 2: 活跃视图
-            ExplicitSkillRule(),     # 优先级 3: 显式技能
-            ErrorPatternRule(),      # 优先级 4: 错误关键词
-            VersionControlRule(),    # 优先级 4.5: 版本控制
-            LiteraturePatternRule(), # 优先级 5: 文献模式
-            ProbePatternRule(),      # 优先级 6: 数据探查
-            VisualTweakRule(),       # 优先级 6.5: 视觉微调
-            CodeGenPatternRule(),    # 优先级 7: 代码生成
-            ChitchatRule(),          # 优先级 8: 闲聊
+            SystemMacroRule(),        # 优先级 0.5: 系统宏指令（最高优先级）
+            SystemStateRule(),        # 优先级 1: 系统状态
+            ActiveViewRule(),         # 优先级 2: 活跃视图
+            ExplicitSkillRule(),      # 优先级 3: 显式技能
+            ErrorPatternRule(),       # 优先级 4: 错误关键词
+            VersionControlRule(),     # 优先级 4.5: 版本控制
+            LiteraturePatternRule(),  # 优先级 5: 文献模式
+            ProbePatternRule(),       # 优先级 6: 数据探查
+            VisualTweakRule(),        # 优先级 6.5: 视觉微调
+            DescriptionIntentRule(),  # 优先级 6.8: 纯描述/大纲/解释（防止误触发 WORKFLOW_ORCHESTRATE）
+            CodeGenPatternRule(),     # 优先级 7: 代码生成
+            ChitchatRule(),           # 优先级 8: 闲聊
         ]
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:

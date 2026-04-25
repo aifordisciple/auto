@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks'; // 兼容大模型（如 Kimi）的单换行输出习惯
+import remarkBreaks from 'remark-breaks';
+import remarkMath from 'remark-math'; // ✨ 数学公式解析：将 $...$ / $$...$$ 转为 AST 节点
+import rehypeKatex from 'rehype-katex'; // ✨ KaTeX 渲染：将数学 AST 节点转为精美排版 HTML // 兼容大模型（如 Kimi）的单换行输出习惯
 // ✨ 移除 rehypeRaw：允许原始 HTML 标签会导致 <think> 等标签被渲染，引发浏览器错误
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';

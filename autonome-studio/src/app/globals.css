@@ -4,6 +4,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "katex/dist/katex.min.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -403,6 +404,74 @@
 .dark .chat-table-wrapper {
   border-color: oklch(1 0 0 / 8%);
   background: transparent;
+}
+
+/* ==========================================
+ * ✨ KaTeX 数学公式渲染样式
+ * ========================================== */
+
+/**
+ * 独立公式块（$$...$$）样式
+ * 居中显示，上下留出适当间距，融入聊天消息排版
+ */
+.chat-message-content .katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+
+/**
+ * 行内公式（$...$）样式
+ * 与文本自然混排，字号匹配
+ */
+.chat-message-content .katex-inline {
+  font-size: 1.05em;
+}
+
+/**
+ * 深色模式下 KaTeX 公式颜色适配
+ * KaTeX 默认使用黑色文字，深色模式下需覆盖为浅色
+ */
+.dark .chat-message-content .katex {
+  color: oklch(0.9 0.01 260);
+}
+
+.dark .chat-message-content .katex .mord,
+.dark .chat-message-content .katex .mbin,
+.dark .chat-message-content .katex .mrel,
+.dark .chat-message-content .katex .mop,
+.dark .chat-message-content .katex .mpunct,
+.dark .chat-message-content .katex .mopen,
+.dark .chat-message-content .katex .mclose {
+  color: oklch(0.9 0.01 260);
+}
+
+/**
+ * 深色模式下 KaTeX 分数线、括号线等线条颜色
+ */
+.dark .chat-message-content .katex .frac-line,
+.dark .chat-message-content .katex .overline-line,
+.dark .chat-message-content .katex .underline-line,
+.dark .chat-message-content .katex .rule,
+.dark .chat-message-content .katex .delim-center,
+.dark .chat-message-content .katex .nulldelimiter {
+  border-color: oklch(0.7 0.01 260);
+}
+
+/**
+ * 深色模式下 KaTeX 根号颜色
+ */
+.dark .chat-message-content .katex .sqrt-sign {
+  color: oklch(0.7 0.01 260);
+}
+
+/**
+ * 深色模式下 KaTeX 错误提示颜色
+ */
+.dark .chat-message-content .katex-error {
+  color: oklch(0.7 0.2 25);
+  background: oklch(0.25 0.05 25);
 }
 
 /* ==========================================

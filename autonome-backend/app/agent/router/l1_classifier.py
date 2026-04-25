@@ -30,8 +30,8 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 
 | 意图 | 枚举值 | 触发场景 |
 |------|--------|----------|
-| 工作流编排 | INTENT_WORKFLOW_ORCHESTRATE | 多步骤流程编排、Nextflow 工作流 |
-| 技能锻造 | INTENT_SKILL_FORGE | 创建/修改技能、代码生成 |
+| 工作流编排 | INTENT_WORKFLOW_ORCHESTRATE | 真正执行多步骤流程编排、生成 Nextflow 工作流脚本并运行 |
+| 技能锻造 | INTENT_SKILL_FORGE | 创建/修改技能、真正执行代码生成 |
 | 显式执行 | INTENT_EXPLICIT_EXEC | 明确调用已注册技能 |
 | 版本控制 | INTENT_VERSION_CONTROL | 回滚、版本对比、历史查看 |
 | 视觉微调 | INTENT_VISUAL_PERCEPTION_AND_TWEAK | 配色、阈值、DPI、样式调整 |
@@ -46,7 +46,22 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 | 系统资产 | INTENT_SYSTEM_ASSET_OPS | 资源调度、计费、配额管理 |
 | 团队协作 | INTENT_COLLABORATION | 共享、评论、权限管理 |
 | 诊断恢复 | INTENT_DIAGNOSTIC_RECOVERY | 错误诊断、自愈、日志分析 |
-| 通用问答 | INTENT_GENERAL_CHAT | 闲聊、常识问答、兜底 |
+| 通用问答 | INTENT_GENERAL_CHAT | 闲聊、常识问答、概念解释、流程大纲、步骤列举、知识描述 |
+
+## ⚠️ 关键区分规则：描述 vs 执行（防止误触发 WORKFLOW_ORCHESTRATE）
+
+这是最常见的误分类场景，必须严格遵守以下边界：
+
+| 用户表述模式 | 正确意图 | 原因 |
+|-------------|---------|------|
+| "给我列一个XX分析的N步大纲" | INTENT_GENERAL_CHAT | 只是索要文本描述，不需要执行 |
+| "介绍一下XX流程" / "XX分析的步骤是什么" | INTENT_GENERAL_CHAT | 知识解释请求，纯文本输出 |
+| "解释一下XX的概念/原理" | INTENT_GENERAL_CHAT | 概念解释，纯文本输出 |
+| "XX和YY有什么区别" | INTENT_GENERAL_CHAT | 对比解释，纯文本输出 |
+| "帮我跑XX分析" / "执行这个pipeline" | INTENT_WORKFLOW_ORCHESTRATE | 明确要求执行，需要编排运行 |
+| "用Nextflow写一个XX工作流" | INTENT_SKILL_FORGE | 要求生成可执行代码 |
+
+**判断原则**：如果用户只是"索要信息"（大纲、步骤、解释、介绍、对比），即使涉及专业领域术语（如 GATK、WES、RNA-seq），也应归类为 INTENT_GENERAL_CHAT。只有用户明确要求"执行/运行/跑/做"时，才触发 INTENT_WORKFLOW_ORCHESTRATE 或 INTENT_SKILL_FORGE。
 
 ## 工作区上下文
 

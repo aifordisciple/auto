@@ -16,6 +16,8 @@ import { useRef, useEffect, useMemo, memo, useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks'; // 兼容大模型（如 Kimi）的单换行输出习惯
+import remarkMath from 'remark-math'; // ✨ 数学公式解析：将 $...$ / $$...$$ 转为 AST 节点
+import rehypeKatex from 'rehype-katex'; // ✨ KaTeX 渲染：将数学 AST 节点转为精美排版 HTML
 // ✨ 移除 rehypeRaw：允许原始 HTML 标签会导致 <think> 等标签被渲染，引发浏览器错误
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -71,6 +73,7 @@ function parseAndFilterThinking(content: string): { cleanContent: string; isThin
 /**
  * 预处理流式 Markdown - 处理未闭合的结构
  * 对于未闭合的代码块，自动补全闭合标记
+ * ✨ 新增：对于未闭合的 $ / $$ 数学公式，自动补全闭合标记，防止 KaTeX 渲染闪烁
  */
 function preprocessStreamingMarkdown(content: string): { processedContent: string; isCurrentlyThinking: boolean } {
   // ✨ 空内容时处于思考等待状态，直到收到第一个有效字符
@@ -90,7 +93,61 @@ function preprocessStreamingMarkdown(content: string): { processedContent: strin
     processed += '\n```';
   }
 
+  // ✨ 处理未闭合的数学公式（防止 KaTeX 渲染闪烁）
+  // 先处理独立公式块 $$，再处理行内公式 $
+  // 注意：必须在代码块闭合之后处理，避免代码块内的 $ 被误判
+  if (openCodeBlocks === 0) {
+    processed = closeUnclosedMath(processed);
+  }
+
   return { processedContent: processed, isCurrentlyThinking: isThinking };
+}
+
+/**
+ * ✨ 闭合未闭合的数学公式标记
+ *
+ * 流式传输时，AI 可能正在输出 $alpha = 0.05$ 但 $ 还未闭合，
+ * 此时 remark-math 会将未闭合的 $ 当作普通文本，导致闪烁。
+ * 解决方案：检测未闭合的 $ / $$，临时追加闭合标记。
+ *
+ * 处理顺序：先处理 $$（独立公式块），再处理 $（行内公式）
+ * 避免将 $$ 误判为两个 $
+ */
+function closeUnclosedMath(text: string): string {
+  // 跳过代码块内的内容（代码块内的 $ 不是数学公式）
+  // 简单策略：按 ``` 分割，只处理非代码块部分
+  const segments = text.split(/(```[\s\S]*?```)/g);
+  const result = segments.map((segment, index) => {
+    // 奇数索引是代码块内容，跳过
+    if (index % 2 === 1) return segment;
+
+    // 处理非代码块部分
+    let processed = segment;
+
+    // 1. 处理未闭合的 $$（独立公式块）
+    // 统计 $$ 的数量（排除转义的 \$\$）
+    const displayMathMatches = processed.match(/(?<!\\)\$\$/g);
+    const displayMathCount = displayMathMatches ? displayMathMatches.length : 0;
+    if (displayMathCount % 2 !== 0) {
+      // 奇数个 $$，说明有未闭合的独立公式块
+      processed += '$$';
+    }
+
+    // 2. 处理未闭合的 $（行内公式）
+    // 移除已匹配的 $$ 后，统计剩余的 $ 数量
+    // 先将已闭合的 $$...$$ 替换为占位符，避免干扰 $ 的计数
+    const withoutDisplayMath = processed.replace(/(?<!\\)\$\$[\s\S]*?(?<!\\)\$\$/g, '');
+    const inlineMathMatches = withoutDisplayMath.match(/(?<!\\)\$/g);
+    const inlineMathCount = inlineMathMatches ? inlineMathMatches.length : 0;
+    if (inlineMathCount % 2 !== 0) {
+      // 奇数个 $，说明有未闭合的行内公式
+      processed += '$';
+    }
+
+    return processed;
+  });
+
+  return result.join('');
 }
 
 // ==========================================
@@ -378,11 +435,12 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
       {processedContent && (
         isStreaming ? (
           // 流式时使用轻量级渲染，避免 ReactMarkdown 每次重解析导致卡顿
-          // 检测是否包含代码块，如果有则使用 ReactMarkdown（代码块需要语法高亮）
+          // ✨ 检测是否包含代码块或数学公式，如果有则使用 ReactMarkdown（需要语法高亮或 KaTeX 渲染）
           // 否则直接渲染纯文本（快得多）
-          processedContent.includes('```') ? (
+          (processedContent.includes('```') || processedContent.includes('$')) ? (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkBreaks]}
+              remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
               components={components}
             >
               {processedContent}
@@ -395,7 +453,8 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
         ) : (
           // 非流式时使用完整 Markdown 渲染
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
+            remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
             components={components}
           >
             {processedContent}
