@@ -48,6 +48,8 @@ export interface Message {
     errorText?: string;
     [key: string]: unknown;
   }>;
+  /** ✨ 意图识别标签：后端 SSE intent 事件中的意图类型（如 INTENT_DATA_PROBE） */
+  intentLabel?: string;
 }
 
 export interface Bookmark {
@@ -179,6 +181,8 @@ export interface ChatState {
   }> | null;
   /** 设置 DAG 进度 */
   setDagProgress: (progress: ChatState['dagProgress']) => void;
+  /** ✨ 设置最近一条 assistant 消息的意图标签 */
+  setLastAssistantIntentLabel: (intentType: string) => void;
 
   // ==========================================
   // ✨ 消息队列状态
@@ -261,10 +265,11 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   //   如果不保留，thinkingContent 会被 convertToStoreMessages 生成的新消息覆盖掉）
   syncFromUseChat: (messages: Message[], isLoading: boolean) =>
     set((state) => {
-      // 构建已有 thinkingContent、attachments 和 toolInvocationParts 的索引：key=message.id
+      // 构建已有 thinkingContent、attachments、toolInvocationParts 和 intentLabel 的索引：key=message.id
       const thinkingMap = new Map<string, string>();
       const attachmentsMap = new Map<string, MessageAttachments>();
       const toolPartsMap = new Map<string, Message['toolInvocationParts']>();
+      const intentLabelMap = new Map<string, string>();
       for (const msg of state.mirroredMessages) {
         if (msg.thinkingContent) {
           thinkingMap.set(msg.id, msg.thinkingContent);
@@ -276,20 +281,33 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
         if (msg.toolInvocationParts) {
           toolPartsMap.set(msg.id, msg.toolInvocationParts);
         }
+        if (msg.intentLabel) {
+          intentLabelMap.set(msg.id, msg.intentLabel);
+        }
       }
-      // 合并：新消息优先，但保留已有的 thinkingContent、attachments 和 toolInvocationParts
+      // 合并：新消息优先，但保留已有的 thinkingContent、attachments、toolInvocationParts 和 intentLabel
       const merged = messages.map(msg => {
         const existingThinking = thinkingMap.get(msg.id);
         const existingAttachments = attachmentsMap.get(msg.id);
         const existingToolParts = toolPartsMap.get(msg.id);
+        const existingIntentLabel = intentLabelMap.get(msg.id);
         return {
           ...msg,
           thinkingContent: msg.thinkingContent || existingThinking,
           attachments: msg.attachments || existingAttachments,
           toolInvocationParts: msg.toolInvocationParts ?? existingToolParts,
+          intentLabel: msg.intentLabel || existingIntentLabel,
         };
       });
-      return { mirroredMessages: merged, mirroredIsTyping: isLoading };
+      // ✨ 回填暂存的意图标签：如果 _pendingIntentLabel 存在且最后一条 assistant 消息没有 intentLabel
+      const pendingLabel = (state as any)._pendingIntentLabel as string | undefined;
+      if (pendingLabel) {
+        const lastIdx = merged.map(m => m.role).lastIndexOf('assistant');
+        if (lastIdx !== -1 && !merged[lastIdx].intentLabel) {
+          merged[lastIdx] = { ...merged[lastIdx], intentLabel: pendingLabel };
+        }
+      }
+      return { mirroredMessages: merged, mirroredIsTyping: isLoading, _pendingIntentLabel: undefined } as any;
     }),
   // 仅同步 isLoading，流式期间不替换 mirroredMessages（避免高频 text-delta 触发无效重渲染）
   syncLoadingState: (isLoading: boolean) =>
@@ -363,6 +381,22 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   // ==========================================
   dagProgress: null,
   setDagProgress: (progress) => set({ dagProgress: progress }),
+  // ✨ 设置最近一条 assistant 消息的意图标签
+  // intent 事件在 assistant 消息之前到达，此时 assistant 消息可能还未创建
+  // 使用临时变量暂存，在 syncFromUseChat 合并时回填
+  setLastAssistantIntentLabel: (intentType: string) =>
+    set((state) => {
+      // 尝试直接更新已有的 mirroredMessages 中的最后一条 assistant 消息
+      const newMirrored = [...state.mirroredMessages];
+      const lastIdx = newMirrored.map(m => m.role).lastIndexOf('assistant');
+      if (lastIdx !== -1) {
+        // 如果已有 assistant 消息，直接设置
+        newMirrored[lastIdx] = { ...newMirrored[lastIdx], intentLabel: intentType };
+        return { mirroredMessages: newMirrored };
+      }
+      // assistant 消息还未创建，存入临时字段，等 syncFromUseChat 时回填
+      return { _pendingIntentLabel: intentType } as Partial<ChatState> as ChatState;
+    }),
 
   // ==========================================
   // ✨ 消息队列状态实现

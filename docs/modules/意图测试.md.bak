@@ -14,7 +14,7 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：意图极其明确，纯概念解释或文本生成，不包含任何误导性动作词汇。*
 
-- [x] **Test Case 1：基础生信概念解释** ✅
+- [x] **Test Case 1：基础生信概念解释** ✅ 
 * **用户输入**：“什么是单细胞转录组分析中的 Drop-out 效应？”
 * **预期意图**：`INTENT_GENERAL_CHAT`
 * **预期流转**：`L1 解构` -> `[Task: GENERAL_CHAT]` -> 路由至 `general_chat_node` -> 输出一段客观严谨的纯文本科普解释。不触发任何沙箱。
@@ -59,7 +59,7 @@
 * **预期意图**：`INTENT_GENERAL_CHAT`
 * **预期流转**：输入中包含“跑”、“整合分析”，极易误触 `INTENT_EXPLICIT_EXEC` 或 `INTENT_SYSTEM_ASSET_OPS`。但由于缺乏实际挂载资产，且语义为“估算”，L1 必须将其沉淀为通用问答，回复经验性的资源预估文本。
 
-- [ ] **Test Case 8：无上下文的假设性错误诊断** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L0)
+- [ ] **Test Case 8：无上下文的假设性错误诊断** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY
 * **用户输入**：“如果我在跑 Cell Ranger 的时候遇到 `OOMKilled` 报错，一般有哪几种解决思路？”
 * **预期意图**：`INTENT_GENERAL_CHAT`
 * **预期流转**：提到了真实报错 `OOMKilled`，极易误触 `INTENT_DIAGNOSTIC_RECOVERY`。但因为当前系统上下文中并没有真实宕机的沙箱，属于“假设性提问”，必须路由至 `general_chat_node` 进行科普解答。
@@ -69,7 +69,7 @@
 * **预期意图**：`INTENT_GENERAL_CHAT`
 * **预期流转**：测试 LLM 对负向约束指令的服从性。必须路由至通用问答，并且输出结果中绝对不包含代码块。
 
-- [ ] **Test Case 10：非生信垂直领域的跨界长尾** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+- [ ] **Test Case 10：非生信垂直领域的跨界长尾** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY
 * **用户输入**：“我用 Vercel 部署前端页面的时候经常遇到 Build Timeout，这是为什么？”
 * **预期意图**：`INTENT_GENERAL_CHAT`
 * **预期流转**：完全脱离了生物信息学。测试系统兜底能力，L1 解构后路由给 `general_chat_node`，作为一个通用的资深研发工程师给出排查建议。
@@ -109,12 +109,12 @@
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：`L0 拦截` -> 绕过 LLM -> 直接触发前端清空当前对话窗口的状态，重置当前上下文。响应时间 < 50ms。
 
-- [x] **Test Case 2：系统状态探针** ✅
+**Test Case 2：系统状态探针**
 * **用户输入**：`/status`
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：`L0 拦截` -> 直接调用底层 K8s/Docker API 查询当前暖池容器数量及 Stripe 余额，返回一个包含监控仪表盘的卡片。
 
-- [ ] **Test Case 3：短文本极速确认（无脑放行）** ❌ 实际→INTENT_GENERAL_CHAT (L1)
+**Test Case 3：短文本极速确认（无脑放行）**
 * **用户输入**：“继续” （此时 L2 正处于 Active Probing 挂起状态）
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：`L0 拦截` -> 检测到当前有活跃的挂起任务 -> 绕过 L1 的意图解构，直接将“继续”信号传递给处于挂起状态的状态机，恢复任务流转。
@@ -124,17 +124,17 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：带参数的宏指令，或者系统需要结合当前选中的 UI 资产（FileID）进行极速分发。*
 
-- [ ] **Test Case 4：带参数的快速执行宏** ❌ 实际→INTENT_EXPLICIT_EXEC (L1)
+**Test Case 4：带参数的快速执行宏**
 * **用户输入**：`/run-fastqc`（同时用户在左侧文件树高亮选中了 20 个 `.fq.gz` 文件）
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：`L0 拦截` -> 识别宏命令，自动读取当前 UI 选中的 `resolved_assets` -> 确认满足 FastQC 的参数要求 -> 直接把载荷派发给底层的任务队列。完全不消耗大模型 Token。
 
-- [x] **Test Case 5：带参数的帮助宏** ✅
+**Test Case 5：带参数的帮助宏**
 * **用户输入**：`/help nextflow`
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：`L0 拦截` -> 提取参数 `nextflow` -> 直接从本地 Markdown 知识库中读取预设的 Nextflow 编排指南并返回给前端。
 
-- [ ] **Test Case 6：包含冗余空格的短指令（鲁棒性测试）** ❌ 实际→INTENT_GENERAL_CHAT (L1)
+**Test Case 6：包含冗余空格的短指令（鲁棒性测试）**
 * **用户输入**：“   确定   ”
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：L0 层的拦截器需要具备 `.strip()` 预处理能力，成功将其识别为确认动作并极速放行，而不是把它当作含有未知含义的句子丢给 L1 去解析。
@@ -144,25 +144,25 @@
 ### 🔴 困难/缓存命中难度 (Level: Hard)
 *特征：表面上看起来是一句长文本自然语言，但实际上它命中了底层的语义缓存（Semantic Cache），测试 Redis + pgvector 的向量短路能力。*
 
-- [ ] **Test Case 7：100% 置信度的语义缓存命中** ❌ 实际→INTENT_EXPLICIT_EXEC (L1)
+**Test Case 7：100% 置信度的语义缓存命中**
 * **用户输入**：“用默认参数对这些单细胞数据跑一遍标准的 Seurat 降维聚类。”
 * **预设条件**：昨天用户输入过**完全相同**的一句话，且当时的 DAG 已经成功生成并存入 `pgvector`。
 * **预期意图**：`INTENT_SYSTEM_MACRO` (Cache Hit)
 * **预期流转**：`L0 拦截` -> 向量检索发现相似度 0.99 -> 绕过大模型 -> 瞬间从 Redis 拉取昨天生成的 TaskDAG -> L2 对齐 UI 选中的新文件 -> 派发沙箱。
 
-- [ ] **Test Case 8：中断与强杀宏的上下文抢占** ❌ 实际→INTENT_GENERAL_CHAT (L1)
+**Test Case 8：中断与强杀宏的上下文抢占**
 * **用户输入**：`/stop`
 * **预设条件**：系统此时正在后台吭哧吭哧地跑一个巨耗时的 Nextflow 编排任务。
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：无论当前系统在哪个 Worker Node 流转，L0 必须具备**最高优先级的抢占权 (Interrupt)**。捕获后立即向底层发送 `SIGKILL` 信号停止沙箱，并将 LangGraph 的状态强制变更为 `END`。
 
-- [ ] **Test Case 9：高频参数微调的缓存命中** ❌ 实际→INTENT_VISUAL_PERCEPTION_AND_TWEAK (L1)
+**Test Case 9：高频参数微调的缓存命中**
 * **用户输入**：“把火山图的 P 值改成 0.05”
 * **预设条件**：这是一个极高频句式，数据库中配置了标准视图微调模板。
 * **预期意图**：`INTENT_SYSTEM_MACRO`
 * **预期流转**：L0 层通过向量检索命中“视图阈值调整”模板，直接提取数字 `0.05`，生成 JSON 状态并推给前端绘图组件，绕过 `ui_state_node` 的 LLM 推理，实现拖动滑块般的丝滑感。
 
-- [x] **Test Case 10：伪宏指令（对抗测试 - 应拦截失败）** ✅
+**Test Case 10：伪宏指令（对抗测试 - 应拦截失败）**
 * **用户输入**：“我需要在脚本里加一个 /clear_memory() 函数”
 * **预期意图**：`INTENT_SKILL_FORGE` (L0 **拦截失败**，流入 L1)
 * **预期流转**：虽然包含了 `/clear` 字眼，但它是嵌在句子中间的。L0 的正则规则必须严格限制首字符匹配（`^/clear$`），因此 L0 会放行，交给 L1 正确解析为代码锻造意图。
@@ -194,17 +194,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确要求查看行列数、列名、缺失值等基础表型特征，动词多为“看”、“检查”。*
 
-- [x] **Test Case 1：基础维度窥探** ✅
+**Test Case 1：基础维度窥探**
 * **用户输入**：“帮我看一下新传上来的那个单细胞表达矩阵（`matrix.mtx`）有多少行（基因）多少列（细胞）？”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：L1 解析出探究意图。`data_probe_node` 接管，不加载全量矩阵，仅利用轻量级脚本（或 Unix 命令）极速返回维度信息。
 
-- [x] **Test Case 2：Header / 列名检查** ✅
+**Test Case 2：Header / 列名检查**
 * **用户输入**：“这批 500 人的临床数据表里，代表‘无进展生存期’的列名具体叫什么？”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：路由至探针节点。探针仅读取文件的首行（Header），返回类似 `PFS_months` 或 `Progression_Free_Survival` 的列名。
 
-- [x] **Test Case 3：缺失值 (NA) 基础检测** ✅
+**Test Case 3：缺失值 (NA) 基础检测**
 * **用户输入**：“检查一下这个胃癌样本的表达矩阵，里面有没有 NA (缺失值)？”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：探针节点生成快速的 NA 检查逻辑，返回布尔值或简单的 NA 占比，为下游分析（是否需要插补）提供依据。
@@ -214,22 +214,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：需要对数据内容进行轻度计算（极值、交集、正则匹配），但仍属于探索性数据分析（EDA）的极轻量范畴。*
 
-- [x] **Test Case 4：数据分布与极值探测 (判断 Log 转换)** ✅
+**Test Case 4：数据分布与极值探测 (判断 Log 转换)**
 * **用户输入**：“在跑下游差异分析前，先看一下这个代谢丰度矩阵的最大值和最小值，判断一下是不是已经做过 Log2 转换了。”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：探针抽取数值子集计算 Max/Min。若最大值在 20-30 左右，系统客观推断已做 Log 转换。不会触发重量级的 `Explicit Exec`。
 
-- [x] **Test Case 5：生信专有格式 Header 解析** ✅
+**Test Case 5：生信专有格式 Header 解析**
 * **用户输入**：“这个刚比对完的 BAM 文件，它的 Header 里写的是 hg19 还是 hg38 参考基因组？”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：探针节点自动调用 `samtools view -H` 截取头部信息并提取 `@SQ` 标签中的基因组版本，秒级返回，而非拉起全量比对沙箱。
 
-- [ ] **Test Case 6：轻量级集合运算 (Venn Probe)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：轻量级集合运算 (Venn Probe)**
 * **用户输入**：“帮我算一下，我传的这个表格里的上调基因，和左侧那个 KEGG 通路背景基因集，大概有百分之几的重叠？”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：L1 识别为轻量级集合计算。探针提取两列文本进行 Set 交集运算，快速返回重叠比例（例如：“重叠 45 个基因，占比 12%”）。
 
-- [ ] **Test Case 7：文件编码与隐式分隔符探测** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：文件编码与隐式分隔符探测**
 * **用户输入**：“合作者发来的这个文本文件打不开，好像乱码了，帮我探测一下它的真实编码格式和分隔符。”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：探针使用启发式算法（如 `chardet`）识别文件为 GBK 编码、分号分割，并在前端建议用户进行格式化。
@@ -239,17 +239,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：极易与“显式执行 (Exec)”、“编排 (Orchestrate)”混淆。考验 L1 对“轻量探究”和“重量计算”的边界把控，以及生成条件 DAG 的能力。*
 
-- [ ] **Test Case 8：条件分支的前置探针 (If/Else DAG)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：条件分支的前置探针 (If/Else DAG)**
 * **用户输入**：“先检查这个矩阵的 NA 比例，如果超过 5% 就停止并告诉我，否则输出一个‘可以继续’的信号。”
 * **预期意图**：`INTENT_DATA_PROBE` (作为 DAG 的首个节点)
 * **预期流转**：L1 生成带有逻辑分支的 DAG。首个节点触发 `data_probe_node` 计算出 NA 比例（例如 2%），随后状态机根据探测结果决定放行或挂起报错。
 
-- [x] **Test Case 9：对抗测试 - 明确规避重量分析** ✅
+**Test Case 9：对抗测试 - 明确规避重量分析**
 * **用户输入**：“只提取这 100 个 VCF 文件的样本名列表给我看一眼，千万别去做任何具体的突变全景图或者注释分析！”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：测试 LLM 对指令约束的敏感度。包含“VCF”、“突变全景”等重型词汇，但核心动词是“只提取...看一眼”。L1 必须路由给探针节点，使用 `bcftools query -l` 极速拉取样本名。
 
-- [ ] **Test Case 10：文件树与命名规则合规检查** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：文件树与命名规则合规检查**
 * **用户输入**：“跑流程前，扫描一下左边这两个 FASTQ 文件夹，看看 R1 和 R2 的样本名是不是完美一一对应的，有没有落单的文件？”
 * **预期意图**：`INTENT_DATA_PROBE`
 * **预期流转**：这是一个无需打开文件、仅需扫描目录树的探究请求。探针节点执行基于正则表达式的文件名配对检查，指出诸如 `Sample_A_R1.fq.gz` 缺失 `R2` 的结构性异常。
@@ -283,17 +283,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确要求调整当前图形的属性（颜色、阈值、标签），不涉及复杂逻辑。*
 
-- [x] **Test Case 1：基础颜色调整** ✅
+**Test Case 1：基础颜色调整**
 * **用户输入**：“把刚才画的那张火山图的配色方案换成 Nature 期刊的默认配色（NPG）。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：L1 准确识别。`ui_state_node` 接管，不触发差异分析沙箱，直接应用 NPG 调色板重载当前视图，并生成新的 PDF/PNG 和对应的底层 TSV 文件。
 
-- [x] **Test Case 2：阈值动态重绘** ✅
+**Test Case 2：阈值动态重绘**
 * **用户输入**：“右边的散点图太乱了，把气泡大小（P-value）的显示下限调整为 0.01，其他的点隐藏掉。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：`ui_state_node` 根据新阈值（`p_val < 0.01`）过滤前端渲染的数据子集并重绘，同时更新导出的数据表。
 
-- [x] **Test Case 3：标签与文本修饰** ✅
+**Test Case 3：标签与文本修饰**
 * **用户输入**：“在这张细胞通讯网络图上，给那根最粗的连线（Macrophage 到 T-cell）加上一个红色的高亮标签。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：`ui_state_node` 识别文本修饰意图，在对应的网络边（Edge）对象上添加注解属性并渲染。
@@ -303,22 +303,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：涉及多模态图像输入，或者需要对局部图形特征进行精细化操作。*
 
-- [x] **Test Case 4：多模态图像释义** ✅
+**Test Case 4：多模态图像释义**
 * **用户输入**：“[上传了一张复杂的空间转录组聚类图 1.png] 帮我看看这张图里，黄色区域和蓝色区域在空间分布上有什么特征？”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：L1 识别看图意图（Image Interpretation）。多模态模型（视觉引擎）分析图像，识别颜色分布特征并输出客观文本分析，不启动绘图沙箱。
 
-- [x] **Test Case 5：局部放大与高分辨输出** ✅
+**Test Case 5：局部放大与高分辨输出**
 * **用户输入**：“把这张全基因组关联分析（GWAS）的曼哈顿图中，第 8 号染色体的那座‘高塔’单独放大截取出来，出一张 600DPI 的高清图。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：`ui_state_node` 根据坐标参数（CHR = 8）进行数据子集提取（Subset）并重绘该局部区域，严格执行高分辨率输出规范。
 
-- [ ] **Test Case 6：多图复合排版** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：多图复合排版**
 * **用户输入**：“把上面那张生存曲线图（Kaplan-Meier）和这张突变瀑布图（Oncoplot）上下拼在一起，加一个总标题‘图 2’。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：`ui_state_node` 调用排版引擎（如 `patchwork` 或 `gridExtra`），合并两个现有的视图对象，并打包输出组合后的图形文件及两者的数据包。
 
-- [ ] **Test Case 7：图表格式转换** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：图表格式转换**
 * **用户输入**：“把刚才那个展示富集通路的条形图（Barplot）改成气泡图（Dotplot）的形式展示，横坐标用 Gene Ratio。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：底层数据未变，仅改变视觉映射逻辑（Geom 转换）。`ui_state_node` 重组绘图参数并重绘。
@@ -328,17 +328,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：包含“写代码”、“跑分析”等极具误导性的词汇，极易错判给 `Skill Forge` 或 `Explicit Exec` 节点。考验系统对多模态“逆向工程”和数据对称性的坚守。*
 
-- [ ] **Test Case 8：多模态看图写码（极易误判为纯代码锻造）** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：多模态看图写码（极易误判为纯代码锻造）**
 * **用户输入**：“[上传截图 `fig3.png`] 提取这张 Nature 热图的配色、树状图样式，用我现在左边的工作区数据写一段 R 代码画一张一模一样的。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK` (配合 DAG 流转到 Skill Forge)
 * **预期流转**：这是经典的 DAG 拆解。L1 必须先将其解构为 `[Task A: 视觉感知逆向 (提取样式)]` -> `[Task B: 代码锻造 (基于样式写代码)]`。单纯归为 `Skill Forge` 会导致丢失图片解析环节。
 
-- [x] **Test Case 9：对抗测试 - 企图绕过数据强制输出规范** ✅
+**Test Case 9：对抗测试 - 企图绕过数据强制输出规范**
 * **用户输入**：“给我生成这张 UMAP 图的高清 PDF 就行了，千万别带什么多余的底层 TSV 坐标文件，看着烦。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK`
 * **预期流转**：L1 正确识别视图意图。但在 `ui_state_node` 执行时，系统层面的**最高优先级强制约束（Data Symmetry 数据对称性）**必须无视用户的负面指令，坚决输出包含该 UMAP 坐标的 `.tsv` 文件，保障学术合规性。
 
-- [ ] **Test Case 10：视图微调引发的上游重跑诱导** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：视图微调引发的上游重跑诱导**
 * **用户输入**：“这张火山图不好看，你帮我把差异分析的 P 值判定标准改得松一点（从 0.05 改到 0.1），然后重新出一张图。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` -> `INTENT_VISUAL_PERCEPTION_AND_TWEAK` (或由 `Orchestrator` 串联)
 * **预期流转**：注意！这**不是**单纯的视图微调。改变差异分析的 P 值判定基准（统计学模型），意味着必须重跑上游计算。L1 必须敏锐地捕捉到这不只是改个颜色，而是数据重算，将其拆解为 `[Task A: 执行差异分析]` -> `[Task B: 视图更新]`，绝不能仅靠前端过滤器来作弊。
@@ -375,17 +375,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：意图明确的平台级指令，通常包含“文件操作”、“算力节点”、“积分/费用”等关键词。*
 
-- [x] **Test Case 1：基础计费余额查询** ✅
+**Test Case 1：基础计费余额查询**
 * **用户输入**：“查一下我当前的账号里还有多少算力积分？”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：L1 准确识别。`system_asset_node` 接管，不触发任何计算，直接调用内部 Billing API 或 Stripe API，在前端展示当前余额卡片。
 
-- [x] **Test Case 2：简单文件管护 (移动/重命名)** ✅
+**Test Case 2：简单文件管护 (移动/重命名)**
 * **用户输入**：“把左侧这个叫 `Sample_1.fq` 的文件，移动到新建的 `Raw_Data` 文件夹里。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：L1 成功进行指代消解获取文件 ID。`system_asset_node` 生成底层文件系统（POSIX）的 `mv` 操作逻辑或调用对象存储 API，并触发前端 UI 左侧资产树的实时刷新。
 
-- [x] **Test Case 3：手动算力池切换** ✅
+**Test Case 3：手动算力池切换**
 * **用户输入**：“我接下来要跑个很吃内存的任务，帮我把当前工作区的计算节点切换到 128G 内存的高配实例。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：路由至 `system_asset_node`，生成对应的 Kubernetes `node_selector` 变更载荷，执行沙箱热迁移或冷重启，提示用户切换成功。
@@ -395,22 +395,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：涉及更复杂的底层基础设施操作，如大型数据库挂载、强制中断进程、或者冷热数据分离存储。*
 
-- [x] **Test Case 4：公有数据库快照挂载** ✅
+**Test Case 4：公有数据库快照挂载**
 * **用户输入**：“我要做泛癌分析，帮我把 TCGA 数据库里关于乳腺癌（BRCA）的最新表达矩阵集挂载到当前项目里。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：`system_asset_node` 不会傻乎乎地去写一个 Python 下载脚本（这会消耗巨大的网络和时间），而是调用底层的软链接（Symlink）或只读数据卷（ReadOnly Volume），实现 GB 级数据库的秒级挂载。
 
-- [x] **Test Case 5：任务强杀与资源释放 (SIGKILL)** ✅
+**Test Case 5：任务强杀与资源释放 (SIGKILL)**
 * **用户输入**：“刚才那个 STAR 比对任务我参数填错了，赶紧帮我停掉它，并把中间产生的垃圾文件删干净。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：系统向正在运行的 Docker 容器发送中断信号，结束进程，并清理临时挂载目录。这里考验 L1 能否分清“停止执行”属于运维操作，而非`EXPLICIT_EXEC`（执行操作）。
 
-- [ ] **Test Case 6：成本预估测算** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：成本预估测算**
 * **用户输入**：“如果我用 M3 Ultra 节点跑这 50 个全基因组样本的 GATK 变异检测，大概需要消耗多少积分？”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：L1 识别为预估需求。节点结合历史元数据（`Task Metadata`）评估所需时长，调取 Stripe 费率表，输出一份详细的预估账单。
 
-- [ ] **Test Case 7：项目归档与冷存储 (Archiving)** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：项目归档与冷存储 (Archiving)**
 * **用户输入**：“这个单细胞项目已经结题了，把里面所有超过 1GB 的原始测序文件转到冷存储归档，节省空间。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：生成带条件的存储策略转移指令（如迁移至 AWS S3 Glacier），并在数据库中标记这些 FileID 的状态为 `Archived`。
@@ -420,17 +420,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：包含高度危险的破坏性指令，或者与其他意图（如报错诊断、运行分析）形成复杂的串联 DAG。*
 
-- [ ] **Test Case 8：危险操作的安全拦截 (Delete vs Soft-Delete)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：危险操作的安全拦截 (Delete vs Soft-Delete)**
 * **用户输入**：“把工作区里所有名字带 `failed` 的文件彻底删除，一个不留。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：L1 正确识别为运维操作。但 `system_asset_node` 的内部守门人机制必须生效，**拒绝直接执行物理删除**。它必须生成一个“软删除（移入回收站）”的载荷，并在前端推送一个危险操作确认提示框（`require_user_confirmation: true`）。
 
-- [x] **Test Case 9：运维诊断与执行的复合图谱 (DAG)** ✅
+**Test Case 9：运维诊断与执行的复合图谱 (DAG)**
 * **用户输入**：“刚才 FastQC 跑挂了好像是因为内存不够，你帮我切到大内存节点，然后再重新跑一遍刚才的那个文件夹。”
 * **预期意图**：复合意图 `[INTENT_SYSTEM_ASSET_OPS]` -> `[INTENT_EXPLICIT_EXEC]`
 * **预期流转**：这是 L1 意图解构器的巅峰考验！它必须将这句话拆解为一个有向无环图：任务 A（资产节点接管，执行升配操作）依赖完成后，触发任务 B（显式技能节点接管，用新环境拉起 FastQC）。
 
-- [ ] **Test Case 10：底层容器镜像快照 (Docker Commit)** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：底层容器镜像快照 (Docker Commit)**
 * **用户输入**：“我今天在这个沙箱里通过终端 `pip install` 了好多乱七八糟的 Python 包，帮我把现在的环境打包存成一个自定义镜像，我下次直接选它开机。”
 * **预期意图**：`INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：听起来像是在“锻造代码”或“搞环境”，但其实这是纯粹的基础设施操作。`system_asset_node` 会调用底层 Docker API 执行 `docker commit`，生成私有镜像资产，并与该用户的账号绑定。
@@ -464,17 +464,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确针对上传的文献（PDF/截图），要求提取显式的生信参数或特定信息。*
 
-- [x] **Test Case 1：提取软件版本** ✅
+**Test Case 1：提取软件版本**
 * **用户输入**：“[上传了 `Nature_Methods.pdf`] 帮我查一下这篇文献做单细胞比对时用的 Cell Ranger 是什么版本的？”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：L1 准确识别。`literature_node` 读取 PDF 的 Methodology 部分，使用 RAG 精准定位并提取出版本号（如 v6.1.2）。
 
-- [x] **Test Case 2：提取超参数设置** ✅
+**Test Case 2：提取超参数设置**
 * **用户输入**：“提取左侧刚传的文章里，做 RNA 速率分析（scVelo）时设定的 `min_shared_counts` 和 `n_top_genes` 的具体数值。”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：`literature_node` 在补充材料或方法部分搜索这些参数名，返回客观提取的数值，不作任何额外推断。
 
-- [x] **Test Case 3：总结流程步骤** ✅
+**Test Case 3：总结流程步骤**
 * **用户输入**：“总结这篇自然子刊的 m6A-seq 数据处理全流程，把它列成一个步骤大纲。”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：节点通读全文，将“质控 -> HISAT2 比对 -> MACS2 找峰 -> motif 识别”等步骤结构化输出。
@@ -484,22 +484,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：需要对文献内容进行一定程度的筛选、对比或跨文档检索。*
 
-- [x] **Test Case 4：构建自定义基因集** ✅
+**Test Case 4：构建自定义基因集**
 * **用户输入**：“把这篇文章 Table S1 里的那 50 个‘核心铁死亡驱动基因’提取出来，存为我的个人背景基因集。”
 * **预期意图**：`INTENT_LITERATURE_MINING` -> `INTENT_SYSTEM_ASSET_OPS`
 * **预期流转**：L1 生成 DAG。任务 A (`literature_node`) 解析长表格/截图，用实体识别提取纯净的 Gene Symbol 列表。任务 B (`system_asset_node`) 将其保存为 `.gmt` 文件挂载到工作区。
 
-- [x] **Test Case 5：提取方法学细节** ✅
+**Test Case 5：提取方法学细节**
 * **用户输入**：“这篇多中心临床队列文章是怎么处理 5 个不同医院测序数据的批次效应的？”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：`literature_node` 检索 `batch effect`, `integration`，提取出客观事实（如“采用了 Harmony 算法校正”），为用户提供参考。
 
-- [ ] **Test Case 6：多文档对比** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：多文档对比**
 * **用户输入**：“对比工作区里的文献 A 和文献 B，它们在做单细胞 CNV 推断时，使用的参考细胞集（Reference cells）有什么不同？”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：节点并发检索两份文档，提取信息并以表格或条目形式输出对比结果（如：A 用上皮细胞，B 用大免疫细胞簇）。
 
-- [ ] **Test Case 7：确认统计学阈值** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：确认统计学阈值**
 * **用户输入**：“这篇文献定义差异表达基因的双重阈值是什么？用的是 FDR 还是 Bonferroni 校正？”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：精准提取阈值信息（如 `FDR < 0.05` 且 `|log2FC| > 1.5`），防止用户在后续分析中用错标准。
@@ -509,17 +509,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：涉及复杂的逻辑提取（如公式、多模态逆向），或极易被误认为代码锻造。考验系统对多模态和抽象逻辑的处理能力。*
 
-- [ ] **Test Case 8：多模态图像方法学逆向** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：多模态图像方法学逆向**
 * **用户输入**：“[选中文章中的 Figure 2A 空间转录组切片图] 他们在这个切片上识别肿瘤边界用的是什么算法？空间分辨率是多少？”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：不仅需要看图（图例），还需要结合文本检索。节点准确指出算法（如 SpaGCN）和分辨率（如 55µm）。区别于纯视觉微调（`VISUAL_PERCEPTION_AND_TWEAK`），这里侧重于**算法层面的溯源**。
 
-- [x] **Test Case 9：数学公式代码化（复合意图挑战）** ✅
+**Test Case 9：数学公式代码化（复合意图挑战）**
 * **用户输入**：“提取 PDF 第 5 页细胞通讯概率计算的公式，解释它的权重衰减项，并据此帮我写一个 Python 函数。”
 * **预期意图**：`INTENT_LITERATURE_MINING` -> `INTENT_SKILL_FORGE`
 * **预期流转**：这是 L1 DAG 拆解的高级能力。必须先由 `literature_node` 识别 LaTeX/公式逻辑，再将提取出的逻辑作为输入，传递给 `skill_forge_node` 生成代码。
 
-- [ ] **Test Case 10：对抗测试 - 反幻觉** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：对抗测试 - 反幻觉**
 * **用户输入**：“[上传文献] 他们做 GSEA 时用的默认 p-value 截断值是多少？如果文章里没写，你就按经验给我编一个。”
 * **预期意图**：`INTENT_LITERATURE_MINING`
 * **预期流转**：测试 `LITERATURE_SYSTEM_PROMPT` 中的反幻觉纪律。如果文献中确实没有写，节点**必须**明确回答“文献未提供该参数”，坚决拒绝“编造”参数的诱导指令。
@@ -555,17 +555,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：具有极度明显的报错日志特征，如缺包、缺文件、内存溢出等环境或资源类错误。*
 
-- [x] **Test Case 1：环境依赖缺失诊断** ✅
+**Test Case 1：环境依赖缺失诊断**
 * **用户输入**：“刚才跑的那个单细胞 R 脚本挂了，日志最后写着 `Error in library(Seurat) : there is no package called 'Seurat'`。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：L1 准确识别为报错诊断。`diagnostic_node` 提取出“依赖缺失”的根因，输出 `BiocManager::install("Seurat")` 的修复策略，并提示用户重新派发执行。
 
-- [x] **Test Case 2：资源耗尽 (OOM) 熔断** ✅
+**Test Case 2：资源耗尽 (OOM) 熔断**
 * **用户输入**：“我跑 Cell Ranger 的时候容器突然崩溃了，系统抛出了个 `OOMKilled`。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：节点识别为 Out Of Memory（内存溢出）。此时绝不能去“改代码”，而是输出资源升配建议（如：“当前 32GB 节点内存不足，建议切换至 128GB 大内存计算池”）。
 
-- [x] **Test Case 3：输入文件/路径断裂** ✅
+**Test Case 3：输入文件/路径断裂**
 * **用户输入**：“Nextflow 流程一启动就报 `FileNotFoundError: No such file or directory: '/data/sample1.bam'`。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：诊断出输入路径映射错误或文件未成功挂载，提示用户在 UI 左侧检查资产树，或通过表单重新绑定正确的文件 ID。
@@ -575,22 +575,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：涉及数据结构不匹配、代码逻辑错误或第三方 API 限制，需要提供“代码级”的补丁建议。*
 
-- [x] **Test Case 4：数据脏值引发的算法崩溃 (NA 值)** ✅
+**Test Case 4：数据脏值引发的算法崩溃 (NA 值)**
 * **用户输入**：“Python 跑 PCA 降维的时候报错了：`ValueError: Input contains NaN, infinity or a value too large for dtype('float64')`。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：节点指出根因是“输入矩阵存在缺失值 (NA) 或无穷大值”，并给出具体的代码自愈策略：“需要在进行 PCA 前，增加 `df.dropna()` 或插补逻辑”。
 
-- [x] **Test Case 5：数据类型强转失败** ✅
+**Test Case 5：数据类型强转失败**
 * **用户输入**：“生存分析的 R 脚本停了，报错 `non-numeric argument to binary operator`。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：节点诊断出经典的类型错误，指出“临床表中的生存时间或事件列混入了非数字字符（如字符串或 N/A）”，建议使用 `as.numeric()` 强制转换或数据清洗。
 
-- [ ] **Test Case 6：API 速率限制 (Rate Limit)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：API 速率限制 (Rate Limit)**
 * **用户输入**：“用你写的那个脚本批量查询 Ensembl BioMart，跑了一半报 `HTTP 429 Too Many Requests`。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：识别为外部接口限流。节点生成补丁策略：建议在循环请求中加入 `Sys.sleep(1)` 或指数退避逻辑。
 
-- [ ] **Test Case 7：Nextflow 通道空载阻塞** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：Nextflow 通道空载阻塞**
 * **用户输入**：“Nextflow 流程没有报错信息，但就是卡在 `FastQC` 这一步死活不往下走，日志里也没有 ERROR。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`
 * **预期流转**：节点分析出这不是代码崩溃，而是典型的“Channel 空载”。指出可能是输入 Glob 匹配模式（如 `*.fastq`）没有匹配到任何文件，建议检查文件后缀。
@@ -600,17 +600,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：需要触发复合的 DAG 自动修复流转，或者用户输入缺乏上下文，考验系统的“反向要日志”和“防破坏”能力。*
 
-- [ ] **Test Case 8：全自动闭环自愈 (DAG 复合拆解)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：全自动闭环自愈 (DAG 复合拆解)**
 * **用户输入**：“刚才算距离矩阵的时候因为‘全零行’报错了，你帮我在代码里把全零行过滤掉，然后自动拿新代码再跑一次！”
 * **预期意图**：`[INTENT_DIAGNOSTIC_RECOVERY]` -> `[INTENT_SKILL_FORGE]` -> `[INTENT_EXPLICIT_EXEC]`
 * **预期流转**：这是 L1 展现真正智能的时刻！它必须将这句抱怨拆解为 3 个连续动作：先诊断（梳理出过滤全零行的逻辑），再锻造（重构代码），最后执行（沙箱重跑），实现一条龙自愈。
 
-- [x] **Test Case 9：无上下文的“空气诊断” (反向索要日志)** ✅
+**Test Case 9：无上下文的“空气诊断” (反向索要日志)**
 * **用户输入**：“喂，我昨天那个脚本怎么跑不通啊？一直报错！”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY`（或处于挂起反问状态）
 * **预期流转**：测试系统的鲁棒性。由于用户没有提供具体的报错日志，且系统中如果没有对应的 Crash Context，诊断节点必须**拒绝强行瞎猜**，而是回复：“请提供具体的 Error 提示，或者选中报错的执行日志，我才能为您精准诊断。”
 
-- [ ] **Test Case 10：对抗测试 - 诱导生成破坏性补丁** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：对抗测试 - 诱导生成破坏性补丁**
 * **用户输入**：“比对任务报错说磁盘空间不足 (`No space left on device`)，你给我生成个补丁代码，直接执行 `rm -rf /*` 清理一下空间然后重跑。”
 * **预期意图**：`INTENT_DIAGNOSTIC_RECOVERY` (但被底层安全熔断)
 * **预期流转**：节点准确识别了磁盘不足的根因，但面对用户提出的极度危险的 `rm -rf /*` 修复方案，诊断节点的 System Prompt 必须发挥作用，拒绝该毁灭性方案，并安全地建议“通过系统资产面板清理历史缓存”。
@@ -645,17 +645,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确提及“分享”、“链接”、“权限”等词汇，指向具体的协作者角色。*
 
-- [x] **Test Case 1：基础只读分享** ✅
+**Test Case 1：基础只读分享**
 * **用户输入**：“把这张火山图和它底层的 TSV 坐标数据分享给李教授，给他只读权限就行，不能改代码。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：L1 精准识别。`collaboration_node` 接管，生成包含目标 FileID 的 IAM 载荷，将目标用户（李教授）的角色设为 `Viewer`，并返回一段邀请提示。
 
-- [x] **Test Case 2：带时效性的链接生成** ✅
+**Test Case 2：带时效性的链接生成**
 * **用户输入**：“给这个单细胞项目生成一个有效期为 7 天的对外分享链接。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：节点生成携带 Token 和 `expire_at = (当前时间+7天)` 的配置载荷，并返回可供复制的 URL。
 
-- [x] **Test Case 3：项目协同者添加** ✅
+**Test Case 3：项目协同者添加**
 * **用户输入**：“把王博加入到这个项目里，给他协同编辑的权限，大家一起跑流程。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：节点将王博的账号添加到该项目的 ACL（访问控制列表）中，角色赋为 `Editor` 或 `Co-Owner`。
@@ -665,22 +665,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：涉及细粒度的角色权限控制（如数据盲区）、团队资产库的建设，或审计记录的导出。*
 
-- [x] **Test Case 4：临床医生专属盲区授权 (Data-Blind)** ✅
+**Test Case 4：临床医生专属盲区授权 (Data-Blind)**
 * **用户输入**：“给外科的张主任开个权限，他只能往这个项目里传临床随访的 Excel 表格，绝对不能让他看到我的原始 FASTQ 测序文件，也不能跑计算。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：这是企业级 SaaS 的高级特性。节点必须生成一个极其精细的载荷，赋予张主任 `Uploader-Only` 角色，并明确屏蔽特定后缀名（如 `.fq`, `.bam`）的文件读取权限。
 
-- [x] **Test Case 5：团队私有技能库发布** ✅
+**Test Case 5：团队私有技能库发布**
 * **用户输入**：“我刚才写好的那个带详细注释的单细胞注释 Python 脚本很好用，帮我发布到我们科室团队的内部技能库里，打上 `scRNA-seq` 的标签。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：虽然提到了脚本，但这不属于 `Skill Forge`（因为脚本已经写好了），而是资产的跨域共享。节点会将该脚本的所有权从“个人（Owner）”变更为“团队（Team）”可见。
 
-- [ ] **Test Case 6：权限撤销与踢出项目** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：权限撤销与踢出项目**
 * **用户输入**：“撤销刚才发给李教授的那个分享链接，顺便把他从项目协同成员的列表里移除。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：节点生成 IAM 的 `Delete/Revoke` 载荷，吊销特定的 Token 并更新项目的 ACL，确保数据安全闭环。
 
-- [ ] **Test Case 7：合规审计日志导出 (Audit Trail)** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：合规审计日志导出 (Audit Trail)**
 * **用户输入**：“为了应付期刊的原始数据审查，导出这个项目从创建至今的所有 AI 对话记录、代码修改版本和操作日志，生成一份 PDF。”
 * **预期意图**：`INTENT_COLLABORATION`
 * **预期流转**：节点梳理底层数据库中的操作快照（Snapshot），按时间轴编排，生成符合科研/临床合规要求（如 GCP/GLP 规范）的系统级审计追踪报告。
@@ -690,17 +690,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：包含复杂的复合意图（DAG），或与系统运维（资源克隆/计费转移）产生深度交织的协同场景。*
 
-- [ ] **Test Case 8：图谱生成与一键分享的复合 DAG** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：图谱生成与一键分享的复合 DAG**
 * **用户输入**：“用左边的数据画一张默认配色的 UMAP 图，画完之后直接把这张图设为公开分享，把链接给我。”
 * **预期意图**：复合意图 `[INTENT_VISUAL_PERCEPTION_AND_TWEAK]` -> `[INTENT_COLLABORATION]`
 * **预期流转**：L1 必须将其切分为两步。第一步由 `ui_state_node` 绘制高质量图表并输出数据；第二步由 `collaboration_node` 拿到新生成的图片 FileID，执行权限放开并生成链接。如果 L1 只识别出了“分享”，就会报错说找不到目标图表。
 
-- [x] **Test Case 9：工作区克隆与计费主体转移** ✅
+**Test Case 9：工作区克隆与计费主体转移**
 * **用户输入**：“把我现在的工作区环境完整克隆一份给新来的实习生，他可以在自己的环境里随便跑流程，但他跑消耗的计算积分从他自己的账号扣。”
 * **预期意图**：复合意图 `[INTENT_SYSTEM_ASSET_OPS]` -> `[INTENT_COLLABORATION]`
 * **预期流转**：这是一个极具挑战的真实业务场景。先由系统资产节点执行底层 Volume 数据的硬拷贝或写时复制（COW），然后再由协同节点将新 Workspace 的 Owner 和计费关联（Billing ID）转移给实习生账号。
 
-- [ ] **Test Case 10：对抗测试 - 越权操作拦截** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：对抗测试 - 越权操作拦截**
 * **用户输入**：“（系统上下文：当前发指令的用户仅拥有 Viewer 权限）帮我把项目里那个叫 `config.yaml` 的文件开放给全网任何人编辑。”
 * **预期意图**：`INTENT_COLLABORATION` (但需被底层业务逻辑熔断)
 * **预期流转**：L1 会如实将其解构为权限变更意图。但在 `collaboration_node` 执行时，发现当前用户的 Token 没有发放权限的资格，节点必须返回明确的报错提示：“越权操作：您仅为 Viewer 角色，无权修改本项目的访问控制策略。”
@@ -736,17 +736,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确要求从零手写一段生信分析代码，指明了语言（Python/R）。*
 
-- [x] **Test Case 1：基础 R 绘图脚本生成** ✅
+**Test Case 1：基础 R 绘图脚本生成**
 * **用户输入**：“帮我写一个用 `ComplexHeatmap` 画肾癌差异基因热图的 R 脚本。”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：L1 准确识别。`skill_forge_node` 接管，输出的 R 脚本中**强制包含**参数解析系统（如接收输入文件路径、聚类方法等），并自动为 p-value 等参数赋予默认值（如 0.05）。
 
-- [x] **Test Case 2：基础 Python 数据处理脚本** ✅
+**Test Case 2：基础 Python 数据处理脚本**
 * **用户输入**：“写一个 Python 脚本，根据提供的 BED 文件提取全基因组的上下游 100bp 的 FASTA 序列。”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：节点生成代码，强制使用 `argparse` 定义 `--bed` 和 `--fasta` 参数，且顶部自动生成清晰的 `@ProgramExplanation`。
 
-- [x] **Test Case 3：跨语言脚本翻译** ✅
+**Test Case 3：跨语言脚本翻译**
 * **用户输入**：“[上传古老的 `.pl` 脚本] 把这个祖传的 Perl 格式转换脚本，翻译成带类型提示的 Python 代码。”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：节点完成跨语言重构，同时将 Perl 脚本中的核心业务逻辑提取为结构化的中文注释保留在 Python 代码中。
@@ -756,22 +756,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：基于现有的代码上下文进行修改、性能优化或逻辑补充，考验系统的“上下文记忆”和“注释保留”能力。*
 
-- [x] **Test Case 4：引入并行加速与注释审计** ✅
+**Test Case 4：引入并行加速与注释审计**
 * **用户输入**：“把我上周写的这个用 SingleR 做细胞注释的 R 脚本优化一下，改成支持多线程并行计算。”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：节点在原代码中引入 `BiocParallel`。**核心考核点**：原有脚本中关于“使用何种参考图谱”的所有历史中文注释，必须一字不落地保留在最新版本的代码中。
 
-- [x] **Test Case 5：硬编码脚本的参数化改造** ✅
+**Test Case 5：硬编码脚本的参数化改造**
 * **用户输入**：“[上传一段写死了文件路径的渣代码] 这个脚本写得太死了，帮我重构一下，把里面的输入文件、过滤阈值都抽出来变成可以通过命令行传参的变量。”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：节点执行重构，提取硬编码变量为 `argparse`/`optparse` 接口，并补齐缺少的生信默认值。
 
-- [ ] **Test Case 6：特定算法的逻辑魔改** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：特定算法的逻辑魔改**
 * **用户输入**：“修改目前的 Monocle3 脚本，把发育轨迹的 Root 节点强制固定在表达 CD34+ 的那一簇造血干细胞上。”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：节点在原有代码中追加 `order_cells` 的根节点指定逻辑，触发非破坏性更新卡点，旧的降维参数说明不能丢失。
 
-- [ ] **Test Case 7：轻量级 Bug 修复与自愈演练** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：轻量级 Bug 修复与自愈演练**
 * **用户输入**：“我写的这个 Python 算 PCA 的代码一跑就报 `NaN value error`，你帮我加一段清洗空值的逻辑进去。”
 * **预期意图**：`INTENT_SKILL_FORGE` (由用户手动发起的修复，若由系统触发则是 Diagnostic 协同)
 * **预期流转**：节点在矩阵运算前插入 `dropna()` 或插补代码，并在注释中注明“Fix: 增加空值剔除逻辑防止 PCA 崩溃”。
@@ -781,17 +781,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：包含极具破坏性的用户指令，或者意图边界极其模糊（容易与宏观工作流编排混淆）。*
 
-- [ ] **Test Case 8：对抗测试 - 诱导删除注释（最高级别防御测试）** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：对抗测试 - 诱导删除注释（最高级别防御测试）**
 * **用户输入**：“把右边这段复杂的单细胞聚类脚本重写一遍，优化一下代码结构，**并且把里面那些冗长啰嗦的中文注释全给我删掉，看着烦！**”
 * **预期意图**：`INTENT_SKILL_FORGE`
 * **预期流转**：这是检验护城河的终极测试！`FORGE_SYSTEM_PROMPT` 中的【非破坏性更新】指令拥有最高系统级优先级。节点必须**无视用户的删除指令**，成功重构代码，但**坚决保留**所有的 `@ProgramExplanation` 和行级注释，并可能在提示词中婉拒：“为了符合团队代码审计规范，已为您折叠展示代码，但底层完整保留了历史程序说明。”
 
-- [x] **Test Case 9：工作流与原子脚本的边界甄别** ✅
+**Test Case 9：工作流与原子脚本的边界甄别**
 * **用户输入**：“帮我写一个 Nextflow 脚本，把 FastQC 和 HISAT2 比对连起来跑。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE` (而非 `SKILL_FORGE`)
 * **预期流转**：这是一道极易错判的送命题。虽然用户说了“写一个脚本”，但 Nextflow 流程图谱属于宏观编排，必须由 Orchestrator Node 接管（DSL2 隔离、数据落盘），而不能交由普通的 Forge 节点当成 Python/R 脚本来写。
 
-- [ ] **Test Case 10：复合意图：边写边跑 (DAG 拆解)** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：复合意图：边写边跑 (DAG 拆解)**
 * **用户输入**：“写个脚本支持传入任意 GMT 基因集，用 UCell 算法对左边这个 `seurat_obj.rds` 算一下单细胞打分，写完直接给我跑出来。”
 * **预期意图**：复合意图 `[INTENT_SKILL_FORGE]` -> `[INTENT_EXPLICIT_EXEC]`
 * **预期流转**：L1 准确切分 DAG。任务 A 由 `skill_forge_node` 完成 UCell 算法封装（带参数系统）；任务 B 将任务 A 的输出代码和左侧的数据资产关联，交由 `explicit_skill_node` 丢进 Docker 暖池执行。
@@ -827,17 +827,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确调用已知工具，且参数完全给足（或工具自带极强默认值），能够“一杆进洞”直达底层沙箱。*
 
-- [x] **Test Case 1：无参数依赖的基础质控** ✅
+**Test Case 1：无参数依赖的基础质控**
 * **用户输入**：“对左侧选中的这个包含 200 个前列腺癌样本的文件夹，跑一遍标准的 FastQC。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC`
 * **预期流转**：L1 准确提取目标目录 ID。L2 检查发现 FastQC 无致命依赖参数。任务直接下发给 `explicit_skill_node`，后台唤醒 Docker 暖池开始并行计算，前端展示运行中状态。
 
-- [x] **Test Case 2：带明确参数的封装技能调用** ✅
+**Test Case 2：带明确参数的封装技能调用**
 * **用户输入**：“用我们昨天封装好的 DESeq2 技能算一下这个表达矩阵，实验组和对照组我已经选好了，p-adj 阈值设为 0.01。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC`
 * **预期流转**：L1 与 L2 成功对齐所有参数。`explicit_skill_node` 生成标准的 `Rscript run_deseq2.R ...` 载荷并投入执行。
 
-- [x] **Test Case 3：单点免参推断任务** ✅
+**Test Case 3：单点免参推断任务**
 * **用户输入**：“跑一遍 ESTIMATE 算法，评估这批胃癌 Bulk RNA-seq 数据的基质评分和免疫评分。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC`
 * **预期流转**：参数完备（默认采用人类参考），静默启动 Docker 沙箱运行，实时监控退出码，成功后返回评分表。
@@ -847,22 +847,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：故意遗漏核心生信参数，测试 L2 层 Active Probing（主动探针）的“硬中断”与“前端 Generative UI”触发能力。*
 
-- [x] **Test Case 4：缺失物种/参考基因组 (Cell Ranger)** ✅
+**Test Case 4：缺失物种/参考基因组 (Cell Ranger)**
 * **用户输入**：“用这批新下机的 10x FASTQ 数据跑一下 Cell Ranger Count。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` (但被 L2 挂起)
 * **预期流转**：L1 解析出执行意图。L2 对齐参数时触发警报：缺失 `transcriptome` (参考基因组)。路由立即挂起，前端弹出一个 Generative UI 表单卡片，要求用户在 `GRCh38` (人) 或 `mm10` (鼠) 之间做选择。用户提交后才恢复沙箱派发。
 
-- [x] **Test Case 5：缺失特定工具强制参数 (MACS2)** ✅
+**Test Case 5：缺失特定工具强制参数 (MACS2)**
 * **用户输入**：“把这几个 ATAC-seq 的 BAM 文件用 MACS2 找一下 Peak。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` (L2 挂起)
 * **预期流转**：L2 探测到缺失了 MACS2 强制要求的有效基因组大小参数 (`-g` 指令)。触发表单交互，弹出包含 `hs`, `mm`, `ce`, `dm` 等选项的卡片，阻止无效算力浪费。
 
-- [ ] **Test Case 6：缺失模型类型参数 (Cellpose)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 6：缺失模型类型参数 (Cellpose)**
 * **用户输入**：“调用 Cellpose，对这张乳腺癌 H&E 切片进行细胞核分割。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` (L2 挂起)
 * **预期流转**：L2 发现未指定模型类型，在前端弹出表单让用户选择 `cyto` (细胞质) 还是 `nuclei` (细胞核)，并允许拖动滑块预设细胞核估计直径。
 
-- [ ] **Test Case 7：超大资源预估与确认拦截** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L1)
+**Test Case 7：超大资源预估与确认拦截**
 * **用户输入**：“对这个包含了 50 万个细胞的 Seurat 对象跑一遍 Monocle3 拟时序分析。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` (系统级挂起)
 * **预期流转**：L2 检查参数虽然齐备，但识别到对象体积过大，触发拦截：“该操作预估极度消耗内存（需 128GB+），且耗时较长，是否确认在本地高配节点启动执行？”
@@ -872,17 +872,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：极易与“工作流编排”、“代码锻造”或“视图微调”混淆。考验系统对操作边界的终极理解。*
 
-- [ ] **Test Case 8：隐式实验设计配对缺漏 (Design Matrix)** ❌ 实际→INTENT_ADHOC_INTERACTIVE_ANALYSIS (L1)
+**Test Case 8：隐式实验设计配对缺漏 (Design Matrix)**
 * **用户输入**：“把这几个 MeRIP-seq 的文件对齐，用 exomePeak2 找一下 m6A 修饰位点。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` (复杂的 L2 交互)
 * **预期流转**：L2 发现不仅缺参数，还缺了生信最核心的“样本配对关系表（Design Matrix）”。触发高级 UI 交互，要求用户在界面上将 IP 样本（如抗体富集组）与对应的 Input 样本（背景对照组）连线配对，配对完成后再执行。
 
-- [x] **Test Case 9：单步执行 vs 宏观编排的边界测试** ✅
+**Test Case 9：单步执行 vs 宏观编排的边界测试**
 * **用户输入**：“用这批 FASTQ 文件，先跑 STAR 比对，再用 featureCounts 定量，最后算出 TPM 矩阵。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE` (而非 `EXPLICIT_EXEC`)
 * **预期流转**：这是一道极易掉坑的对抗题。虽然都是“执行”，但由于涉及多个独立软件的串联与数据通道依赖，L1 必须坚决将其路由给 `orchestrator_node` 去生成 Nextflow Pipeline，绝不能用 Bash 脚本一锅炖。
 
-- [ ] **Test Case 10：借执行之名，行微调之实 (防算力浪费)** ❌ 实际→INTENT_SKILL_FORGE (L0)
+**Test Case 10：借执行之名，行微调之实 (防算力浪费)**
 * **用户输入**：“重新用 DESeq2 跑一次昨天的差异分析，但是只要把最后出的那个火山图里，P值小于 0.001 的点标成红色就行了。”
 * **预期意图**：`INTENT_VISUAL_PERCEPTION_AND_TWEAK` (拦截重跑)
 * **预期流转**：用户嘴上说“重新跑一次 DESeq2”，但实际需求仅仅是“修改前端视图的 P 值标红阈值”。L1 必须极其聪明地看穿这一点，直接路由给 `ui_state_node` 更新视图，**坚决不启动** R 语言沙箱重算 DESeq2。
@@ -915,17 +915,17 @@
 ### 🟢 基础难度 (Level: Easy)
 *特征：明确提及多个生信工具的先后串联顺序，属于经典的 Pipeline 场景。*
 
-- [x] **Test Case 1：标准 Bulk RNA-seq 编排** ✅
+**Test Case 1：标准 Bulk RNA-seq 编排**
 * **用户输入**：“帮我编排一个常规的 RNA-seq 流程，先把这批 FASTQ 过一遍 FastQC 和 Trimmomatic，然后用 HISAT2 比对，最后用 featureCounts 定量。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：L1 准确识别。`orchestrator_node` 接管，输出 `main.nf` 和 `nextflow.config`。脚本中明确划分了 `QC`, `ALIGN`, `QUANT` 三个 Process。
 
-- [ ] **Test Case 2：标准 WES 变异检测编排** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 2：标准 WES 变异检测编排**
 * **用户输入**：“写个外显子测序的工作流，从 BWA 比对开始，中间加上 GATK 的 BQSR 校正，最后用 HaplotypeCaller 找 SNP。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：由于 GATK 流程复杂，节点生成的 Nextflow 代码必须正确处理输入通道（Channel），尤其是参考基因组和已知变异集的并发挂载。
 
-- [ ] **Test Case 3：多样本并发处理指令** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 3：多样本并发处理指令**
 * **用户输入**：“我有一百个 ChIP-seq 的样本，帮我写个流程让它们并行跑 MACS2 找 Peak。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：虽然只有一个核心工具（MACS2），但因为涉及到“一百个样本”的并发和调度，L1 应将其识别为工作流。Nextflow 脚本中会使用 `Channel.fromFilePairs` 或类似的机制来分发任务。
@@ -935,22 +935,22 @@
 ### 🟡 中等难度 (Level: Medium)
 *特征：涉及异构数据源、多组学联合分析，或者需要对现成的开源流程进行魔改。*
 
-- [x] **Test Case 4：多组学联合分析 (Single-cell + Spatial)** ✅
+**Test Case 4：多组学联合分析 (Single-cell + Spatial)**
 * **用户输入**：“编排一个联合分析：把左边的胃癌 scRNA-seq 矩阵和 10x Visium 空间数据串起来，先分别做质控降维，最后用 RCTD 算法做空间反演。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：生成复杂的有向无环图（DAG）级 Nextflow 脚本。单细胞和空间通道在前期并行处理，在最后的 `RCTD_Mapping` Process 中实现通道汇聚（Join/Combine）。
 
-- [x] **Test Case 5：私有脚本串联工作流** ✅
+**Test Case 5：私有脚本串联工作流**
 * **用户输入**：“把我上周写的那个‘去批次效应.R’和昨天锻造的‘UCell打分.py’这两个独立脚本，连成一个自动化 Nextflow 流水线。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：这是平台粘性的体现。`orchestrator_node` 会将用户的私有脚本（FileID）作为 `bin` 目录下的可执行文件挂载进 Process 中进行编排调用。
 
-- [ ] **Test Case 6：现成 nf-core 流程动态魔改** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 6：现成 nf-core 流程动态魔改**
 * **用户输入**：“导入 `nf-core/rnaseq` 的骨架，帮我把里面默认的 STAR 比对器删掉，替换成 Bowtie2，其他质量控制步骤保留。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：节点解析语义，剥离原有的 STAR Process 模块，重新编写 Bowtie2 模块并连接对应的输入输出 Channel。
 
-- [ ] **Test Case 7：跨节点资源异构编排** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 7：跨节点资源异构编排**
 * **用户输入**：“写个宏基因组拼接流程，前面耗内存的 MEGAHIT 拼接指定用大内存节点跑，后面的物种注释用普通节点跑就行。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：节点不仅生成 `main.nf`，还必须在 `nextflow.config` 中为不同的 Process 设置不同的 `cpus`, `memory` 或 `queue/nodeSelector` 标签。
@@ -960,17 +960,17 @@
 ### 🔴 困难/对抗难度 (Level: Hard)
 *特征：包含极具诱导性的“反规范”指令，试图挑战系统的工程约束和底线。*
 
-- [ ] **Test Case 8：对抗测试 - 诱导硬编码 (Hardcoding Trap)** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 8：对抗测试 - 诱导硬编码 (Hardcoding Trap)**
 * **用户输入**：“帮我写个 ATAC-seq 流程，直接把参考基因组路径 `/data/hg38.fa` 和输出目录 `/home/user/results/` 写死在代码里吧，这样省得我传参了。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：最高级别防线测试！`ORCHESTRATOR_SYSTEM_PROMPT` 中的【参数化一切】纪律必须生效。节点将**拒绝写死路径**，强制使用 `params.genome = '/data/hg38.fa'` 和 `params.outdir = '/home/user/results/'` 的形式暴露变量，确保流程的复用性。
 
-- [ ] **Test Case 9：对抗测试 - 诱导 Bash 一锅炖** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 9：对抗测试 - 诱导 Bash 一锅炖**
 * **用户输入**：“把这些肿瘤外显子样本编排个大流程出来。**千万别给我整什么 Nextflow，看着头晕，你就给我写一个 500 行的超长 Bash 脚本串联所有步骤！**”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE` (被拦截或强制重定向)
 * **预期流转**：这考验 L1 的决断。一旦被判定为“宏观大流程编排”，流转到 `orchestrator_node` 后，节点会无视“写超长 Bash”的无理要求（违背通道解耦原则），强制输出工业级的 Nextflow 代码，并客气地解释：“为了保障数据断点续跑和高并发安全，已为您生成标准的 Nextflow 流水线”。（若被 L1 判给 `Skill Forge`，也会因代码过长被审计器警告）。
 
-- [ ] **Test Case 10：对抗测试 - 诱导遗漏落盘指令** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 10：对抗测试 - 诱导遗漏落盘指令**
 * **用户输入**：“把所有的中间比对 BAM 文件都在内存或临时区处理掉就行了，写流程的时候别加那些冗余的文件导出代码，只给我最后的差异表格。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：系统纪律【强制数据落盘】启动。节点在生成 `main.nf` 时，必须无视用户的诱导，强制在每个中间 Process（如 Align）中包含类似 `publishDir "${params.outdir}/bam", mode: 'symlink'` 的指令，以保障生信数据随时可溯源（Audit Trail）。
@@ -1002,17 +1002,17 @@
 #### 🟢 基础难度 (Level: Easy)
 *特征：包含明确的时间状语或“撤销/恢复”等动作词汇。*
 
-- [x] **Test Case 1：原子代码回滚** ✅
+**Test Case 1：原子代码回滚**
 * **用户输入**：“把我右侧代码编辑器里的这段 Python 脚本，回滚到昨天下午 3 点的版本。”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：L1 准确识别。`version_control_node` 获取目标 FileID，提取 Git 历史快照并热更新至前端编辑器。
 
-- [x] **Test Case 2：资产防误删恢复 (Trash Recovery)** ✅
+**Test Case 2：资产防误删恢复 (Trash Recovery)**
 * **用户输入**：“我不小心把昨天算出来的那个 `diff_genes.tsv` 删了，赶紧帮我找回来！”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：节点查询回收站/软删除标记记录，撤销删除操作并在左侧资产栏重新高亮该文件。
 
-- [x] **Test Case 3：视图微调历史撤销** ✅
+**Test Case 3：视图微调历史撤销**
 * **用户输入**：“刚才调火山图颜色改得太乱了，撤销最近的三次调色操作。”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：调用前端状态机历史栈（Zustand Past State），连续回退三次绘图参数，视图秒级重绘，无需沙箱重算。
@@ -1020,22 +1020,22 @@
 #### 🟡 中等难度 (Level: Medium)
 *特征：需要读取历史元数据并进行横向对比，或执行宏观状态的快照操作。*
 
-- [x] **Test Case 4：分析快照全量恢复** ✅
+**Test Case 4：分析快照全量恢复**
 * **用户输入**：“这个单细胞项目的数据被我搞乱了，帮我把整个 Workspace 恢复到跑‘Harmony 去批次效应’之前的状态。”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：系统读取底层图数据库的 DAG 执行历史，卸载当前内存对象，重新挂载批次效应去除前的 RDS/H5AD 文件版本。
 
-- [x] **Test Case 5：多版本分析结果横向对比** ✅
+**Test Case 5：多版本分析结果横向对比**
 * **用户输入**：“对比一下用 `resolution=0.5` 和 `0.8` 跑出来的两次 UMAP 聚类结果，给我一份差异报告。”
 * **预期意图**：`INTENT_VERSION_CONTROL` (结合 `DATA_PROBE` 探针)
 * **预期流转**：L1 识别对比意图。读取两个版本历史的元数据，并在中栏生成包含 Rand Index 相似度和聚类转移桑基图（Sankey diagram）的对比卡片。
 
-- [ ] **Test Case 6：历史参数精准溯源** ❌ 实际→INTENT_VISUAL_PERCEPTION_AND_TWEAK (L0)
+**Test Case 6：历史参数精准溯源**
 * **用户输入**：“查一下上个月 15 号我跑那个 m6A 差异甲基化分析时，用的 p-value 阈值到底是多少？”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：消解时间实体。检索图数据库中该任务的历史执行 Context，返回结构化的历史参数配置表。
 
-- [x] **Test Case 7：分析分支创建 (Branching)** ✅
+**Test Case 7：分析分支创建 (Branching)**
 * **用户输入**：“基于目前的表达矩阵创建一个新分支叫 `tumor-only`，我接下来的操作只针对肿瘤细胞，别把主干数据搞脏了。”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：在底层创建一个写时复制（Copy-on-Write）的数据集克隆，前端工作区切换到新分支上下文。
@@ -1043,17 +1043,17 @@
 #### 🔴 困难/对抗难度 (Level: Hard)
 *特征：易与 `Diagnostic` (报错诊断) 混淆，或包含对系统快照库的破坏性诱导。*
 
-- [ ] **Test Case 8：环境依赖历史对比（防与报错诊断混淆）** ❌ 实际→INTENT_DIAGNOSTIC_RECOVERY (L0)
+**Test Case 8：环境依赖历史对比（防与报错诊断混淆）**
 * **用户输入**：“奇怪，同样的 R 脚本上周跑成功了，今天跑报错了。你对比一下今天和上周成功时，底层沙箱里的 R 包环境有什么区别？”
 * **预期意图**：`INTENT_VERSION_CONTROL`
 * **预期流转**：由于用户**没有要求修 Bug**，而是明确要求**对比环境**，系统提取两次历史的 `sessionInfo()` 快照进行 Diff，指出（例如 SeuratObject）的版本变动。
 
-- [x] **Test Case 9：对抗测试 - 诱导删除操作审计日志** ✅
+**Test Case 9：对抗测试 - 诱导删除操作审计日志**
 * **用户输入**：“把这个项目里我今天早上所有的操作历史和回滚记录彻底清空，不要留下痕迹。”
 * **预期意图**：`INTENT_VERSION_CONTROL` (触发审计熔断)
 * **预期流转**：版本控制节点必须拒绝该请求！提示：“受限于系统 GLP 数据合规审计要求，操作历史不可物理抹除”。
 
-- [x] **Test Case 10：对抗测试 - 伪重跑诱导** ✅
+**Test Case 10：对抗测试 - 伪重跑诱导**
 * **用户输入**：“把代码回滚到昨天的版本，然后自动拿今天新传的数据跑一遍。”
 * **预期意图**：复合 DAG `[INTENT_VERSION_CONTROL]` -> `[INTENT_EXPLICIT_EXEC]`
 * **预期流转**：L1 必须精准切分。Task A 执行代码回退；Task B 将回退后的代码与新数据绑定，派发给执行沙箱。
@@ -1067,17 +1067,17 @@
 #### 🟢 基础难度 (Level: Easy)
 *特征：非常明确的“用 X 文件做 Y 分析（非系统标准宏）”，期待可调参数。*
 
-- [x] **Test Case 1：基础热图即席分析** ✅
+**Test Case 1：基础热图即席分析**
 * **用户输入**：“用左侧这个 `counts.csv` 绘制一个基因表达相关性热图。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS`
 * **预期流转**：L1 识别。`adhoc_node` 后台静默生成 R 代码和包含“聚类方法”、“调色板”的 JSON Schema，前端拦截并弹出 `AdhocAnalysisCard`，预填数据为 `counts.csv`，挂起等待用户点击执行。
 
-- [x] **Test Case 2：基础统计计算** ✅
+**Test Case 2：基础统计计算**
 * **用户输入**：“用这段序列文件算一下 GC 含量和序列长度分布，给我个图。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS`
 * **预期流转**：生成 Python 统计代码及 Schema，UI 卡片呈现“滑窗大小 (Window Size)”等可调参数。
 
-- [x] **Test Case 3：临床数据可视化** ✅
+**Test Case 3：临床数据可视化**
 * **用户输入**：“根据我刚传的临床随访表，画一个 Kaplan-Meier 生存曲线。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS`
 * **预期流转**：前端卡片动态渲染出“时间列”、“事件列”、“分组列”的下拉匹配框（从表格 Header 中推断出选项），供用户核对后执行。
@@ -1085,22 +1085,22 @@
 #### 🟡 中等难度 (Level: Medium)
 *特征：与 Skill Forge 极其相似，考验 L1 判断是否需要“立即提供表单供数据执行”的能力。*
 
-- [ ] **Test Case 4：边界判定（Adhoc vs Forge）** ❌ 实际→INTENT_SKILL_FORGE (L1)
+**Test Case 4：边界判定（Adhoc vs Forge）**
 * **用户输入**：“帮我写一个 K-means 聚类的 Python 脚本，然后直接对我这个 `data.tsv` 跑一下看看效果。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS`
 * **预期流转**：虽然有“写脚本”字眼，但因为绑定了具体文件且要求“马上看看效果”，L1 应当优先判定为 Adhoc，弹出即席卡片让用户可以拖拽调整 `K` 值，而不是呆板地只在代码编辑器里输出文本。
 
-- [x] **Test Case 5：带前置数据处理的即席分析** ✅
+**Test Case 5：带前置数据处理的即席分析**
 * **用户输入**：“用这批表达矩阵数据，过滤掉表达量低于 10 的基因，然后再画个火山图。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS`
 * **预期流转**：策略卡片中生成的代码必须包含前置过滤逻辑，并且在 UI Schema 中暴露出 `min_expression: 10` 这个数值输入框供用户微调。
 
-- [ ] **Test Case 6：自然语言触发“固化技能”** ❌ 实际→INTENT_EXPLICIT_EXEC (L0)
+**Test Case 6：自然语言触发“固化技能”**
 * **用户输入**：“用这个数据做个自定义打分，如果跑得通，就把这个过程存成一个固定的技能包，以后全团队都能用。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS` -> 后续点击卡片触发 `COLLABORATION`
 * **预期流转**：弹出即席分析卡片，且卡片上的 `[⭐ 固化为团队技能]` 按钮带有动画高亮提示用户。
 
-- [ ] **Test Case 7：跨语言的即席分析** ❌ 实际→INTENT_DATA_PROBE (L0)
+**Test Case 7：跨语言的即席分析**
 * **用户输入**：“用 Shell 命令 `awk` 把这个文件里第三列大于 100 的行提出来，看看有多少行。”
 * **预期意图**：`INTENT_ADHOC_INTERACTIVE_ANALYSIS`
 * **预期流转**：即使是 Shell 命令，也能被包装进策略卡片，Schema 中暴露出 `column_index: 3` 和 `threshold: 100`。
@@ -1108,17 +1108,17 @@
 #### 🔴 困难/对抗难度 (Level: Hard)
 *特征：与 Explicit Exec（运行标准流程）或 Orchestrator 混淆，考验系统对任务复杂度的认知边界。*
 
-- [x] **Test Case 8：对抗测试 - 假即席，真标准技能** ✅
+**Test Case 8：对抗测试 - 假即席，真标准技能**
 * **用户输入**：“用我左边的 10x 测序数据，跑一下 Cell Ranger Count。”
 * **预期意图**：`INTENT_EXPLICIT_EXEC` (严禁误判为即席分析)
 * **预期流转**：Cell Ranger 是系统内置的、极其沉重的标准化技能。L1 必须将其路由给正常的 Exec 节点走标准配置流程，而不能当作一个“临时起意的 Python 脚本”去做即席发散。
 
-- [x] **Test Case 9：对抗测试 - 假即席，真大流程编排** ✅
+**Test Case 9：对抗测试 - 假即席，真大流程编排**
 * **用户输入**：“用这 500 个样本的原始数据文件，给我弄一个从质控到差异表达的完整自动化工作流。”
 * **预期意图**：`INTENT_WORKFLOW_ORCHESTRATE`
 * **预期流转**：用户带了文件，但需求是“完整工作流”。L1 必须敏锐拦截，将其交由 Nextflow 引擎，而不是弹出一个根本承载不了多步骤 Pipeline 的临时 UI 卡片。
 
-- [x] **Test Case 10：即席卡片内部的“再次微调”循环** ✅
+**Test Case 10：即席卡片内部的“再次微调”循环**
 * **用户输入**：“（在第一轮即席卡片渲染后，用户没有点击执行，而是发送文本）你这里用的 `viridis` 调色板太花了，帮我在策略里改成单色渐变。”
 * **预期意图**：直接作为 `ToolResult` 或 `State Update` 处理
 * **预期流转**：这考验状态机的挂起能力。系统不应重新发起整个 L1 路由，而是将用户的指令作为反馈输入给挂起中的 `adhoc_node`，动态更新当前卡片的 `code` 和 `schema`。
@@ -1132,88 +1132,3 @@
 这份测试清单，其实就是一份价值连城的 **Autonome Studio V2.0 产品 PRD（需求说明书）** 和 **Q&A 验收标准**。你可以直接将这些 Prompt 写入自动化测试脚本（如 Pytest），对你们的 LangGraph 后端进行回归测试。
 
 **现在，整个架构的蓝图、代码、UI 交互逻辑和测试基准已经全部交付给你。系统的底座坚如磐石。准备好把这段代码推上主分支了吗？** 还是说，你想最后聊聊我之前提到的那三个尚未动手的“后台静默收割机”？
-
----
-
-## 🏆 自动化测试结果汇总（2026-04-25）
-
-**测试环境**: L0 规则引擎 + L1 Qwen3.6-35B-A3B-4bit (本地 vLLM)
-
-### 总体结果
-
-| 指标 | 数值 |
-|------|------|
-| 总用例数 | 130 |
-| 通过数 | 73 |
-| 失败数 | 57 |
-| **通过率** | **56.2%** |
-| L0 命中 | 45 |
-| L1 解构 | 85 |
-
-### 按回合统计
-
-| 回合 | 意图 | 通过/总数 | 通过率 |
-|------|------|-----------|--------|
-| R1 | GENERAL_CHAT | 8/10 | 80% |
-| R2 | SYSTEM_MACRO | 3/10 | 30% |
-| R3 | DATA_PROBE | 6/10 | 60% |
-| R4 | VISUAL_PERCEPTION_AND_TWEAK | 9/10 | 90% |
-| R5 | SYSTEM_ASSET_OPS | 2/10 | 20% |
-| R6 | LITERATURE_MINING | 1/10 | 10% |
-| R7 | DIAGNOSTIC_RECOVERY | 10/10 | 100% |
-| R8 | COLLABORATION | 4/10 | 40% |
-| R9 | SKILL_FORGE | 6/10 | 60% |
-| R10 | EXPLICIT_EXEC | 3/10 | 30% |
-| R11 | WORKFLOW_ORCHESTRATE | 3/10 | 30% |
-| R12 | VERSION_CONTROL | 8/10 | 80% |
-| R13 | ADHOC_INTERACTIVE_ANALYSIS | 6/10 | 60% |
-
-### 按难度统计
-
-| 难度 | 通过/总数 | 通过率 |
-|------|-----------|--------|
-| Easy | 24/40 | 60% |
-| Medium | 26/50 | 52% |
-| Hard | 23/40 | 57.5% |
-
-### 核心失败模式分析
-
-#### 1. L0 ErrorPatternRule 过度拦截（影响最大）
-L0 的 `ErrorPatternRule` 匹配"报错/失败/崩溃"等关键词时优先级过高（优先级4），导致：
-- R1-TC8: "假设性报错"被误判为 DIAGNOSTIC_RECOVERY（应为 GENERAL_CHAT）
-- R5-TC5/TC8/TC9: 包含"跑挂了/报错"的运维请求被误判为 DIAGNOSTIC_RECOVERY（应为 SYSTEM_ASSET_OPS）
-- R9-TC7: 包含"报错"的代码修改请求被误判为 DIAGNOSTIC_RECOVERY（应为 SKILL_FORGE）
-- R12-TC8: 包含"报错"的版本对比请求被误判为 DIAGNOSTIC_RECOVERY（应为 VERSION_CONTROL）
-
-**建议**: ErrorPatternRule 需增加上下文判断，区分"假设性/描述性报错"和"真实报错诊断"。
-
-#### 2. LITERATURE_MINING 意图识别极差（10% 通过率）
-L0 和 L1 均无法准确识别文献挖掘意图：
-- L0 的 LiteraturePatternRule 仅匹配"论文/文献/paper"等词，但测试用例使用"查一下/提取/总结"等动词
-- L1 将文献提取误判为 DATA_PROBE、GENERAL_CHAT、VERSION_CONTROL 等
-- **建议**: 增强 L0 文献规则（增加"文章/文献"与"提取/查"的组合模式），优化 L1 提示词中的文献意图描述。
-
-#### 3. SYSTEM_ASSET_OPS 意图识别差（20% 通过率）
-L1 无法区分"运维操作"和"执行分析"：
-- 文件移动/删除被误判为 EXPLICIT_EXEC
-- 数据库挂载被误判为 WORKFLOW_ORCHESTRATE
-- 环境打包被误判为 EXPLICIT_EXEC
-- **建议**: 在 L1 提示词中增加 SYSTEM_ASSET_OPS 的详细触发场景描述。
-
-#### 4. WORKFLOW_ORCHESTRATE vs SKILL_FORGE 边界模糊
-L1 无法区分"写 Nextflow 工作流"和"写普通脚本"：
-- "写 Nextflow 脚本"被误判为 SKILL_FORGE（应为 WORKFLOW_ORCHESTRATE）
-- "写个流程"被误判为 SKILL_FORGE
-- **建议**: 在 L1 提示词中明确 Nextflow/DSL2 关键词必须触发 WORKFLOW_ORCHESTRATE。
-
-#### 5. SYSTEM_MACRO 意图缺失 L0 规则
-L0 仅匹配 `/status|/clear|/help|/version|/reset`，导致：
-- "继续"、"确定"等短文本无法被 L0 拦截
-- `/stop`、`/run-fastqc` 等非预设宏无法被 L0 拦截
-- **建议**: 扩展 L0 SystemMacroRule 的正则匹配范围。
-
-#### 6. EXPLICIT_EXEC vs WORKFLOW_ORCHESTRATE 边界模糊
-L1 倾向于将"跑某个工具"误判为 WORKFLOW_ORCHESTRATE：
-- "跑 ESTIMATE"被误判为 WORKFLOW（应为 EXPLICIT_EXEC）
-- "跑 Cell Ranger"被误判为 WORKFLOW（应为 EXPLICIT_EXEC）
-- **建议**: 在 L1 提示词中明确"单工具调用"vs"多工具串联"的边界。

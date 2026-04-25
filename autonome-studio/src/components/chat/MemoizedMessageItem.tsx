@@ -9,6 +9,7 @@ import { useChatStore } from "@/store/useChatStore";
 import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { ParameterProbingCard, type ParameterProbingCardProps } from "./ParameterProbingCard";
+import { AdhocAnalysisCard } from "./components/AdhocAnalysisCard";
 import { BASE_URL, getToken } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
 import { buildAssetTreeFromFiles, AssetTreeNode } from "@/components/chat/shared/AssetTree";
@@ -523,6 +524,32 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     const toolCallId = part.toolCallId || '';
                     const toolState = part.state || '';
                     const toolInput = part.input as Record<string, unknown> | undefined;
+
+                    // ✨ render_adhoc_card 工具：渲染 AdhocAnalysisCard 即席分析策略卡片
+                    if (toolName === 'render_adhoc_card' && toolState !== 'output-available' && toolState !== 'output-error') {
+                      const strategy = (toolInput?.strategy || '') as string;
+                      const code = (toolInput?.code || '') as string;
+                      const code_language = (toolInput?.code_language || 'python') as 'python' | 'r';
+                      const parameter_schema = (toolInput?.parameter_schema || {}) as {
+                        type: string;
+                        properties: Record<string, unknown>;
+                        required?: string[];
+                      };
+                      const input_mapping = (toolInput?.input_mapping || {}) as Record<string, string>;
+
+                      return (
+                        <AdhocAnalysisCard
+                          key={toolCallId}
+                          strategy={strategy}
+                          code={code}
+                          code_language={code_language}
+                          parameter_schema={parameter_schema as any}
+                          input_mapping={input_mapping}
+                          addToolResult={addToolResult}
+                          toolCallId={toolCallId}
+                        />
+                      );
+                    }
 
                     // ✨ request_parameters 工具：渲染 ParameterProbingCard 参数探查表单
                     if (toolName === 'request_parameters' && toolState !== 'output-available' && toolState !== 'output-error') {

@@ -1,0 +1,221 @@
+'use client'
+
+import { useState } from 'react'
+import { ChevronDown, ChevronRight, Play, Star, Loader2 } from 'lucide-react'
+
+/**
+ * JSON Schema 属性定义（与 ParameterProbingCard 一致）
+ */
+interface SchemaProperty {
+  type: 'string' | 'number' | 'boolean'
+  title?: string
+  description?: string
+  enum?: string[]
+  default?: string | number | boolean
+  minimum?: number
+  maximum?: number
+  step?: number
+}
+
+/**
+ * 即席分析卡片 Props
+ */
+export interface AdhocAnalysisCardProps {
+  /** 策略描述 */
+  strategy: string
+  /** 生成的代码 */
+  code: string
+  /** 代码语言 */
+  code_language: 'python' | 'r'
+  /** 参数 Schema */
+  parameter_schema: {
+    type: string
+    properties: Record<string, SchemaProperty>
+    required?: string[]
+  }
+  /** 输入文件映射 */
+  input_mapping: Record<string, string>
+  /** Vercel AI SDK addToolResult 回调 */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addToolResult: any
+  /** ToolCall ID */
+  toolCallId: string
+}
+
+/**
+ * AdhocAnalysisCard — 即席交互式分析策略卡片。
+ *
+ * 当 adhoc_analysis_node 生成策略包后，通过 render_adhoc_card ToolCall
+ * 触发前端渲染此卡片。用户可以在卡片上修改参数、查看代码、执行分析。
+ *
+ * 四个区域：
+ * 1. 策略说明区（顶部，靛蓝色背景）
+ * 2. 参数面板（中部，网格布局，动态表单）
+ * 3. 代码预览区（折叠）
+ * 4. 操作区（底部，执行按钮 + 固化技能按钮）
+ */
+export function AdhocAnalysisCard({
+  strategy,
+  code,
+  code_language,
+  parameter_schema,
+  input_mapping,
+  addToolResult,
+  toolCallId,
+}: AdhocAnalysisCardProps) {
+  // 从 Schema 默认值初始化表单状态
+  const [formData, setFormData] = useState<Record<string, unknown>>(() => {
+    const defaults: Record<string, unknown> = {}
+    for (const [key, prop] of Object.entries(parameter_schema?.properties || {})) {
+      if (prop.default !== undefined) {
+        defaults[key] = prop.default
+      }
+    }
+    return defaults
+  })
+
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [showCode, setShowCode] = useState(false)
+
+  // 处理参数变化
+  const handleParamChange = (key: string, value: unknown) => {
+    setFormData(prev => ({ ...prev, [key]: value }))
+  }
+
+  // 核心：点击执行，将参数通过 Vercel AI SDK 送回后端
+  const handleExecute = () => {
+    if (isExecuting) return
+    setIsExecuting(true)
+
+    // 合并用户填写的参数和底层文件映射
+    const finalPayload = {
+      parameters: formData,
+      inputs: input_mapping,
+      code_snapshot: code, // 将代码快照一并传回，防止后端丢失上下文
+    }
+
+    // 调用 Vercel AI SDK 的回调，触发后端的流式响应继续进行
+    addToolResult({
+      toolCallId,
+      output: {
+        action: 'execute',
+        payload: finalPayload,
+      },
+    })
+  }
+
+  // 固化技能到资产库（Phase 2 实现，当前为占位提示）
+  const handleSaveSkill = () => {
+    // Phase 2: 弹出技能编辑表单，预填代码和 Schema
+    alert('技能固化功能将在后续版本实现')
+  }
+
+  return (
+    <div className="my-3 rounded-xl border border-indigo-500/40 bg-white dark:bg-[#1a1a1c] shadow-sm overflow-hidden">
+      {/* 1. 策略说明区（顶部，靛蓝色背景） */}
+      <div className="bg-indigo-50/50 dark:bg-indigo-900/20 p-4 border-b border-indigo-100 dark:border-indigo-500/20">
+        <h3 className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 text-sm">
+          <span>⚡ 即席分析就绪</span>
+        </h3>
+        <p className="text-gray-600 dark:text-zinc-300 text-sm mt-2">{strategy}</p>
+      </div>
+
+      {/* 2. 参数面板（中部，网格布局，动态表单） */}
+      {Object.keys(parameter_schema?.properties || {}).length > 0 && (
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {Object.entries(parameter_schema.properties).map(([key, field]) => (
+            <div key={key} className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                {field.title || key}
+                {parameter_schema.required?.includes(key) && <span className="ml-1 text-red-400">*</span>}
+              </label>
+
+              {/* enum → 下拉选择框 */}
+              {field.enum ? (
+                <select
+                  value={String(formData[key] ?? field.default ?? '')}
+                  onChange={(e) => handleParamChange(key, e.target.value)}
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                >
+                  {field.enum.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : field.type === 'boolean' ? (
+                /* boolean → 开关 */
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData[key] ?? field.default ?? false)}
+                    onChange={(e) => handleParamChange(key, e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-600 text-indigo-500 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-zinc-400">{field.description || '启用'}</span>
+                </label>
+              ) : field.type === 'number' ? (
+                /* number → 数字输入框 */
+                <input
+                  type="number"
+                  value={Number(formData[key] ?? field.default ?? 0)}
+                  onChange={(e) => handleParamChange(key, Number(e.target.value))}
+                  min={field.minimum}
+                  max={field.maximum}
+                  step={field.step ?? 1}
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                />
+              ) : (
+                /* string → 文本输入框 */
+                <input
+                  type="text"
+                  value={String(formData[key] ?? field.default ?? '')}
+                  onChange={(e) => handleParamChange(key, e.target.value)}
+                  placeholder={field.description || `请输入 ${field.title || key}`}
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 3. 代码预览区（折叠） */}
+      <div className="px-4">
+        <button
+          onClick={() => setShowCode(!showCode)}
+          className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mb-2 flex items-center gap-1"
+        >
+          {showCode ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {showCode ? '隐藏底层代码' : '查看底层代码'}
+        </button>
+        {showCode && (
+          <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 max-h-64">
+            <code>{code}</code>
+          </pre>
+        )}
+      </div>
+
+      {/* 4. 操作区（底部） */}
+      <div className="p-4 bg-gray-50 dark:bg-[#1e1e20] flex justify-between items-center border-t border-gray-200 dark:border-zinc-800">
+        <button
+          onClick={handleSaveSkill}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-zinc-600 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          <Star size={14} />
+          固化为团队技能
+        </button>
+        <button
+          onClick={handleExecute}
+          disabled={isExecuting}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 disabled:cursor-not-allowed rounded-md transition-colors"
+        >
+          {isExecuting ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Play size={14} />
+          )}
+          {isExecuting ? '沙箱启动中...' : '执行分析'}
+        </button>
+      </div>
+    </div>
+  )
+}

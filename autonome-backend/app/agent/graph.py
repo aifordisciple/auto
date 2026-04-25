@@ -19,6 +19,7 @@ Graph 结构:
         → diagnostic_node → task_advance_or_end
         → chat_node → task_advance_or_end
         → system_macro_node → task_advance_or_end
+        → adhoc_analysis_node → ask_user_node (挂起等待用户确认)
         → l3_executor_node → route_after_execution
 """
 from typing import Any, Dict
@@ -39,6 +40,7 @@ from app.agent.nodes.system_asset_node import system_asset_node
 from app.agent.nodes.version_control_node import version_control_node
 from app.agent.nodes.collaboration_node import collaboration_node
 from app.agent.nodes.system_macro_node import system_macro_node
+from app.agent.nodes.adhoc_analysis_node import adhoc_analysis_node
 from app.agent.router.nodes.probing_response_node import probing_response_node
 from app.agent.router.nodes.l3_executor_node import l3_executor_node
 from app.agent.router.engine import IntentRouterEngine
@@ -108,7 +110,12 @@ async def intent_router_node(state: AgentState, config: RunnableConfig) -> Dict[
 
 
 async def ask_user_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    """向前端抛出参数补全表单的节点（Active Probing 挂起点）。"""
+    """向前端抛出参数补全表单或即席分析卡片的节点（Active Probing 挂起点）。
+
+    根据 ProbingRequest.render_type 决定发送的 ToolCall 类型：
+    - render_type="adhoc_card" → 发送 render_adhoc_card ToolCall，前端渲染即席分析策略卡片
+    - 其他（默认）→ 发送 request_parameters ToolCall，前端渲染参数补全表单
+    """
     probing_dict = state.get("active_probing")
     if not probing_dict:
         return {}
@@ -116,18 +123,37 @@ async def ask_user_node(state: AgentState, config: RunnableConfig) -> Dict[str, 
     probing = ProbingRequest(**probing_dict) if isinstance(probing_dict, dict) else probing_dict
     current_idx = state.get("current_task_idx", 0)
 
-    # 构造 ToolCall，前端 useChat hook 自动解析为 toolInvocations
-    tool_call = {
-        "name": "request_parameters",
-        "args": {
-            "message": probing.message_to_user,
-            "schema": probing.ui_schema,
-        },
-        "id": f"call_probe_{current_idx}",
-    }
+    # 根据 render_type 决定 ToolCall 类型
+    render_type = getattr(probing, "render_type", None) or (probing_dict.get("render_type") if isinstance(probing_dict, dict) else None)
+
+    if render_type == "adhoc_card":
+        # 即席分析策略卡片：发送 render_adhoc_card ToolCall
+        tool_call = {
+            "name": "render_adhoc_card",
+            "args": {
+                "strategy": probing.adhoc_card_data.get("strategy", ""),
+                "code": probing.adhoc_card_data.get("code", ""),
+                "code_language": probing.adhoc_card_data.get("code_language", "python"),
+                "parameter_schema": probing.adhoc_card_data.get("parameter_schema", {}),
+                "input_mapping": probing.adhoc_card_data.get("input_mapping", {}),
+                "message": probing.message_to_user,
+            },
+            "id": f"call_adhoc_{current_idx}",
+        }
+        log.info(f"[ask_user_node] 发送即席分析策略卡片: render_type=adhoc_card")
+    else:
+        # 默认参数补全表单
+        tool_call = {
+            "name": "request_parameters",
+            "args": {
+                "message": probing.message_to_user,
+                "schema": probing.ui_schema,
+            },
+            "id": f"call_probe_{current_idx}",
+        }
+        log.info(f"[ask_user_node] 发送参数补全请求: missing={probing.missing_params}")
 
     message = AIMessage(content="", tool_calls=[tool_call])
-    log.info(f"[ask_user_node] 发送参数补全请求: missing={probing.missing_params}")
 
     return {"messages": [message]}
 
@@ -261,6 +287,7 @@ def build_intent_graph() -> StateGraph:
     workflow.add_node("version_control_node", version_control_node)
     workflow.add_node("collaboration_node", collaboration_node)
     workflow.add_node("system_macro_node", system_macro_node)
+    workflow.add_node("adhoc_analysis_node", adhoc_analysis_node)
 
     # 设置入口
     workflow.set_entry_point("intent_router")
@@ -271,6 +298,7 @@ def build_intent_graph() -> StateGraph:
         "explicit_exec_node", "diagnostic_node", "literature_node", "data_probe_node",
         "orchestrator_node", "ui_state_node", "system_asset_node",
         "version_control_node", "collaboration_node", "system_macro_node",
+        "adhoc_analysis_node",
         "l3_executor_node",
     ]
     workflow.add_conditional_edges(

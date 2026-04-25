@@ -1,7 +1,7 @@
 """
 意图识别引擎 V2.0 数据结构定义。
 
-包含 12 种原子意图类型枚举、意图-节点映射、提取结果模型、
+包含 13 种原子意图类型枚举、意图-节点映射、提取结果模型、
 DAG 调度数据模型、Active Probing 请求模型和 LangGraph 状态定义。
 
 升级要点：
@@ -10,6 +10,7 @@ DAG 调度数据模型、Active Probing 请求模型和 LangGraph 状态定义�
 - 新增 ProbingRequest 支持主动反问与前端 Generative UI 表单
 - 新增 RouteResult 作为路由引擎的完整输出
 - AgentState 扩展 DAG 调度状态字段
+- V2.1 新增即席交互式分析意图 (INTENT_ADHOC_INTERACTIVE_ANALYSIS)
 """
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Annotated
@@ -21,7 +22,7 @@ from typing_extensions import TypedDict
 
 class IntentType(str, Enum):
     """
-    意图类型枚举 - 12 种原子意图分类 (V2.0 MECE)。
+    意图类型枚举 - 13 种原子意图分类 (V2.0 MECE)。
 
     每种意图对应一个下游 Agent 节点，通过 INTENT_NODE_MAP 映射。
     """
@@ -38,6 +39,8 @@ class IntentType(str, Enum):
     SYSTEM_ASSET_OPS = "INTENT_SYSTEM_ASSET_OPS"                # 系统资产运维（环境/依赖/配置）
     COLLABORATION = "INTENT_COLLABORATION"                      # 团队协作与共享
     DIAGNOSTIC_RECOVERY = "INTENT_DIAGNOSTIC_RECOVERY"          # 报错/环境问题诊断与恢复
+    # 组1 新增：计算与编排
+    ADHOC_INTERACTIVE_ANALYSIS = "INTENT_ADHOC_INTERACTIVE_ANALYSIS"  # 即席交互式分析
     # 组4: 通用兜底 (General Support)
     GENERAL_CHAT = "INTENT_GENERAL_CHAT"                        # 通用闲聊、概念解释
     SYSTEM_MACRO = "INTENT_SYSTEM_MACRO"                        # 系统级宏指令（设置/偏好/帮助）
@@ -55,6 +58,7 @@ INTENT_NODE_MAP: Dict[IntentType, str] = {
     IntentType.SYSTEM_ASSET_OPS: "system_asset_node",
     IntentType.COLLABORATION: "collaboration_node",
     IntentType.DIAGNOSTIC_RECOVERY: "diagnostic_node",
+    IntentType.ADHOC_INTERACTIVE_ANALYSIS: "adhoc_analysis_node",
     IntentType.GENERAL_CHAT: "chat_node",
     IntentType.SYSTEM_MACRO: "system_macro_node",
 }
@@ -139,6 +143,12 @@ class TaskNode(BaseModel):
     dependencies: List[str] = Field(default_factory=list, description="依赖的前置 task_id 列表")
     resolved_assets: List[str] = Field(default_factory=list, description="指代消解后的具体 FileID 或 DB_Hash")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="初步提取的关键参数（若有）")
+    # 新增：用于即席分析的元数据（策略、生成的Schema、临时代码等）
+    # 仅 ADHOC_INTERACTIVE_ANALYSIS 意图时有值
+    adhoc_metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="即席分析元数据：策略描述、生成的代码、参数 Schema、输入映射"
+    )
 
 
 class TaskDAG(BaseModel):
@@ -153,6 +163,16 @@ class ProbingRequest(BaseModel):
     missing_params: List[str] = Field(default_factory=list, description="缺失的参数名列表")
     ui_schema: Dict[str, Any] = Field(default_factory=dict, description="JSON Schema 供前端渲染动态表单")
     message_to_user: str = Field(default="", description="向用户展示的追问提示语")
+    # 新增：区分参数反问卡片和即席分析卡片的渲染类型
+    render_type: str = Field(
+        default="parameter_probing",
+        description="渲染类型：parameter_probing(参数反问) | adhoc_card(即席分析卡片)"
+    )
+    # 新增：即席分析卡片数据（仅 render_type=adhoc_card 时有值）
+    adhoc_card_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="即席分析卡片数据（仅 render_type=adhoc_card 时有值）"
+    )
 
 
 class ExecutionStatus(str, Enum):

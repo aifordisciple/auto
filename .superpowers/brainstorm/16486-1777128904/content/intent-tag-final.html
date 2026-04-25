@@ -1,0 +1,93 @@
+<h2>意图标签 — 最终设计确认</h2>
+<p class="subtitle">胶囊标签 + 语义分组配色 + 精简短名</p>
+
+<div class="mockup">
+  <div class="mockup-header">深色模式效果</div>
+  <div class="mockup-body" style="background:#131314;padding:20px;">
+
+    <!-- 消息1: 数据探查 -->
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:14px;">🤖</span>
+        </div>
+        <span style="background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500;letter-spacing:0.3px;box-shadow:0 1px 3px rgba(99,102,241,0.3);">探查</span>
+      </div>
+      <div style="color:#d4d4d4;font-size:14px;line-height:1.7;padding-left:40px;">
+        该数据集包含 3,000 个细胞 × 20,000 个基因的表达矩阵。以下是基本统计信息...
+      </div>
+    </div>
+
+    <!-- 消息2: 技能锻造 -->
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:14px;">🤖</span>
+        </div>
+        <span style="background:linear-gradient(135deg,#10b981,#34d399);color:white;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500;letter-spacing:0.3px;box-shadow:0 1px 3px rgba(16,185,129,0.3);">锻造</span>
+      </div>
+      <div style="color:#d4d4d4;font-size:14px;line-height:1.7;padding-left:40px;">
+        已为您生成 FastQC 质控脚本，包含以下步骤...
+      </div>
+    </div>
+
+    <!-- 消息3: 通用问答 -->
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:14px;">🤖</span>
+        </div>
+        <span style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:white;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500;letter-spacing:0.3px;box-shadow:0 1px 3px rgba(245,158,11,0.3);">问答</span>
+      </div>
+      <div style="color:#d4d4d4;font-size:14px;line-height:1.7;padding-left:40px;">
+        RNA-Seq 分析的基本流程包括：1. 质控（FastQC）2. 比对（STAR/HISAT2）...
+      </div>
+    </div>
+
+    <!-- 消息4: 诊断恢复 -->
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:14px;">🤖</span>
+        </div>
+        <span style="background:linear-gradient(135deg,#ef4444,#f87171);color:white;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500;letter-spacing:0.3px;box-shadow:0 1px 3px rgba(239,68,68,0.3);">诊断</span>
+      </div>
+      <div style="color:#d4d4d4;font-size:14px;line-height:1.7;padding-left:40px;">
+        检测到 OOM 错误，建议增加内存限制至 16GB...
+      </div>
+    </div>
+
+    <!-- 消息5: 即席分析 -->
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:14px;">🤖</span>
+        </div>
+        <span style="background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500;letter-spacing:0.3px;box-shadow:0 1px 3px rgba(99,102,241,0.3);">即席</span>
+      </div>
+      <div style="color:#d4d4d4;font-size:14px;line-height:1.7;padding-left:40px;">
+        已生成散点图分析代码，请确认参数后执行...
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top:16px;padding:16px;background:#1e1e1e;border-radius:8px;border:1px solid #333;">
+  <h3 style="color:#e5e5e5;margin:0 0 12px 0;font-size:14px;">完整意图 → 标签映射</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">探查</span><span style="color:#999;">DATA_PROBE</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">可视化</span><span style="color:#999;">VISUAL_TWEAK</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">即席</span><span style="color:#999;">ADHOC_ANALYSIS</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#6366f1,#818cf8);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">文献</span><span style="color:#999;">LITERATURE</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#10b981,#34d399);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">执行</span><span style="color:#999;">EXPLICIT_EXEC</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#10b981,#34d399);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">锻造</span><span style="color:#999;">SKILL_FORGE</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#10b981,#34d399);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">工作流</span><span style="color:#999;">WORKFLOW</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#10b981,#34d399);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">版本</span><span style="color:#999;">VERSION_CTRL</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">问答</span><span style="color:#999;">GENERAL_CHAT</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">协作</span><span style="color:#999;">COLLABORATION</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">指令</span><span style="color:#999;">SYSTEM_MACRO</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#ef4444,#f87171);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">诊断</span><span style="color:#999;">DIAGNOSTIC</span></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="background:linear-gradient(135deg,#ef4444,#f87171);color:white;font-size:10px;padding:1px 8px;border-radius:10px;">运维</span><span style="color:#999;">SYSTEM_ASSET</span></div>
+  </div>
+</div>

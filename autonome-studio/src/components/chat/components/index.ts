@@ -28,3 +28,6 @@ export { DataPreviewCard } from '../DataPreviewCard';
 
 // 技能草稿卡片
 export { SkillDraftCard } from '../SkillDraftCard';
+
+// 即席分析策略卡片
+export { AdhocAnalysisCard } from './AdhocAnalysisCard';

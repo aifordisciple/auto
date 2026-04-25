@@ -26,7 +26,7 @@ from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _
 # L1 意图解构系统提示词（v3: 输出 TaskDAG，支持多任务分解）
 L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责将用户的自然语言输入解析为结构化的任务图谱（TaskDAG）。
 
-## 可用意图类型（11 种原子意图）
+## 可用意图类型（13 种原子意图）
 
 | 意图 | 枚举值 | 触发场景 |
 |------|--------|----------|
@@ -47,6 +47,7 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 | 团队协作 | INTENT_COLLABORATION | 共享、评论、权限管理 |
 | 诊断恢复 | INTENT_DIAGNOSTIC_RECOVERY | 错误诊断、自愈、日志分析 |
 | 通用问答 | INTENT_GENERAL_CHAT | 闲聊、常识问答、概念解释、流程大纲、步骤列举、知识描述 |
+| 即席分析 | INTENT_ADHOC_INTERACTIVE_ANALYSIS | 用户提供数据文件+分析需求+无技能匹配 |
 
 ## ⚠️ 关键区分规则：描述 vs 执行（防止误触发 WORKFLOW_ORCHESTRATE）
 
@@ -78,6 +79,10 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 3. 如果多个任务之间有依赖关系，在 dependencies 中标注前置 task_id
 4. 对指代词（"这个文件"、"上面的结果"等）进行消解，填入 resolved_assets
 5. 从用户输入中提取关键参数，填入 parameters
+6. 即席分析判定原则：
+   - 如果用户指令包含具体数据文件，且要求进行通用的分析/可视化操作（非系统预设标准技能），优先路由为 INTENT_ADHOC_INTERACTIVE_ANALYSIS
+   - 如果用户明确说"写代码"、"写脚本"、"帮我写一个..."，路由为 INTENT_SKILL_FORGE
+   - 如果技能库中有匹配的技能，路由为 INTENT_EXPLICIT_EXEC
 
 ## 指代消解规则 (Coreference Resolution)
 
@@ -316,7 +321,7 @@ class L1Classifier:
             '  "nodes": [\n'
             '    {\n'
             '      "task_id": "task_1",\n'
-            '      "intent": "INTENT_GENERAL_CHAT|INTENT_WORKFLOW_ORCHESTRATE|INTENT_SKILL_FORGE|INTENT_EXPLICIT_EXEC|INTENT_VERSION_CONTROL|INTENT_VISUAL_PERCEPTION_AND_TWEAK|INTENT_DATA_PROBE|INTENT_LITERATURE_MINING|INTENT_SYSTEM_ASSET_OPS|INTENT_COLLABORATION|INTENT_DIAGNOSTIC_RECOVERY",\n'
+            '      "intent": "INTENT_GENERAL_CHAT|INTENT_WORKFLOW_ORCHESTRATE|INTENT_SKILL_FORGE|INTENT_EXPLICIT_EXEC|INTENT_VERSION_CONTROL|INTENT_VISUAL_PERCEPTION_AND_TWEAK|INTENT_DATA_PROBE|INTENT_LITERATURE_MINING|INTENT_SYSTEM_ASSET_OPS|INTENT_COLLABORATION|INTENT_DIAGNOSTIC_RECOVERY|INTENT_ADHOC_INTERACTIVE_ANALYSIS",\n'
             '      "raw_instruction": "用户的具体指令",\n'
             '      "dependencies": [],\n'
             '      "resolved_assets": [],\n'

@@ -43,6 +43,7 @@ class L2SlotExtractor:
         IntentType.SKILL_FORGE,         # 代码锻造：宽松检查（允许示例数据替代）
         IntentType.DATA_PROBE,          # 数据探查：检查 input_file / active_file
         IntentType.LITERATURE_MINING,   # 文献挖掘：检查 pdf_file / doi
+        IntentType.ADHOC_INTERACTIVE_ANALYSIS,  # 即席分析：检查输入文件
     }
 
     # 需要 L2 上下文自动填充的意图集合（比探查集合宽，DATA_PROBE 也需要自动注入文件）
@@ -51,6 +52,7 @@ class L2SlotExtractor:
         IntentType.EXPLICIT_EXEC,
         IntentType.DATA_PROBE,
         IntentType.LITERATURE_MINING,
+        IntentType.ADHOC_INTERACTIVE_ANALYSIS,  # 即席分析：自动注入 active_file
     }
 
 
@@ -103,6 +105,10 @@ async def check_task_parameters(
     # LITERATURE_MINING 意图：检查文献文档目标
     if task.intent == IntentType.LITERATURE_MINING:
         return _check_literature_params(task, context)
+
+    # ADHOC_INTERACTIVE_ANALYSIS 意图：检查输入文件
+    if task.intent == IntentType.ADHOC_INTERACTIVE_ANALYSIS:
+        return _check_adhoc_analysis_params(task, context)
 
     return ProbingRequest(is_missing=False)
 
@@ -308,6 +314,48 @@ def _check_literature_params(
             message_to_user="文献挖掘需要指定目标文献，请上传或输入文件路径："
         )
     log.debug("[L2] LITERATURE_MINING 参数完整，放行")
+    return ProbingRequest(is_missing=False)
+
+
+def _check_adhoc_analysis_params(
+    task: TaskNode,
+    context: Dict[str, Any]
+) -> ProbingRequest:
+    """
+    检查即席交互式分析的参数完整性。
+
+    程序说明：
+    即席分析必须至少有一个 resolved_assets（输入文件）。
+    如果缺失，返回 ProbingRequest 要求用户指定文件；
+    如果有文件，放行。
+
+    Args:
+        task: L1 解构器输出的 TaskNode
+        context: 工作区上下文
+
+    Returns:
+        ProbingRequest: 参数探查结果
+    """
+    has_file = task.resolved_assets or context.get("active_file")
+    if not has_file:
+        log.info("[L2] ADHOC_INTERACTIVE_ANALYSIS 缺失文件目标")
+        return ProbingRequest(
+            is_missing=True,
+            missing_params=["input_file"],
+            ui_schema={
+                "type": "object",
+                "properties": {
+                    "input_file": {
+                        "type": "string",
+                        "title": "待分析的数据文件",
+                        "description": "请从左侧资产树拖入文件或输入文件路径"
+                    }
+                },
+                "required": ["input_file"]
+            },
+            message_to_user="即席分析需要指定目标文件，请问您想对哪个数据执行此操作？"
+        )
+    log.debug("[L2] ADHOC_INTERACTIVE_ANALYSIS 参数完整，放行")
     return ProbingRequest(is_missing=False)
 
 

@@ -1,0 +1,75 @@
+<h2>意图标签样式选择</h2>
+<p class="subtitle">AI 回复消息左上角的意图识别彩色标签，哪种风格更好？</p>
+
+<div class="mockup">
+  <div class="mockup-header">当前 AI 消息布局（深色模式）</div>
+  <div class="mockup-body" style="background:#131314;padding:16px;">
+    <!-- 选项 A: 极简胶囊标签 -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);overflow:hidden;">
+          <img src="/ai-avatar.png" style="width:100%;height:100%;object-fit:cover;transform:scale(1.15);" />
+        </div>
+        <span style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500;letter-spacing:0.3px;">数据探查</span>
+      </div>
+      <div style="color:#e5e5e5;font-size:14px;line-height:1.6;padding-left:40px;">
+        这是 AI 回复的内容区域，意图标签在头像右侧、内容上方...
+      </div>
+    </div>
+
+    <!-- 选项 B: 小圆点+文字标签 -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);overflow:hidden;">
+          <img src="/ai-avatar.png" style="width:100%;height:100%;object-fit:cover;transform:scale(1.15);" />
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;"></div>
+          <span style="color:#a3a3a3;font-size:11px;font-weight:400;">通用问答</span>
+        </div>
+      </div>
+      <div style="color:#e5e5e5;font-size:14px;line-height:1.6;padding-left:40px;">
+        这是 AI 回复的内容区域，圆点+文字标签更低调...
+      </div>
+    </div>
+
+    <!-- 选项 C: 内嵌在内容区左上角 -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#1a1a1c;border:1px solid rgba(125,125,127,0.6);overflow:hidden;">
+          <img src="/ai-avatar.png" style="width:100%;height:100%;object-fit:cover;transform:scale(1.15);" />
+        </div>
+      </div>
+      <div style="padding-left:40px;">
+        <span style="display:inline-block;background:rgba(239,68,68,0.15);color:#f87171;font-size:10px;padding:1px 8px;border-radius:6px;border:1px solid rgba(239,68,68,0.25);margin-bottom:8px;font-weight:500;">诊断恢复</span>
+        <div style="color:#e5e5e5;font-size:14px;line-height:1.6;">
+          标签内嵌在内容区左上角，与正文紧贴...
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>胶囊标签（头像右侧）</h3>
+      <p>渐变色胶囊，醒目但不占正文空间。不同意图用不同颜色区分。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>圆点+文字（头像右侧）</h3>
+      <p>小圆点+灰色文字，低调内敛。圆点颜色区分意图，文字辅助说明。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>内嵌标签（内容区左上角）</h3>
+      <p>半透明背景+细边框，紧贴正文上方。与内容融为一体。</p>
+    </div>
+  </div>
+</div>
