@@ -14,7 +14,7 @@
 import { useState, useEffect } from "react";
 import {
   Bot, Cloud, Server, Eye, EyeOff, Loader2, CheckCircle2,
-  XCircle, RotateCcw, Save, Info, Zap, Brain, Link2, LinkBreak
+  XCircle, RotateCcw, Save, Info, Zap, Brain, Link2, Link2Off
 } from "lucide-react";
 import { fetchAPI } from "@/lib/api";
 
@@ -478,7 +478,7 @@ export function AIModelPanel() {
                   : "bg-amber-500/10 text-amber-300 border border-amber-500/30"
               }`}
             >
-              {useSharedIntentModel ? <Link2 size={12} /> : <LinkBreak size={12} />}
+              {useSharedIntentModel ? <Link2 size={12} /> : <Link2Off size={12} />}
               {useSharedIntentModel ? "与主模型共用" : "独立配置"}
             </button>
           </div>
