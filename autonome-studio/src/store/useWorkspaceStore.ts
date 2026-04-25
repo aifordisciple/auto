@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { BASE_URL, getToken } from '@/lib/api';
+import { fetchAPI } from '@/lib/api';
 
 // Define tool parameter JSON Schema structure
 export type ParamType = 'number' | 'boolean' | 'select' | 'string';
@@ -151,12 +151,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           pid = stored || undefined;
         }
         if (!pid) return;
-        const token = getToken();
         try {
-          const res = await fetch(`${BASE_URL}/api/projects/${pid}/files`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await res.json();
+          const data = await fetchAPI(`/projects/${pid}/files`);
           if (data.status === 'success') {
             set({ projectFiles: data.data });
           }

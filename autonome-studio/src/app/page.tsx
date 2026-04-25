@@ -19,7 +19,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore, Message } from "../store/useChatStore";
-import { BASE_URL, getToken } from "@/lib/api";
+import { fetchAPI } from "@/lib/api";
 
 // ✨ ChatStage 懒加载 - 带骨架屏 fallback
 const ChatStage = dynamic(() => import("../components/chat/ChatStage").then(m => m.ChatStage), {
@@ -242,14 +242,8 @@ export default function AutonomeStudio() {
       return;
     }
 
-    const localToken = getToken();
-    if (!localToken) return;
-
     try {
-      const res = await fetch(`${BASE_URL}/api/projects/${projectId}`, {
-        headers: { 'Authorization': `Bearer ${localToken}` }
-      });
-      const data = await res.json();
+      const data = await fetchAPI(`/projects/${projectId}`);
 
       if (data.status === 'success' && data.data) {
         const name = data.data.name;
