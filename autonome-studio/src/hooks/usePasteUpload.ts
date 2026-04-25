@@ -10,7 +10,7 @@
  */
 import { useCallback } from 'react';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { BASE_URL } from '@/lib/api';
+import { uploadFile } from '@/lib/api';
 
 // ==========================================
 // 类型定义
@@ -59,20 +59,14 @@ export function usePasteUpload() {
       isUploading: true
     });
 
-    // 上传到服务器
+    // 上传到服务器（使用统一的 uploadFile，自动处理 token 认证和 401 刷新）
     try {
-      const token = localStorage.getItem('autonome_access_token');
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('target_path', 'raw_data/.pasted');
+      const result = await uploadFile(
+        `/projects/${currentProjectId}/files`,
+        file,
+        { target_path: 'raw_data/.pasted' }
+      );
 
-      const response = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files`, {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        body: formData
-      });
-
-      const result = await response.json();
       if (result.status === 'success') {
         // 更新附件状态，保存服务器路径
         updatePastedAttachment(attachmentId, {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BASE_URL, getToken } from '@/lib/api';
+import { fetchAPI } from '@/lib/api';
 
 export interface Task {
   task_id: string;
@@ -39,14 +39,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchTasks: async () => {
     set({ isLoading: true });
     try {
-      const token = getToken();
-      const res = await fetch(`${BASE_URL}/api/tasks/list`, {
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      const data = await res.json();
+      const data = await fetchAPI('/api/tasks/list');
       set({ tasks: data.tasks || [] });
     } catch (e) {
       console.error('Failed to fetch tasks:', e);

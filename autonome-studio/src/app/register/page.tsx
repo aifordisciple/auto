@@ -156,7 +156,7 @@ export default function RegisterPage() {
   }, [phoneNumber, smsCode, password, confirmPassword, fullName, setToken, setUser, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f]">
+    <div className="min-h-screen flex items-center justify-center bg-neutral-950">
       <div className="w-full max-w-md p-8">
         {/* Logo / 标题 */}
         <div className="text-center mb-8">
@@ -188,7 +188,7 @@ export default function RegisterPage() {
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 placeholder="请输入手机号"
-                className="w-full px-4 py-3 rounded-lg bg-[#1a1a2e] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                className="w-full px-4 py-3 rounded-lg bg-neutral-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 disabled={loading}
               />
             </div>
@@ -203,7 +203,7 @@ export default function RegisterPage() {
                   onChange={(e) => setSmsCode(e.target.value)}
                   placeholder="请输入验证码"
                   maxLength={6}
-                  className="flex-1 px-4 py-3 rounded-lg bg-[#1a1a2e] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="flex-1 px-4 py-3 rounded-lg bg-neutral-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   disabled={loading}
                 />
                 <button
@@ -243,7 +243,7 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="请输入您的姓名"
-                className="w-full px-4 py-3 rounded-lg bg-[#1a1a2e] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                className="w-full px-4 py-3 rounded-lg bg-neutral-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 disabled={loading}
               />
             </div>
@@ -256,7 +256,7 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="至少 8 位"
-                className="w-full px-4 py-3 rounded-lg bg-[#1a1a2e] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                className="w-full px-4 py-3 rounded-lg bg-neutral-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 disabled={loading}
               />
             </div>
@@ -269,7 +269,7 @@ export default function RegisterPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="再次输入密码"
-                className="w-full px-4 py-3 rounded-lg bg-[#1a1a2e] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                className="w-full px-4 py-3 rounded-lg bg-neutral-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 disabled={loading}
               />
             </div>

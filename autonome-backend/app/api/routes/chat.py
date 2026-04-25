@@ -664,10 +664,19 @@ async def chat_stream(
                     )
 
                     # ✨ 第三方 API + 深度思考：注入 thinking 配置（Claude 等模型支持）
-                    if enable_think and not is_local_model:
-                        llm_kwargs['extra_body'] = {
-                            'thinking': {'type': 'enabled', 'budget_tokens': 10000}
-                        }
+                    # ✨ 本地 OpenAI 兼容 API（vLLM/OMLX 等）也支持 extra_body 传递思考参数
+                    if enable_think:
+                        if not is_local_model:
+                            # Claude 等第三方 API 的 thinking 配置
+                            llm_kwargs['extra_body'] = {
+                                'thinking': {'type': 'enabled', 'budget_tokens': 10000}
+                            }
+                        else:
+                            # 本地 OpenAI 兼容 API（vLLM/OMLX/Qwen3 等）的思考配置
+                            # Qwen3 等模型通过 chat_template 中的 enable_thinking 参数控制
+                            llm_kwargs['extra_body'] = {
+                                'enable_thinking': True
+                            }
 
                     direct_llm = ChatOpenAI(**llm_kwargs)
 
