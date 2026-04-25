@@ -20,7 +20,7 @@ from langchain_openai import ChatOpenAI
 from app.agent.router.schemas import TaskDAG, TaskNode, IntentType
 from app.agent.router.context_builder import build_workspace_context, format_workspace_context_for_prompt
 from app.core.logger import log
-from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _is_local_model
+from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _is_local_model, _is_ollama
 
 
 # L1 意图解构系统提示词（v3: 输出 TaskDAG，支持多任务分解）
@@ -130,6 +130,12 @@ class L1Classifier:
         self.llm_config = get_fast_llm_config(session, user_id)
         self.is_local = _is_local_model(self.llm_config.base_url)
 
+        # 关键区分：本地模型 ≠ Ollama 原生服务
+        # host.docker.internal:8008/v1 是 OpenAI 兼容 API（vLLM/LiteLLM），不是 Ollama
+        # 只有真正的 Ollama 服务才需要使用 ollama.AsyncClient 原生客户端
+        # 其他本地服务（vLLM、LiteLLM 等）走 ChatOpenAI 兼容路径
+        self.is_ollama = _is_ollama(self.llm_config.base_url)
+
         # 构建第三方 API 使用的 LLM 实例
         api_key = self.llm_config.api_key or "not-needed"
         self.primary_llm = ChatOpenAI(
@@ -149,7 +155,7 @@ class L1Classifier:
         log.info(
             f"[L1] 初始化解构器: model={self.llm_config.model_name}, "
             f"base_url={self.llm_config.base_url}, is_local={self.is_local}, "
-            f"source={self.llm_config.source}"
+            f"is_ollama={self.is_ollama}, source={self.llm_config.source}"
         )
 
     async def decompose(
@@ -189,7 +195,9 @@ class L1Classifier:
         workspace_context = format_workspace_context_for_prompt(ws_ctx)
 
         try:
-            if self.is_local:
+            # 路由决策：只有真正的 Ollama 原生服务才走 ollama.AsyncClient 路径
+            # 其他本地服务（vLLM、LiteLLM 等 host.docker.internal:xxxx/v1）走 ChatOpenAI 兼容路径
+            if self.is_ollama:
                 result = await self._decompose_with_json_mode(
                     query=query,
                     context=context,
