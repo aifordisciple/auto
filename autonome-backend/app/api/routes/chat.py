@@ -209,9 +209,9 @@ async def chat_stream(
     # 根据深度思考模式选择模型：开启思考 → 思考模型；关闭思考 → 极速模型
     from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _is_local_model, _is_ollama
     if request.enable_think:
-        llm_cfg = await get_thinking_llm_config(session, user_id=current_user.id)
+        llm_cfg = get_thinking_llm_config(session, user_id=current_user.id)
     else:
-        llm_cfg = await get_fast_llm_config(session, user_id=current_user.id)
+        llm_cfg = get_fast_llm_config(session, user_id=current_user.id)
     api_key = llm_cfg.api_key
     base_url = llm_cfg.base_url
     model_name = llm_cfg.model_name

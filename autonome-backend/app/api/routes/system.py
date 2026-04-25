@@ -41,19 +41,19 @@ class SettingsUpdate(BaseModel):
     系统设置更新请求体
 
     支持四套配置：
-    - 主模型配置：用于文本对话和主要推理
-    - 意图识别模型配置：用于 L1 意图解构（可选独立配置，未配置时回退到主模型）
+    - 思考模型配置：用于深度思考和文本对话
+    - 极速模型配置：用于意图识别和日常对话（可选独立配置，未配置时回退到思考模型）
     - 视觉模型配置：用于图像识别（可选独立配置）
     - 嵌入模型配置：用于技能推荐向量检索
     """
-    # 主模型配置
-    openai_api_key: Optional[str] = None
-    openai_base_url: str = settings.OPENAI_BASE_URL
-    default_model: str = "gpt-3.5-turbo"
-    # 意图识别模型配置
-    intent_api_key: Optional[str] = None
-    intent_base_url: Optional[str] = None
-    intent_model: Optional[str] = None
+    # 思考模型配置（原"主模型"）
+    thinking_api_key: Optional[str] = None
+    thinking_base_url: Optional[str] = None
+    thinking_model: Optional[str] = None
+    # 极速模型配置（原"意图识别模型"）
+    fast_api_key: Optional[str] = None
+    fast_base_url: Optional[str] = None
+    fast_model: Optional[str] = None
     # 视觉模型配置
     vision_api_key: Optional[str] = None
     vision_base_url: Optional[str] = None
@@ -87,29 +87,32 @@ async def update_settings(settings: SettingsUpdate, session: Session = Depends(g
         session.add(config)
 
     # ==========================================
-    # 主模型配置更新
+    # 思考模型配置更新（原"主模型"）
     # ==========================================
     # 核心修复：使用 is not None 判断，允许用户传入空字符串 "" (Ollama 必备)
-    if settings.openai_api_key is not None and not settings.openai_api_key.startswith("sk-***"):
-        config.openai_api_key = settings.openai_api_key
+    if settings.thinking_api_key is not None and not settings.thinking_api_key.startswith("sk-***"):
+        config.thinking_api_key = settings.thinking_api_key
 
-    config.openai_base_url = settings.openai_base_url
-    config.default_model = settings.default_model
+    if settings.thinking_base_url is not None:
+        config.thinking_base_url = settings.thinking_base_url
+
+    if settings.thinking_model is not None:
+        config.thinking_model = settings.thinking_model
 
     # ==========================================
-    # 意图识别模型配置更新
+    # 极速模型配置更新（原"意图识别模型"）
     # ==========================================
-    # 意图识别 API Key（如果提供且不是掩码）
-    if settings.intent_api_key is not None and not settings.intent_api_key.startswith("sk-***"):
-        config.intent_api_key = settings.intent_api_key
+    # 极速模型 API Key（如果提供且不是掩码）
+    if settings.fast_api_key is not None and not settings.fast_api_key.startswith("sk-***"):
+        config.fast_api_key = settings.fast_api_key
 
-    # 意图识别 Base URL（如果提供）
-    if settings.intent_base_url is not None:
-        config.intent_base_url = settings.intent_base_url
+    # 极速模型 Base URL（如果提供）
+    if settings.fast_base_url is not None:
+        config.fast_base_url = settings.fast_base_url
 
-    # 意图识别模型名称
-    if settings.intent_model is not None:
-        config.intent_model = settings.intent_model
+    # 极速模型名称
+    if settings.fast_model is not None:
+        config.fast_model = settings.fast_model
 
     # ==========================================
     # 视觉模型配置更新

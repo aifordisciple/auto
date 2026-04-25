@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Key, Globe, Cpu, Save, CheckCircle2, Server, Cloud, Keyboard, RotateCcw, Monitor, Eye, Link2, ChevronDown, ChevronUp, Database, Sparkles } from "lucide-react";
+import { Settings, Key, Globe, Cpu, Save, CheckCircle2, Server, Cloud, Keyboard, RotateCcw, Monitor, Eye, Link2, ChevronDown, ChevronUp, Database, Sparkles, Zap } from "lucide-react";
 import { fetchAPI } from "../../lib/api";
 import { useShortcutStore, Shortcut } from "../../store/useShortcutStore";
 
@@ -28,11 +28,18 @@ export function SettingsCenter() {
   // --- 基础状态 ---
   const [activeTab, setActiveTab] = useState<'ai' | 'embedding' | 'shortcuts'>('ai');
 
-  // --- AI 设置状态 ---
-  const [settings, setSettings] = useState({
-    openai_api_key: "",
-    openai_base_url: "",
-    default_model: ""
+  // --- 思考模型设置状态（原"主模型"） ---
+  const [thinkingSettings, setThinkingSettings] = useState({
+    thinking_api_key: "",
+    thinking_base_url: "",
+    thinking_model: ""
+  });
+
+  // --- 极速模型设置状态（原"意图识别模型"） ---
+  const [fastSettings, setFastSettings] = useState({
+    fast_api_key: "",
+    fast_base_url: "",
+    fast_model: ""
   });
 
   // --- 视觉模型设置状态 ---
@@ -62,10 +69,16 @@ export function SettingsCenter() {
   useEffect(() => {
     fetchAPI('/api/system/settings').then(data => {
       if (data.status === 'success' && data.data) {
-        setSettings({
-          openai_api_key: data.data.openai_api_key && !data.data.openai_api_key.startsWith("ollama") ? "sk-************************" : (data.data.openai_api_key || ""),
-          openai_base_url: data.data.openai_base_url,
-          default_model: data.data.default_model
+        setThinkingSettings({
+          thinking_api_key: data.data.thinking_api_key && !data.data.thinking_api_key.startsWith("ollama") ? "sk-************************" : (data.data.thinking_api_key || ""),
+          thinking_base_url: data.data.thinking_base_url || "",
+          thinking_model: data.data.thinking_model || ""
+        });
+        // 加载极速模型配置
+        setFastSettings({
+          fast_api_key: data.data.fast_api_key && !data.data.fast_api_key.startsWith("ollama") ? "sk-************************" : (data.data.fast_api_key || ""),
+          fast_base_url: data.data.fast_base_url || "",
+          fast_model: data.data.fast_model || ""
         });
         // 加载视觉模型配置
         setVisionSettings({
@@ -88,9 +101,10 @@ export function SettingsCenter() {
   const handleSaveAI = async () => {
     setIsSaving(true);
     try {
-      // 合并主模型和视觉模型配置
+      // 合并思考模型、极速模型和视觉模型配置
       const payload = {
-        ...settings,
+        ...thinkingSettings,
+        ...fastSettings,
         ...visionSettings
       };
       await fetchAPI('/api/system/settings', {
@@ -119,8 +133,8 @@ export function SettingsCenter() {
     }
   };
 
-  const setLocalOllama = () => setSettings({ openai_api_key: "ollama-local", openai_base_url: "http://host.docker.internal:11434/v1", default_model: "qwen2.5:7b" });
-  const setCloudOpenAI = () => setSettings({ openai_api_key: "", openai_base_url: "https://api.openai.com/v1", default_model: "gpt-4o-mini" });
+  const setLocalOllama = () => setThinkingSettings({ thinking_api_key: "ollama-local", thinking_base_url: "http://host.docker.internal:11434/v1", thinking_model: "qwen2.5:7b" });
+  const setCloudOpenAI = () => setThinkingSettings({ thinking_api_key: "", thinking_base_url: "https://api.openai.com/v1", thinking_model: "gpt-4o-mini" });
 
   // 设置默认本地嵌入模型
   const setDefaultEmbedding = () => setEmbeddingSettings({
@@ -230,28 +244,50 @@ export function SettingsCenter() {
             <p className="text-neutral-500 text-sm mb-8">配置底层 AI 模型引擎，支持公有云与私有化本地集群实时热切。</p>
 
             <div className="grid grid-cols-2 gap-4 mb-8">
-              <div onClick={setCloudOpenAI} className={`p-5 rounded-xl border cursor-pointer transition-all ${settings.openai_base_url.includes("api.openai.com") ? 'bg-blue-900/20 border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.15)]' : 'bg-neutral-900 border-neutral-800 hover:border-neutral-600'}`}>
+              <div onClick={setCloudOpenAI} className={`p-5 rounded-xl border cursor-pointer transition-all ${thinkingSettings.thinking_base_url.includes("api.openai.com") ? 'bg-blue-900/20 border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.15)]' : 'bg-neutral-900 border-neutral-800 hover:border-neutral-600'}`}>
                 <div className="flex items-center gap-3 mb-2 text-white font-medium"><Cloud size={20} className="text-blue-400"/> 公有云 SaaS 模式</div>
                 <p className="text-xs text-neutral-500">连接 OpenAI 或第三方中转服务，适合非敏感数据的高智商通用计算。</p>
               </div>
-              <div onClick={setLocalOllama} className={`p-5 rounded-xl border cursor-pointer transition-all ${settings.openai_base_url.includes("host.docker.internal") ? 'bg-emerald-900/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-neutral-900 border-neutral-800 hover:border-neutral-600'}`}>
+              <div onClick={setLocalOllama} className={`p-5 rounded-xl border cursor-pointer transition-all ${thinkingSettings.thinking_base_url.includes("host.docker.internal") ? 'bg-emerald-900/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-neutral-900 border-neutral-800 hover:border-neutral-600'}`}>
                 <div className="flex items-center gap-3 mb-2 text-white font-medium"><Server size={20} className="text-emerald-400"/> 本地私有化模式</div>
                 <p className="text-xs text-neutral-500">连接宿主机本地算力。数据绝对隔离，完全不出内网，符合医疗合规要求。</p>
               </div>
             </div>
 
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-5">
+              <h4 className="text-sm font-medium text-white flex items-center gap-2"><Sparkles size={14} className="text-blue-400"/> 思考模型配置</h4>
               <div>
                 <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Globe size={14}/> API Base URL</label>
-                <input type="text" value={settings.openai_base_url} onChange={(e) => setSettings({...settings, openai_base_url: e.target.value})} className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-blue-500 transition-all font-mono text-sm" />
+                <input type="text" value={thinkingSettings.thinking_base_url} onChange={(e) => setThinkingSettings({...thinkingSettings, thinking_base_url: e.target.value})} className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-blue-500 transition-all font-mono text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Monitor size={14}/> 驱动模型 (Model Name)</label>
-                <input type="text" value={settings.default_model} onChange={(e) => setSettings({...settings, default_model: e.target.value})} className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-blue-500 transition-all font-mono text-sm" />
+                <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Monitor size={14}/> 思考模型 (Model Name)</label>
+                <input type="text" value={thinkingSettings.thinking_model} onChange={(e) => setThinkingSettings({...thinkingSettings, thinking_model: e.target.value})} className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-blue-500 transition-all font-mono text-sm" />
               </div>
               <div>
                 <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Key size={14}/> API Key</label>
-                <input type="password" value={settings.openai_api_key} onChange={(e) => setSettings({...settings, openai_api_key: e.target.value})} className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-blue-500 transition-all font-mono text-sm" />
+                <input type="password" value={thinkingSettings.thinking_api_key} onChange={(e) => setThinkingSettings({...thinkingSettings, thinking_api_key: e.target.value})} className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-blue-500 transition-all font-mono text-sm" />
+              </div>
+            </div>
+
+            {/* ==========================================
+                极速模型配置区域（原"意图识别模型"）
+                用于意图识别和日常对话，未配置时回退到思考模型
+                ========================================== */}
+            <div className="mt-6 bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-5">
+              <h4 className="text-sm font-medium text-white flex items-center gap-2"><Zap size={14} className="text-emerald-400"/> 极速模型配置</h4>
+              <p className="text-xs text-neutral-500">用于意图识别和日常对话，未配置时自动回退到思考模型。</p>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Globe size={14}/> API Base URL</label>
+                <input type="text" value={fastSettings.fast_base_url} onChange={(e) => setFastSettings({...fastSettings, fast_base_url: e.target.value})} placeholder="留空则使用思考模型配置" className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-emerald-500 transition-all font-mono text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Monitor size={14}/> 极速模型 (Model Name)</label>
+                <input type="text" value={fastSettings.fast_model} onChange={(e) => setFastSettings({...fastSettings, fast_model: e.target.value})} placeholder="留空则使用思考模型配置" className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-emerald-500 transition-all font-mono text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-2 flex items-center gap-2"><Key size={14}/> API Key</label>
+                <input type="password" value={fastSettings.fast_api_key} onChange={(e) => setFastSettings({...fastSettings, fast_api_key: e.target.value})} placeholder="留空则使用思考模型 API Key" className="w-full bg-neutral-950 border border-neutral-700 text-white rounded-md p-2.5 outline-none focus:border-emerald-500 transition-all font-mono text-sm" />
               </div>
             </div>
 

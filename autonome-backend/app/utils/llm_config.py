@@ -433,10 +433,3 @@ def mask_api_key(api_key: Optional[str]) -> Optional[str]:
     if len(api_key) <= 8:
         return "sk-***"
     return "sk-***" + api_key[-4:]
-
-
-# ========== 向后兼容别名（过渡期，Task 8 中删除）==========
-get_llm_config = get_thinking_llm_config
-get_intent_llm_config = get_fast_llm_config
-get_llm_config_standalone = get_thinking_llm_config_standalone
-get_intent_llm_config_standalone = get_fast_llm_config_standalone
