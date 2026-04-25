@@ -10,6 +10,7 @@ import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { ParameterProbingCard, type ParameterProbingCardProps } from "./ParameterProbingCard";
 import { AdhocAnalysisCard } from "./components/AdhocAnalysisCard";
+import { IntentTag } from "./IntentTag";
 import { BASE_URL, getToken } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
 import { buildAssetTreeFromFiles, AssetTreeNode } from "@/components/chat/shared/AssetTree";
@@ -454,6 +455,8 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
             </div>
           ) : (
             <div className="flex flex-col gap-4 w-full">
+              {/* ✨ 意图识别标签：AI 消息左上角显示意图类型胶囊 */}
+              {msg.intentLabel && <IntentTag intentType={msg.intentLabel} />}
               {/* ✨ 任务元数据卡片：显示任务 ID 和名称 */}
               {taskMeta && (
                 <TaskMetaCard taskId={taskMeta.taskId} taskName={taskMeta.taskName} />

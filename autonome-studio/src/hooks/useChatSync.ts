@@ -280,6 +280,12 @@ export function useChatSync({ messages, isLoading, pendingAttachmentsRef }: UseC
                 }));
                 useChatStore.getState().setDagProgress(dagProgress);
               }
+              // ✨ 意图标签：提取首个节点的 intent 类型，存入最近 assistant 消息
+              // intent 事件在 assistant 消息之前到达，setLastAssistantIntentLabel 会暂存
+              // 等 assistant 消息创建后回填
+              if (dagNodes && dagNodes.length > 0 && dagNodes[0].intent) {
+                useChatStore.getState().setLastAssistantIntentLabel(dagNodes[0].intent as string);
+              }
             }
             break;
           case 'queue_start':
