@@ -135,7 +135,8 @@ export const useAuthStore = create<AuthState>()(
       logout: async () => {
         try {
           // 调用后端登出端点：撤销会话 + 清除 Cookie
-          await fetchAPI('/auth/logout', { method: 'POST' });
+          // skipRefresh: true 防止 logout 401 触发 refresh 死循环
+          await fetchAPI('/auth/logout', { method: 'POST', skipRefresh: true });
         } catch {
           // 即使后端登出失败，前端仍需清除本地状态
         }

@@ -73,9 +73,9 @@ async function refreshAccessToken(): Promise<boolean> {
       });
 
       if (!response.ok) {
-        // Refresh 失败，清除状态，跳转登录
-        const { logout } = useAuthStore.getState();
-        logout();
+        // Refresh 失败，直接清除本地状态（不调后端 logout，避免死循环）
+        const { clearAll } = useAuthStore.getState();
+        clearAll();
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
@@ -92,9 +92,9 @@ async function refreshAccessToken(): Promise<boolean> {
 
       return true;
     } catch {
-      // 网络错误等
-      const { logout } = useAuthStore.getState();
-      logout();
+      // 网络错误等，直接清除本地状态（不调后端 logout，避免死循环）
+      const { clearAll } = useAuthStore.getState();
+      clearAll();
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }
@@ -112,16 +112,29 @@ async function refreshAccessToken(): Promise<boolean> {
 // 核心 fetchAPI 函数
 // ==========================================
 
+// ==========================================
+// 401 安全端点：这些端点的 401 不应触发刷新
+// 避免刷新失败→logout→401→刷新 的死循环
+// ==========================================
+
+const AUTH_ENDPOINTS_SKIP_REFRESH = ['/auth/logout', '/auth/refresh'];
+
+function shouldSkipRefresh(endpoint: string): boolean {
+  const normalized = normalizeEndpoint(endpoint);
+  return AUTH_ENDPOINTS_SKIP_REFRESH.some(ep => normalized === ep);
+}
+
 export async function fetchAPI(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit & { skipRefresh?: boolean } = {}
 ): Promise<any> {
+  const { skipRefresh, ...fetchOptionsBase } = options;
   const url = `${API_BASE_URL}${normalizeEndpoint(endpoint)}`;
 
   // 构建请求头
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
+    ...(fetchOptionsBase.headers as Record<string, string> || {}),
   };
 
   // 对于 SSE/WebSocket 等需要手动注入 Token 的场景
@@ -133,7 +146,7 @@ export async function fetchAPI(
 
   // 构建请求选项
   const fetchOptions: RequestInit = {
-    ...options,
+    ...fetchOptionsBase,
     headers,
     // Cookie 模式：自动携带 httpOnly Cookie
     credentials: 'include',
@@ -144,8 +157,10 @@ export async function fetchAPI(
 
   // ==========================================
   // 401 拦截器：自动刷新 Token
+  // 跳过条件：显式 skipRefresh 或认证端点（logout/refresh）
   // ==========================================
-  if (response.status === 401) {
+  const shouldRefresh = !skipRefresh && !shouldSkipRefresh(endpoint);
+  if (response.status === 401 && shouldRefresh) {
     // 尝试刷新 Token
     const refreshed = await refreshAccessToken();
 
@@ -164,8 +179,8 @@ export async function fetchAPI(
 
       // 重试后仍然 401，说明真的没权限
       if (response.status === 401) {
-        const { logout } = useAuthStore.getState();
-        logout();
+        const { clearAll } = useAuthStore.getState();
+        clearAll();
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
@@ -298,8 +313,8 @@ export async function uploadFile(
 
       // 重试后仍然 401，说明真的没权限
       if (response.status === 401) {
-        const { logout } = useAuthStore.getState();
-        logout();
+        const { clearAll } = useAuthStore.getState();
+        clearAll();
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
