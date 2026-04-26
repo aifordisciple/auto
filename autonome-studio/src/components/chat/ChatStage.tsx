@@ -82,6 +82,8 @@ export function ChatStage() {
   // 使用 ref 缓冲：handleSendWrapper 提取路径存入 ref → body() 从 ref 读取 → 发送后清空 ref
   const pendingImagesRef = useRef<string[]>([]);
   const pendingFilesRef = useRef<string[]>([]);
+  // ✨ 项目文件附件路径缓冲区（解决时序问题：clearPendingChatAttachments 在 body() 读取前清空 store）
+  const pendingContextFilesRef = useRef<string[]>([]);
   // ✨ 待关联到用户消息的 attachments（发送后通过 useChatSync 关联）
   const pendingAttachmentsRef = useRef<MessageAttachments | null>(null);
 
@@ -106,7 +108,8 @@ export function ChatStage() {
       data: {
         projectId: useWorkspaceStore.getState().currentProjectId,
         sessionId: useWorkspaceStore.getState().currentSessionId,
-        contextFiles: useWorkspaceStore.getState().pendingChatAttachments,
+        // ✨ 项目文件附件路径（从 ref 缓冲区读取，确保时序正确，与 images/pastedFiles 一致）
+        contextFiles: pendingContextFilesRef.current,
         // ✨ 深度思考开关：从 chatStore 读取（持久化状态）
         enableThink: useChatStore.getState().enableThink,
         // ✨ 粘贴上传的图片和文件路径（从 ref 缓冲区读取，确保时序正确）
@@ -456,6 +459,8 @@ export function ChatStage() {
 
     pendingImagesRef.current = imagePaths;
     pendingFilesRef.current = filePaths;
+    // ✨ 将项目文件附件路径存入 ref 缓冲区（body() 从此 ref 读取，避免 store 被清空后丢失）
+    pendingContextFilesRef.current = contextFiles;
 
     // ✨ 设置待关联的 attachments（发送后 useChatSync 会将其附加到最新用户消息）
     // 包含粘贴附件（图片/文件）和项目文件附件（contextFiles → files 字段，蓝色标签）
@@ -480,6 +485,7 @@ export function ChatStage() {
     setTimeout(() => {
       pendingImagesRef.current = [];
       pendingFilesRef.current = [];
+      pendingContextFilesRef.current = [];
     }, 100);
 
     // 自动滚动到底部
