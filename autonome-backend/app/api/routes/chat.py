@@ -676,9 +676,14 @@ async def chat_stream(
                                     path_key = "directory_path" if tool_name == "scan_workspace" else "file_path"
                                     if path_key in tool_args:
                                         requested_path = tool_args[path_key]
-                                        # 如果请求路径不在项目目录下，强制替换
-                                        if not requested_path.startswith(data_probe_project_dir):
-                                            log.warning(f"[Chat] data_probe 路径修正: {requested_path} → {data_probe_project_dir}")
+                                        # 相对路径 → 拼接到项目目录下，而非替换
+                                        if not requested_path.startswith("/"):
+                                            corrected_path = os.path.join(data_probe_project_dir, requested_path)
+                                            log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
+                                            tool_args[path_key] = corrected_path
+                                        # 绝对路径但不在项目目录下 → 限制在项目目录内
+                                        elif not requested_path.startswith(data_probe_project_dir):
+                                            log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
                                             tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
@@ -843,8 +848,14 @@ async def chat_stream(
                                     path_key = "directory_path" if tool_name == "scan_workspace" else "file_path"
                                     if path_key in tool_args:
                                         requested_path = tool_args[path_key]
-                                        if not requested_path.startswith(data_probe_project_dir):
-                                            log.warning(f"[Chat] data_probe 路径修正: {requested_path} → {data_probe_project_dir}")
+                                        # 相对路径 → 拼接到项目目录下，而非替换
+                                        if not requested_path.startswith("/"):
+                                            corrected_path = os.path.join(data_probe_project_dir, requested_path)
+                                            log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
+                                            tool_args[path_key] = corrected_path
+                                        # 绝对路径但不在项目目录下 → 限制在项目目录内
+                                        elif not requested_path.startswith(data_probe_project_dir):
+                                            log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
                                             tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
