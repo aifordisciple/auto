@@ -166,7 +166,7 @@ def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
 🔤 分隔符: {delimiter_desc}
 
 📋 表头列表 (共 {n_cols} 列):
-{json.dumps(headers, ensure_ascii=False, indent=2)}
+{json.dumps(headers if len(headers) <= 25 else headers[:25] + [f"... 共 {n_cols} 列，完整列表见 structured.headers"], ensure_ascii=False, indent=2)}
 
 📝 前 {min(n_rows, len(preview_data))} 行数据预览:
 """
@@ -284,9 +284,11 @@ def scan_workspace(directory_path: str, max_depth: int = 3) -> str:
                 new_prefix = prefix + ("    " if is_last_folder else "│   ")
                 scan_recursive(os.path.join(path, folder), new_prefix, depth + 1)
 
-            # 渲染文件
-            for i, file in enumerate(files):
-                is_last = (i == len(files) - 1)
+            # 渲染文件（每目录最多展示 MAX_FILES_PER_DIR 个，避免淹没问题）
+            MAX_FILES_PER_DIR = 30
+            show_files = files[:MAX_FILES_PER_DIR]
+            for i, file in enumerate(show_files):
+                is_last = (i == len(show_files) - 1) and (len(files) <= MAX_FILES_PER_DIR)
                 connector = "└── " if is_last else "├── "
 
                 # 获取文件大小
@@ -303,8 +305,13 @@ def scan_workspace(directory_path: str, max_depth: int = 3) -> str:
 
                 result_lines.append(f"{prefix}{connector}{icon} {file} ({size_str})")
 
-                # 统计文件类型
+            if len(files) > MAX_FILES_PER_DIR:
+                result_lines.append(f"{prefix}└── ... 等 {len(files)} 个文件")
+
+            # 统计文件类型（统计所有文件，不仅展示的）
+            for file in files:
                 file_counts["total"] += 1
+                ext = os.path.splitext(file)[1].lower()
                 if ext:
                     file_counts["by_extension"][ext] = file_counts["by_extension"].get(ext, 0) + 1
                 else:
@@ -810,41 +817,58 @@ def detect_na(file_path: str, threshold: Optional[float] = None) -> str:
         else:
             filtered_cols = list(df.columns)
 
-        # 构建报告
+        # 构建报告（精简摘要 + 结构化明细）
         total_na_rows = df.isna().any(axis=1).sum()
-        result = f"""🔍 缺失值检测报告
+        overall_na_ratio = sum(total_missing.values()) / (n_rows * n_cols) if n_cols > 0 else 0
+        total_missing_count = sum(total_missing.values())
 
-📁 文件路径: {file_path}
-📐 数据维度: {n_rows} 行 × {n_cols} 列
-📊 总缺失值: {sum(total_missing.values())} 个
-📊 含缺失值的行: {total_na_rows} ({total_na_rows / n_rows * 100:.1f}%)
+        # 区分问题列和正常列
+        problem_cols = []
+        clean_count = 0
+        for col in df.columns:
+            missing = total_missing[col]
+            ratio = missing / n_rows if n_rows > 0 else 0
+            if ratio > 0.01:  # >1% 缺失
+                status = "🔴 严重" if ratio > 0.3 else ("⚠️ 需关注" if ratio > 0.1 else "📌 轻微")
+                problem_cols.append((col, missing, ratio, status))
+            elif missing > 0:
+                problem_cols.append((col, missing, ratio, "✅ 正常"))
+            else:
+                clean_count += 1
 
-📋 逐列缺失统计:
-"""
-        if not filtered_cols:
-            result += "  ✅ 所有列均无缺失值\n"
+        # 按缺失率降序排列
+        problem_cols.sort(key=lambda x: x[2], reverse=True)
+
+        summary_lines = [
+            f"🔍 缺失值检测报告",
+            f"",
+            f"📁 文件: {os.path.basename(file_path)}",
+            f"📐 维度: {n_rows} 行 × {n_cols} 列",
+            f"📊 总缺失值: {total_missing_count} 个，涉及 {total_na_rows} 行 ({total_na_rows / n_rows * 100:.1f}%)",
+            f"📊 总体缺失比例: {overall_na_ratio:.2%}",
+        ]
+
+        if clean_count == n_cols:
+            summary_lines.append(f"✅ 所有 {n_cols} 列均无缺失值")
         else:
-            result += f"  {'列名':<25} {'缺失数':>8} {'缺失率':>8} {'状态'}\n"
-            result += f"  {'-'*25} {'-'*8} {'-'*8} {'-'*10}\n"
-            for col in filtered_cols:
-                missing = total_missing[col]
-                ratio = missing / n_rows
-                total_missing_calc = missing  # use the combined value
-                status = "⚠️ 需关注" if ratio > 0.1 else ("🔴 严重" if ratio > 0.3 else "✅ 正常")
-                result += f"  {col:<25} {total_missing_calc:>8} {ratio:>7.1%}  {status}\n"
+            max_show = 15
+            summary_lines.append(f"📋 含缺失值的列 ({len(problem_cols)} 个，显示前{max_show}):")
+            for col, missing, ratio, status in problem_cols[:max_show]:
+                summary_lines.append(f"  {status} {col}: {missing} 个 ({ratio:.1%})")
+            if len(problem_cols) > max_show:
+                summary_lines.append(f"  ... 共 {len(problem_cols)} 列，完整明细见 structured.columns")
+            summary_lines.append(f"✅ 无缺失列: {clean_count} 个")
 
         # 总体判断
-        overall_na_ratio = sum(total_missing.values()) / (n_rows * n_cols) if n_cols > 0 else 0
-        result += f"\n📊 总体评估:\n"
-        result += f"  - 总缺失比例: {overall_na_ratio:.2%}\n"
         if overall_na_ratio > 0.05:
-            result += f"  - ⚠️ 缺失比例较高，建议下游分析前进行缺失值处理（插补或删除）\n"
+            summary_lines.append(f"💡 缺失比例较高，建议下游分析前进行缺失值处理")
         else:
-            result += f"  - ✅ 缺失比例较低，数据质量良好\n"
+            summary_lines.append(f"✅ 数据质量良好")
+
+        result = "\n".join(summary_lines)
 
         log.info(f"✅ [Probe] detect_na 完成: {n_rows} 行, {n_cols} 列")
         # V2.4: 双模输出
-        overall_na_ratio = sum(total_missing.values()) / (n_rows * n_cols) if n_cols > 0 else 0
         na_columns = []
         for col in df.columns:
             na_columns.append({
@@ -854,7 +878,7 @@ def detect_na(file_path: str, threshold: Optional[float] = None) -> str:
             })
         structured = {
             "overall_na_ratio": round(overall_na_ratio, 4),
-            "total_missing": sum(total_missing.values()),
+            "total_missing": total_missing_count,
             "columns": na_columns,
             "n_rows": n_rows,
             "n_cols": n_cols,
