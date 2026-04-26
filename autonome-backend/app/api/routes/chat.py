@@ -96,12 +96,47 @@ SYSTEM_PROMPT_DATA_PROBE_TEMPLATE = """你是一个专业的生物信息学数�
 
 核心原则：
 - 用中文回答问题
-- 你拥有探针工具（scan_workspace, peek_tabular_data, inspect_h5ad, inspect_fastq, inspect_bam），必须主动调用这些工具来获取信息，而不是凭猜测回答
-- 当用户询问"有哪些文件"、"目录结构"时，调用 scan_workspace 扫描工作区
-- ⚠️ 重要：scan_workspace 的 directory_path 参数必须使用当前项目的工作区路径，不要扫描其他项目或根目录
-- 当用户询问数据结构、预览数据时，调用对应的探针工具
+- 必须主动调用探针工具来获取信息，不要凭猜测回答
 - 工具调用后，用中文整理和解读结果，提供专业建议
 - 不要在回答开头重复自己的身份，直接进入正题
+
+## 可用探针工具（11个）
+
+### 文件系统与目录
+- **scan_workspace**：扫描工作区目录结构，列出文件和子目录
+- **match_paired_fastq**：配对双端 FASTQ 文件（R1/R2），检测落单文件
+
+### 表格数据探查
+- **peek_tabular_data**：预览表格文件（CSV/TSV/TXT），显示表头、行列数、前几行
+- **detect_na**：缺失值检测，逐列统计 NA/NaN/空值数量和占比
+- **compute_summary_stats**：数值列汇总统计（count/mean/std/min/25%/50%/75%/max），推断 Log 转换状态
+- **compute_set_operations**：两个文件列之间的集合运算（交集/并集/差集/重叠比例）
+
+### 编码与格式检测
+- **detect_file_encoding**：检测文件字符编码和分隔符类型（Tab/Comma/Semicolon/Pipe）
+
+### 多组学文件探查
+- **inspect_h5ad**：AnnData 对象探查（obs/var/X 层维度、obs/var 列名）
+- **inspect_fastq**：FASTQ 文件质量摘要（读长分布、GC 含量、碱基质量）
+- **inspect_bam**：BAM 文件比对统计 + Header 解析（@SQ 参考序列/@RG 读组/@PG 处理程序）
+- **inspect_vcf**：VCF 文件变异统计（样本列表、染色体分布、变异类型）
+
+## 工具选择指南
+| 用户需求 | 使用工具 |
+|---------|---------|
+| 有哪些文件 / 目录结构 | scan_workspace |
+| 查看文件内容 / 表头 / 多少行列 | peek_tabular_data |
+| 缺失值 / NA 比例 / 空值 | detect_na |
+| 统计信息 / min/max / 均值 / 是否 Log 转换 | compute_summary_stats |
+| 文件编码 / 分隔符是什么 | detect_file_encoding |
+| 基因重叠 / 交集 / 并集 / Venn | compute_set_operations |
+| 配对 FASTQ / 双端文件 / R1 R2 匹配 | match_paired_fastq |
+| h5ad 结构 / AnnData 信息 | inspect_h5ad |
+| FASTQ 质量 / GC 含量 | inspect_fastq |
+| BAM 文件 / 比对信息 / 参考基因组是 hg19 还是 hg38 | inspect_bam |
+| VCF 文件 / 变异样本 / 染色体分布 | inspect_vcf |
+
+⚠️ 重要：所有文件/目录操作限定在当前项目工作区内，不要扫描或访问其他项目目录。
 
 当前项目工作区路径：{workspace_path}
 
@@ -133,6 +168,21 @@ SYSTEM_PROMPT_ORCHESTRATE = """你是一个专业的生物信息学流程编排�
 - 仅负责"调度"和"串联"，不负责单一脚本的具体实现
 - 直接进入正题，不要自我介绍"""
 
+
+# ==========================================
+# 路径安全：探针工具参数名映射
+# 用于在工具调用时强制将文件/目录路径限定在当前项目工作区内
+# ==========================================
+PATH_SAFE_TOOL_PARAMS = {
+    "scan_workspace": ["directory_path"],
+    "peek_tabular_data": ["file_path"],
+    "detect_na": ["file_path"],
+    "compute_summary_stats": ["file_path"],
+    "detect_file_encoding": ["file_path"],
+    "compute_set_operations": ["file_path_1", "file_path_2"],
+    "inspect_vcf": ["file_path"],
+    "match_paired_fastq": ["directory_path"],
+}
 
 # ==========================================
 # 核心聊天流 API
@@ -675,19 +725,20 @@ async def chat_stream(
 
                                 # 执行工具
                                 # ✨ 路径安全修正：强制限定在当前项目目录内
-                                if data_probe_project_dir and tool_name in ("scan_workspace", "peek_tabular_data"):
-                                    path_key = "directory_path" if tool_name == "scan_workspace" else "file_path"
-                                    if path_key in tool_args:
-                                        requested_path = tool_args[path_key]
-                                        # 相对路径 → 拼接到项目目录下，而非替换
-                                        if not requested_path.startswith("/"):
-                                            corrected_path = os.path.join(data_probe_project_dir, requested_path)
-                                            log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
-                                            tool_args[path_key] = corrected_path
-                                        # 绝对路径但不在项目目录下 → 限制在项目目录内
-                                        elif not requested_path.startswith(data_probe_project_dir):
-                                            log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
-                                            tool_args[path_key] = data_probe_project_dir
+                                # 对所有文件/目录路径参数进行安全校验
+                                if data_probe_project_dir and tool_name in PATH_SAFE_TOOL_PARAMS:
+                                    for path_key in PATH_SAFE_TOOL_PARAMS[tool_name]:
+                                        if path_key in tool_args:
+                                            requested_path = tool_args[path_key]
+                                            # 相对路径 → 拼接到项目目录下，而非替换
+                                            if not requested_path.startswith("/"):
+                                                corrected_path = os.path.join(data_probe_project_dir, requested_path)
+                                                log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
+                                                tool_args[path_key] = corrected_path
+                                            # 绝对路径但不在项目目录下 → 限制在项目目录内
+                                            elif not requested_path.startswith(data_probe_project_dir):
+                                                log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
+                                                tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
                                     for t in probe_tools_list:
@@ -847,19 +898,20 @@ async def chat_stream(
 
                                 # 执行工具
                                 # ✨ 路径安全修正：强制限定在当前项目目录内
-                                if data_probe_project_dir and tool_name in ("scan_workspace", "peek_tabular_data"):
-                                    path_key = "directory_path" if tool_name == "scan_workspace" else "file_path"
-                                    if path_key in tool_args:
-                                        requested_path = tool_args[path_key]
-                                        # 相对路径 → 拼接到项目目录下，而非替换
-                                        if not requested_path.startswith("/"):
-                                            corrected_path = os.path.join(data_probe_project_dir, requested_path)
-                                            log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
-                                            tool_args[path_key] = corrected_path
-                                        # 绝对路径但不在项目目录下 → 限制在项目目录内
-                                        elif not requested_path.startswith(data_probe_project_dir):
-                                            log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
-                                            tool_args[path_key] = data_probe_project_dir
+                                # 对所有文件/目录路径参数进行安全校验
+                                if data_probe_project_dir and tool_name in PATH_SAFE_TOOL_PARAMS:
+                                    for path_key in PATH_SAFE_TOOL_PARAMS[tool_name]:
+                                        if path_key in tool_args:
+                                            requested_path = tool_args[path_key]
+                                            # 相对路径 → 拼接到项目目录下，而非替换
+                                            if not requested_path.startswith("/"):
+                                                corrected_path = os.path.join(data_probe_project_dir, requested_path)
+                                                log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
+                                                tool_args[path_key] = corrected_path
+                                            # 绝对路径但不在项目目录下 → 限制在项目目录内
+                                            elif not requested_path.startswith(data_probe_project_dir):
+                                                log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
+                                                tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
                                     for t in probe_tools_list:
