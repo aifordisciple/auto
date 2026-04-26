@@ -222,15 +222,33 @@ class VersionControlRule(Rule):
 
     检测回滚、版本对比、历史、撤销等关键词，
     路由到 VERSION_CONTROL 意图。
+
+    V2.2 升级：细化"对比"关键词匹配，避免非版本对比场景误判。
+    "对比文献A和B" → LITERATURE_MINING（不是版本控制）
+    "对比两次运行结果" → VERSION_CONTROL
     """
 
     # 版本控制关键词正则
+    # "对比" 需要与版本上下文词组合才匹配，避免"对比文献/数据/方法"误判
     VERSION_PATTERN = re.compile(
-        r'(回滚|版本|对比|rollback|version|diff\s+版本|历史版本|撤销)',
+        r'(回滚|版本对比|对比版本|对比.*运行|对比.*结果|rollback|version|'
+        r'diff\s+版本|历史版本|撤销|版本|对比.*环境)',
+        re.IGNORECASE
+    )
+
+    # 排除模式：对比文献/文章/数据 → 不是版本控制
+    # 注意："对比.*环境" 不排除，因为"对比两次运行的环境差异"属于版本控制意图
+    VERSION_EXCLUSION_PATTERN = re.compile(
+        r'(对比.*文献|对比.*文章|对比.*论文|对比.*数据|对比.*方法|对比.*样本|'
+        r'对比.*配置|对比.*工作区)',
         re.IGNORECASE
     )
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        # 排除：对比文献/文章/数据等非版本对比场景
+        if self.VERSION_EXCLUSION_PATTERN.search(query):
+            return None
+
         if self.VERSION_PATTERN.search(query):
             log.debug("[L0] VersionControlRule 命中")
             return IntentExtraction(
@@ -263,7 +281,8 @@ class SystemAssetOpsRule(Rule):
 
     SYSTEM_ASSET_PATTERN = re.compile(
         r'(移动|删除|归档|转存|清理.*文件|冷存储|'
-        r'节点.*切换|切换.*节点|实例.*切换|切换.*实例|高配|低配|升级.*实例|'
+        r'节点.*切换|切换.*节点|切.*大.*节点|切.*高配|切到.*节点|切.*内存|'
+        r'实例.*切换|切换.*实例|高配|低配|升级.*实例|'
         r'积分|配额|消耗.*积分|余额|计费|'
         r'打包.*镜像|自定义镜像|环境.*打包|环境.*克隆|环境.*导出|'
         r'挂载|卸载|数据库.*挂载|挂载.*数据库|'
@@ -327,6 +346,16 @@ class LiteraturePatternRule(Rule):
     )
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        # 排除：当查询同时包含视觉微调关键词时，不拦截为 LITERATURE_MINING
+        # 例如："把这篇文章的配色换成 Nature 风格" → 视觉微调优先
+        VISUAL_OVERRIDE_PATTERN = re.compile(
+            r'(配色|颜色|调色板|阈值|DPI|分辨率|palette|theme|样式|改成|换成|修改.*图|调整.*图)',
+            re.IGNORECASE
+        )
+        if VISUAL_OVERRIDE_PATTERN.search(query):
+            log.debug("[L0] LiteraturePatternRule 未命中: 查询包含视觉微调关键词，放行至 VisualTweakRule")
+            return None
+
         # 模式1: DOI
         if self.DOI_PATTERN.search(query):
             log.debug("[L0] LiteraturePatternRule 命中: DOI")
@@ -388,9 +417,10 @@ class CollaborationRule(Rule):
         r'(分享|共享|权限|只读|编辑权限|协同|'
         r'团队|科室|分享链接|对外分享|'
         r'加入.*项目|邀请|移除.*成员|'
-        r'发布.*技能库|技能库.*发布|'
-        r'克隆.*工作区|克隆.*环境|'
-        r'导出.*审计|审计日志|操作记录|对话记录)',
+        r'发布.*技能库|技能库.*发布|发布到.*团队|发布到.*科室|'
+        r'克隆.*工作区|克隆.*环境|克隆给|'
+        r'导出.*审计|审计日志|操作记录|对话记录|'
+        r'公开.*编辑|开放.*编辑|设为公开)',
         re.IGNORECASE
     )
 
