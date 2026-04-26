@@ -926,43 +926,11 @@ def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
         n_rows = len(df)
         n_numeric = len(numeric_cols)
 
-        result = f"""📊 汇总统计报告
-
-📁 文件路径: {file_path}
-📐 数据维度: {n_rows} 行 × {len(df.columns)} 列
-🔢 数值列: {n_numeric} 个
-📏 统计样本: {int(stats_df.loc['count'].max())} 行
-
-📋 逐列统计:
-"""
-        stats_mapping = {
-            'count': '计数', 'mean': '均值', 'std': '标准差',
-            'min': '最小值', '25%': 'Q1(25%)', '50%': '中位数',
-            '75%': 'Q3(75%)', 'max': '最大值'
-        }
-
-        # 转置表格方便阅读
-        for col in numeric_cols:
-            result += f"\n  📌 {col}:\n"
-            for stat_key, stat_label in stats_mapping.items():
-                if stat_key in stats_df.index:
-                    val = stats_df.loc[stat_key, col]
-                    if stat_key == 'count':
-                        result += f"    {stat_label}: {int(val):,}\n"
-                    else:
-                        result += f"    {stat_label}: {val:.4f}\n"
-
-            # 额外推断
-            col_min = stats_df.loc['min', col]
-            col_max = stats_df.loc['max', col]
-            if col_max <= 30 and col_min >= -5:
-                result += f"    💡 值范围 [{col_min:.2f}, {col_max:.2f}]，可能已做 Log 转换\n"
-            elif col_max > 1000:
-                result += f"    💡 值范围 [{col_min:.2f}, {col_max:.2f}]，可能为原始计数/丰度值\n"
-
         log.info(f"✅ [Probe] compute_summary_stats 完成: {n_rows} 行, {n_numeric} 数值列")
-        # V2.4: 双模输出
+
+        # 收集结构化数据 + 计算全局汇总指标
         structured_columns = []
+        all_mins, all_maxs, all_medians, all_means = [], [], [], []
         log_transformed_hint = False
         for col in numeric_cols:
             col_stats = {"name": col}
@@ -981,16 +949,72 @@ def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
             col_stats["q3"] = col_stats.pop("75%")
             col_min = col_stats.get("min")
             col_max = col_stats.get("max")
-            if col_min is not None and col_max is not None and col_max <= 30 and col_min >= -5:
-                log_transformed_hint = True
+            col_median = col_stats.get("median")
+            col_mean = col_stats.get("mean")
+            if col_min is not None and col_max is not None:
+                all_mins.append(col_min)
+                all_maxs.append(col_max)
+                if col_max <= 30 and col_min >= -5:
+                    log_transformed_hint = True
+            if col_median is not None:
+                all_medians.append(col_median)
+            if col_mean is not None:
+                all_means.append(col_mean)
             structured_columns.append(col_stats)
+
         structured = {
             "columns": structured_columns,
             "log_transformed_hint": log_transformed_hint,
             "n_rows": n_rows,
             "n_numeric_cols": n_numeric,
         }
-        result = _make_probe_result(result, structured)
+
+        # 生成简洁摘要（不含逐列明细，明细在 structured 中）
+        global_min = min(all_mins) if all_mins else None
+        global_max = max(all_maxs) if all_maxs else None
+        median_of_medians = sorted(all_medians)[len(all_medians)//2] if all_medians else None
+        median_of_means = sorted(all_means)[len(all_means)//2] if all_means else None
+
+        summary_lines = [
+            f"📊 汇总统计报告",
+            f"",
+            f"📁 文件: {os.path.basename(file_path)}",
+            f"📐 维度: {n_rows} 行 × {len(df.columns)} 列（其中 {n_numeric} 个数值列）",
+        ]
+
+        if global_min is not None and global_max is not None:
+            summary_lines.append(f"📏 全局值范围: [{global_min:.2f}, {global_max:.2f}]")
+        if median_of_medians is not None:
+            summary_lines.append(f"📈 列中位数分布: 中位值 ≈ {median_of_medians:.2f}，均值中位 ≈ {median_of_means:.2f}")
+
+        # 统计推断
+        if log_transformed_hint and global_min is not None and global_min < 0:
+            summary_lines.append(f"💡 存在负值（Min={global_min:.2f}），且值范围紧凑，数据很可能已做 Log2(x+1) 转换")
+        elif log_transformed_hint and global_min is not None and global_min >= 0:
+            summary_lines.append(f"💡 值范围 [{global_min:.2f}, {global_max:.2f}]，可能已做 Log 转换")
+        elif global_max is not None and global_max > 1000:
+            summary_lines.append(f"💡 最大值超过 1000，可能为原始计数/丰度值，建议 Log2 转换后再分析")
+
+        # 代表性列示例（前5列 + 首列如果是非数值列则标注）
+        sample_cols = numeric_cols[:5]
+        total_to_show = len(sample_cols)
+        summary_lines.append(f"📋 各列统计详情见报告结构化字段（前{total_to_show}列预览）:")
+        for col in sample_cols:
+            col_m = next((c for c in structured_columns if c["name"] == col), None)
+            if col_m:
+                summary_lines.append(
+                    f"  · {col}: Min={col_m.get('min')}, Median={col_m.get('median')}, "
+                    f"Mean={col_m.get('mean')}, Max={col_m.get('max')}"
+                )
+        if len(numeric_cols) > total_to_show:
+            summary_lines.append(f"  ... 共 {len(numeric_cols)} 列，完整明细见 structured.columns")
+
+        # 第一列为非数值列时标注（如 Gene 列）
+        first_col = df.columns[0]
+        if first_col not in numeric_cols:
+            summary_lines.insert(3, f"ℹ️  首列 '{first_col}' 为非数值列，已自动排除")
+
+        result = _make_probe_result("\n".join(summary_lines), structured)
         _cache_result(cache_key, result)
         return result
 
