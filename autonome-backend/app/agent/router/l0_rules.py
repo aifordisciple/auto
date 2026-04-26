@@ -542,6 +542,12 @@ class ProbePatternRule(Rule):
         re.IGNORECASE
     )
 
+    # 代码生成排除模式：写/生成脚本等应走 SKILL_FORGE，不应被误判为 PROBE
+    CODE_GEN_INDICATORS = re.compile(
+        r'(写|编写|生成|创建|制作).*(?:脚本|代码|程序|script|code)',
+        re.IGNORECASE
+    )
+
     # 文件系统探索关键词（无需文件上下文，查询工作区文件结构）
     # 包含两种语序：
     #   - "有哪些文件"、"哪些文件"（疑问词在前）
@@ -559,6 +565,11 @@ class ProbePatternRule(Rule):
     )
 
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        # 排除代码生成场景："写脚本统计GC含量" 应走 SKILL_FORGE
+        if self.CODE_GEN_INDICATORS.search(query):
+            log.debug("[L0] ProbePatternRule 未命中: 代码生成场景")
+            return None
+
         has_file_context = bool(context.get("active_file") or context.get("context_files"))
 
         # 场景 1: 有文件上下文 + 探查关键词 → 数据集探查

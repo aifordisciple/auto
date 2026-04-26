@@ -1504,4 +1504,8 @@ probe_tools_list = [
     compute_set_operations, inspect_vcf, match_paired_fastq,
 ]
 
+# 工具分类：查看类（内容预览，附件注入时可跳过）vs 计算类（深度分析，附件注入时保留）
+VIEW_TOOLS = {"scan_workspace", "peek_tabular_data", "inspect_h5ad", "inspect_fastq", "inspect_bam", "inspect_vcf"}
+COMPUTE_TOOLS = {"detect_na", "compute_summary_stats", "detect_file_encoding", "compute_set_operations", "match_paired_fastq"}
+
 log.info("🔍 环境探针工具模块已加载（含多组学探针）")

@@ -14,13 +14,70 @@ V2.0 升级要点（L1 结构化上下文增强）：
 - route() 方法在调用 L1 解构前注入技能摘要，提升 INTENT_EXPLICIT_EXEC 识别准确率
 """
 from typing import Any, Dict, Optional
+import os
+from pathlib import Path
 
 from app.agent.router.l0_rules import L0RuleEngine
 from app.agent.router.l1_classifier import L1Classifier
 from app.agent.router.l2_extractor import check_task_parameters
-from app.agent.router.schemas import IntentExtraction, TaskDAG, TaskNode, RouteResult
+from app.agent.router.schemas import IntentExtraction, TaskDAG, TaskNode, RouteResult, IntentType, ProbingRequest
 from app.services.skill_parameter_registry import SkillParameterRegistry
+from app.core.config import settings
 from app.core.logger import log
+
+
+def _validate_resolved_assets(dag: TaskDAG, context: Dict[str, Any]) -> TaskDAG:
+    """
+    Phase 6: 验证 L1 指代消解结果中的 resolved_assets 是否有效。
+
+    程序说明：
+    L1 LLM 可能幻觉出不存在的 asset ID。此函数将 resolved_assets 与
+    workspace context 中实际存在的文件进行交叉校验，移除无效 ID。
+    如果所有 ID 都被移除，降级使用 active_file。
+
+    Args:
+        dag: L1 解构产生的 TaskDAG
+        context: 前端注入的工作区上下文
+
+    Returns:
+        校验后的 TaskDAG（可能修改了 resolved_assets）
+    """
+    # 收集所有有效的文件标识符（ID 和名称均可匹配）
+    valid_ids: set = set()
+    context_files = context.get("context_files") or []
+    for f in context_files:
+        if isinstance(f, dict):
+            fid = f.get("id", "")
+            fname = f.get("name", "")
+            if fid:
+                valid_ids.add(fid)
+            if fname:
+                valid_ids.add(fname)
+        elif isinstance(f, str):
+            valid_ids.add(f)
+
+    # 同时加入 active_file
+    active_file = context.get("active_file")
+    if active_file:
+        valid_ids.add(active_file)
+
+    for node in dag.nodes:
+        if not node.resolved_assets:
+            continue
+        filtered = [a for a in node.resolved_assets if a in valid_ids]
+        if len(filtered) != len(node.resolved_assets):
+            removed = set(node.resolved_assets) - set(filtered)
+            log.warning(
+                f"[Router] 指代消解校验: node={node.task_id}, "
+                f"移除无效 assets={removed}, 保留={filtered}"
+            )
+        if not filtered and active_file:
+            # 所有 ID 都无效，降级使用 active_file
+            filtered = [active_file]
+            log.info(f"[Router] 指代消解校验: node={node.task_id} 全部失效，降级为 active_file={active_file}")
+        node.resolved_assets = filtered
+
+    return dag
 
 
 class IntentRouterEngine:
@@ -151,6 +208,35 @@ class IntentRouterEngine:
             # L0 命中时，将 skill_id 传入 DAG 节点
             if l0_result.skill_id:
                 dag.nodes[0].parameters["skill_id"] = l0_result.skill_id
+
+            # Phase 6: L0 DATA_PROBE 命中时验证 active_file 是否存在
+            if l0_result.intent == IntentType.DATA_PROBE:
+                active_file = context.get("active_file")
+                if active_file:
+                    project_id = context.get("project_id")
+                    if project_id:
+                        project_dir = str(Path(settings.UPLOAD_DIR) / f"project_{project_id}")
+                        abs_path = active_file if os.path.isabs(active_file) else os.path.join(project_dir, active_file.lstrip("/"))
+                        if not os.path.exists(abs_path):
+                            log.info(f"[Router] L0 DATA_PROBE: active_file 不存在 ({active_file})，触发探查")
+                            probing = ProbingRequest(
+                                is_missing=True,
+                                missing_params=["input_file"],
+                                ui_schema={
+                                    "type": "object",
+                                    "properties": {
+                                        "input_file": {
+                                            "type": "string",
+                                            "title": "目标文件",
+                                            "description": "请选择或输入要探查的文件路径"
+                                        }
+                                    },
+                                    "required": ["input_file"]
+                                },
+                                message_to_user=f"之前使用的文件 {active_file} 似乎已不可用，请重新选择要探查的文件：",
+                            )
+                            return RouteResult(dag=dag, probing=probing)
+
             return RouteResult(dag=dag, probing=None)
 
         # L1: DAG 解构
@@ -164,17 +250,23 @@ class IntentRouterEngine:
             node_intents = [n.intent.value for n in dag.nodes]
             log.info(f"[Router] L1 解构完成: nodes={len(dag.nodes)}, intents={node_intents}")
 
-        # L2: 参数探查（仅检查第一个任务节点）
+        # Phase 6: 验证指代消解结果中的 resolved_assets 是否有效
+        dag = _validate_resolved_assets(dag, context)
+
+        # L2: 参数探查（Phase 7升级：检查所有任务节点，首个缺失即返回）
         if dag.nodes:
-            probing = await check_task_parameters(
-                task=dag.nodes[0],
-                context=context,
-                skill_registry=self._skill_registry
-            )
-            if probing.is_missing:
-                log.info(f"[Router] L2 探查命中: missing_params={probing.missing_params}")
-                return RouteResult(dag=dag, probing=probing)
-            else:
-                log.debug("[Router] L2 探查通过，参数完整")
+            for node in dag.nodes:
+                probing = await check_task_parameters(
+                    task=node,
+                    context=context,
+                    skill_registry=self._skill_registry
+                )
+                if probing.is_missing:
+                    log.info(
+                        f"[Router] L2 探查命中: node={node.task_id}, "
+                        f"intent={node.intent.value}, missing_params={probing.missing_params}"
+                    )
+                    return RouteResult(dag=dag, probing=probing)
+            log.debug("[Router] L2 探查通过，所有节点参数完整")
 
         return RouteResult(dag=dag, probing=None)

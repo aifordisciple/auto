@@ -246,7 +246,28 @@ def _check_data_probe_params(
     # 文件探查子意图：需要 input_file 或 active_file
     has_file = task.parameters.get("input_file") or context.get("active_file")
     if not has_file:
-        log.info("[L2] DATA_PROBE 缺失文件目标")
+        # 构建带上下文提示的探查消息
+        active_file = context.get("active_file", "")
+        context_files = context.get("context_files") or []
+        other_files = []
+        for f in context_files:
+            if isinstance(f, dict):
+                fname = f.get("name", "")
+            elif isinstance(f, str):
+                fname = f
+            else:
+                continue
+            if fname and fname != active_file:
+                other_files.append(fname)
+
+        hint_parts = []
+        if active_file:
+            hint_parts.append(f"您最近查看的文件是 {active_file}")
+        if other_files:
+            hint_parts.append(f"工作区中还有: {', '.join(other_files[:5])}")
+        hint = "。".join(hint_parts) if hint_parts else "数据探查需要指定目标文件，请选择或输入文件路径："
+
+        log.info(f"[L2] DATA_PROBE 缺失文件目标, hint={hint[:80]}...")
         return ProbingRequest(
             is_missing=True,
             missing_params=["input_file"],
@@ -261,7 +282,7 @@ def _check_data_probe_params(
                 },
                 "required": ["input_file"]
             },
-            message_to_user="数据探查需要指定目标文件，请选择或输入文件路径："
+            message_to_user=hint
         )
     log.debug("[L2] DATA_PROBE 参数完整，放行")
     return ProbingRequest(is_missing=False)

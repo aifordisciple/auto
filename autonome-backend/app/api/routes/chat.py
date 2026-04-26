@@ -182,6 +182,9 @@ PATH_SAFE_TOOL_PARAMS = {
     "compute_set_operations": ["file_path_1", "file_path_2"],
     "inspect_vcf": ["file_path"],
     "match_paired_fastq": ["directory_path"],
+    "inspect_h5ad": ["file_path"],
+    "inspect_fastq": ["file_path"],
+    "inspect_bam": ["file_path"],
 }
 
 # ==========================================
@@ -548,13 +551,15 @@ async def chat_stream(
                 for msg in reversed(lc_messages):
                     if msg["role"] == "assistant" and msg.get("content"):
                         # 助手消息中包含数据探查标记，说明之前已探查过文件内容
-                        # 📊/表头/数据维度：探针工具输出格式
-                        # ```/|：代码块或markdown表格中的表格数据（附件注入路径的输出）
-                        _data_markers = ["📊", "表头", "数据维度", "```", "|"]
+                        # 使用探针工具输出中的专用 emoji 和关键词，避免宽泛匹配
+                        _data_markers = [
+                            "📊", "表头", "数据维度",
+                            "📋", "🔍", "🧬", "探测完成", "预览报告",
+                        ]
                         if any(marker in msg["content"] for marker in _data_markers):
                             _should_probe = False
                             log.info("[Chat] DATA_PROBE 追问场景，对话历史已含数据内容，跳过 Active Probing")
-                        break
+                            break
         if _should_probe:
             # 发送 request_parameters ToolCall（Vercel AI SDK 兼容格式）
             tool_call_event = {
@@ -600,16 +605,26 @@ async def chat_stream(
                     and len(intent_data["nodes"]) > 0
                     and intent_data["nodes"][0].get("intent") == "INTENT_DATA_PROBE"
                 )
-                # ✨ 当附件文件内容已注入用户消息时，禁用 data_probe 探针工具
-                # 原因：探针工具会强制 AI 调用工具扫描文件，而非直接从注入的内容回答
-                # 附件文件内容已经在用户消息中，AI 可以直接基于内容回答，无需再探测
+                # ✨ 当附件文件内容已注入用户消息时，选择性保留计算类探针工具
+                # 查看类工具（peek/scan/inspect）可跳过（文件内容已在消息中），
+                # 但计算类工具（detect_na/compute_summary_stats/detect_file_encoding/
+                # compute_set_operations/match_paired_fastq）仍需保留，支持深度分析
+                # _active_probe_tools: None=使用完整工具列表, list=使用过滤后的列表
+                _active_probe_tools = None
                 if is_data_probe and file_context_injected:
-                    log.info("[Chat] 附件文件内容已注入，禁用 data_probe 探针工具，AI 将直接基于文件内容回答")
-                    is_data_probe = False
-                    # ✨ 同时替换系统提示词为一般问答模式
-                    # 原因：工具已解绑，数据探查提示词指示 AI 调用探针工具，
-                    # 若无工具可调用 AI 会将工具名当作文本输出（如 inspect_tabular_data(...)）
-                    lc_messages[0] = {"role": "system", "content": SYSTEM_PROMPT_CHAT}
+                    from app.tools.probe_tools import probe_tools_list, COMPUTE_TOOLS
+                    _active_probe_tools = [t for t in probe_tools_list if t.name in COMPUTE_TOOLS]
+                    log.info(
+                        f"[Chat] 附件文件内容已注入，保留计算类探针工具: "
+                        f"{[t.name for t in _active_probe_tools]}"
+                    )
+                    # 追加提示到系统消息：告知 AI 文件内容已注入但计算工具可用
+                    lc_messages[0]["content"] += (
+                        "\n\n## 附件文件已注入\n"
+                        "用户消息中已包含附件文件的内容，你可以直接基于内容回答关于文件基本信息的问题"
+                        "（如有哪些列、数据长什么样、前几行等）。"
+                        "如需深度分析（缺失值检测、统计汇总、编码检测等），可使用计算类探针工具。"
+                    )
                 # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
                 data_probe_project_dir = ""
                 if is_data_probe:
@@ -654,10 +669,12 @@ async def chat_stream(
                     # ✨ data_probe 意图：绑定探针工具
                     if is_data_probe:
                         from app.tools.probe_tools import probe_tools_list
+                        # 使用过滤后的工具列表（附件注入场景仅保留计算类工具）
+                        _tools = _active_probe_tools if _active_probe_tools is not None else probe_tools_list
                         # Ollama 原生客户端支持 tools 参数
                         # 将 LangChain @tool 装饰器定义的工具转为 Ollama 格式
                         ollama_tools = []
-                        for t in probe_tools_list:
+                        for t in _tools:
                             tool_schema = {
                                 "type": "function",
                                 "function": {
@@ -741,7 +758,7 @@ async def chat_stream(
                                                 tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
-                                    for t in probe_tools_list:
+                                    for t in _tools:
                                         if t.name == tool_name:
                                             tool_result = t.invoke(tool_args)
                                             break
@@ -857,8 +874,10 @@ async def chat_stream(
                     # ✨ data_probe 意图：绑定探针工具并执行工具调用循环
                     if is_data_probe:
                         from app.tools.probe_tools import probe_tools_list
-                        llm_with_tools = direct_llm.bind_tools(probe_tools_list)
-                        log.info(f"[Chat] data_probe: 绑定 {len(probe_tools_list)} 个探针工具到 LangChain LLM")
+                        # 使用过滤后的工具列表（附件注入场景仅保留计算类工具）
+                        _tools_lc = _active_probe_tools if _active_probe_tools is not None else probe_tools_list
+                        llm_with_tools = direct_llm.bind_tools(_tools_lc)
+                        log.info(f"[Chat] data_probe: 绑定 {len(_tools_lc)} 个探针工具到 LangChain LLM")
 
                         # 工具调用循环：LLM 可能多次调用工具
                         max_tool_rounds = 5
@@ -914,7 +933,7 @@ async def chat_stream(
                                                 tool_args[path_key] = data_probe_project_dir
                                 tool_result = ""
                                 try:
-                                    for t in probe_tools_list:
+                                    for t in _tools_lc:
                                         if t.name == tool_name:
                                             tool_result = t.invoke(tool_args)
                                             break
@@ -1013,7 +1032,12 @@ async def chat_stream(
             # 污染 LLM 上下文窗口，使后续回复越来越混乱
             if not cleaned_response or not cleaned_response.strip():
                 log.warning(f"[Chat] AI 回复为空，跳过持久化 (session_id={session_id_for_ai})")
-                # 即使跳过持久化，仍需发送 finish 事件让前端正常结束流
+                # 发送降级提示消息给用户，避免前端显示空白流
+                fallback_msg = "抱歉，我暂时无法处理您的请求，请尝试重新描述您的问题。"
+                start = ensure_text_started()
+                if start:
+                    yield start
+                yield encoder.text_chunk(fallback_msg)
                 yield encoder.finish()
                 return
 

@@ -84,6 +84,9 @@ PATH_PARAM_MAP: Dict[str, list] = {
     "compute_set_operations": ["file_path_1", "file_path_2"],
     "inspect_vcf": ["file_path"],
     "match_paired_fastq": ["directory_path"],
+    "inspect_h5ad": ["file_path"],
+    "inspect_fastq": ["file_path"],
+    "inspect_bam": ["file_path"],
 }
 
 
