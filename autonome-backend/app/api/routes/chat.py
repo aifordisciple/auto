@@ -352,7 +352,7 @@ async def chat_stream(
 
     # ✨ 附件文件内容注入：读取 context_files 的文件内容，追加到用户消息后
     # 当用户通过"添加附件"选择项目文件时，AI 需要看到文件内容才能回答相关问题
-    # 根据文件扩展名选择不同的读取策略，复用已有的探针工具和处理器
+    # 根据文件扩展名选择不同的读取策略，直接读取文件内容（不经过 LangChain @tool 封装）
     if request.context_files:
         try:
             from app.core.config import settings as cf_settings
@@ -369,16 +369,40 @@ async def chat_stream(
                 ext = os.path.splitext(abs_path)[1].lower()
 
                 if ext in ('.csv', '.tsv', '.txt', '.tab'):
-                    # 表格文件：使用探针工具预览表头和前几行
-                    from app.tools.probe_tools import peek_tabular_data
-                    preview = peek_tabular_data(abs_path, n_rows=5)
-                    file_context_parts.append(f"## 文件: {file_path}\n{preview}")
+                    # 表格文件：直接用 pandas 读取表头和前几行（不经过 LangChain @tool）
+                    try:
+                        import pandas as pd
+                        # 智能检测分隔符
+                        with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            first_line = f.readline()
+                        delimiter = '\t'
+                        if ',' in first_line and '\t' not in first_line:
+                            delimiter = ','
+                        df = pd.read_csv(abs_path, sep=delimiter, nrows=5)
+                        n_rows_total = sum(1 for _ in open(abs_path, 'r', encoding='utf-8', errors='ignore')) - 1
+                        preview = f"文件维度: {n_rows_total} 行 × {len(df.columns)} 列\n"
+                        preview += f"表头: {list(df.columns)}\n"
+                        preview += f"前5行:\n{df.to_string(max_cols=10, max_colwidth=12)}"
+                        file_context_parts.append(f"## 文件: {file_path}\n{preview}")
+                    except Exception as tbl_err:
+                        # pandas 读取失败时回退到纯文本读取
+                        log.warning(f"[Chat] 表格文件 pandas 读取失败，回退纯文本: {tbl_err}")
+                        with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
+                            content = f.read(50000)
+                        file_context_parts.append(f"## 文件: {file_path} (纯文本预览)\n```\n{content}\n```")
 
                 elif ext == '.h5ad':
-                    # AnnData 文件：使用探针工具读取结构信息
-                    from app.tools.probe_tools import inspect_h5ad
-                    info = inspect_h5ad(abs_path)
-                    file_context_parts.append(f"## 文件: {file_path}\n{info}")
+                    # AnnData 文件：使用 scanpy 读取基本信息
+                    try:
+                        import scanpy as sc
+                        adata = sc.read_h5ad(abs_path, backed='r')
+                        info = f"AnnData 对象: {adata.n_obs} 观测 × {adata.n_vars} 变量\n"
+                        info += f"obs 列: {list(adata.obs.columns)}\n"
+                        info += f"var 列: {list(adata.var.columns)}"
+                        adata.file.close()
+                        file_context_parts.append(f"## 文件: {file_path}\n{info}")
+                    except Exception as h5_err:
+                        file_context_parts.append(f"## 文件: {file_path}\n[AnnData 读取失败: {h5_err}]")
 
                 elif ext in ('.py', '.r', '.sh', '.json', '.yaml', '.yml', '.md',
                              '.log', '.nf', '.conf', '.cfg', '.ini', '.toml',
@@ -403,16 +427,28 @@ async def chat_stream(
                     file_context_parts.append(f"## 文件: {file_path}\n{text}")
 
                 elif ext in ('.fastq', '.fq'):
-                    # FASTQ 文件：使用探针工具预览
-                    from app.tools.probe_tools import inspect_fastq
-                    info = inspect_fastq(abs_path)
-                    file_context_parts.append(f"## 文件: {file_path}\n{info}")
+                    # FASTQ 文件：读取前几条记录
+                    try:
+                        with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
+                            lines = [f.readline() for _ in range(8)]  # 2条记录，每条4行
+                        preview = ''.join(lines)
+                        file_context_parts.append(f"## 文件: {file_path}\n```\n{preview}\n... (更多记录省略)\n```")
+                    except Exception as fq_err:
+                        file_context_parts.append(f"## 文件: {file_path}\n[FASTQ 读取失败: {fq_err}]")
 
                 elif ext in ('.bam', '.sam'):
-                    # BAM/SAM 文件：使用探针工具预览
-                    from app.tools.probe_tools import inspect_bam
-                    info = inspect_bam(abs_path)
-                    file_context_parts.append(f"## 文件: {file_path}\n{info}")
+                    # BAM/SAM 文件：使用 pysam 读取基本信息
+                    try:
+                        import pysam
+                        if ext == '.bam':
+                            sf = pysam.AlignmentFile(abs_path, 'rb')
+                        else:
+                            sf = pysam.AlignmentFile(abs_path, 'r')
+                        info = f"BAM/SAM 文件: {sf.header}\n参考序列: {list(sf.references)[:10]}"
+                        sf.close()
+                        file_context_parts.append(f"## 文件: {file_path}\n{info}")
+                    except Exception as bam_err:
+                        file_context_parts.append(f"## 文件: {file_path}\n[BAM/SAM 读取失败: {bam_err}]")
 
                 else:
                     # 其他文件类型：仅告知文件存在和大小
