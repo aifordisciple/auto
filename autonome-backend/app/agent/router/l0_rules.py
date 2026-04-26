@@ -480,7 +480,21 @@ class ErrorPatternRule(Rule):
         re.IGNORECASE
     )
 
+    # V2.3: 数据探查类查询排除（避免"检测文件编码"、"文件乱码"等被误判为 DIAGNOSTIC_RECOVERY）
+    DATA_INSPECTION_EXCLUSION = re.compile(
+        r'(检测.*编码|检测.*分隔符|检测.*格式|检测.*文件编码|'
+        r'编码.*检测|分隔符.*检测|探测.*编码|探测.*分隔符|'
+        r'检查.*NA|检查.*缺失|预览.*数据|查看.*结构|'
+        r'文件.*打不开|乱码|文件.*格式.*检测)',
+        re.IGNORECASE
+    )
+
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        # 排除：数据探查类查询（文件编码/格式检测等，放行给 ProbePatternRule）
+        if self.DATA_INSPECTION_EXCLUSION.search(query):
+            log.debug("[L0] ErrorPatternRule 未命中: 数据探查类查询，放行至 ProbePatternRule")
+            return None
+
         # 排除：假设性错误讨论（"如果遇到报错怎么办"）
         if self.HYPOTHETICAL_PATTERN.search(query):
             log.debug("[L0] ErrorPatternRule 未命中: 假设性错误讨论")
@@ -514,8 +528,17 @@ class ProbePatternRule(Rule):
     """
 
     # 数据集探查关键词（需要文件上下文）
+    # V2.3 扩展：覆盖编码检测、NA检测、集合运算、summary stats、VCF解析等场景
     PROBE_KEYWORDS = re.compile(
-        r'(查看|预览|看看|结构|统计|inspect|preview|peek|查看数据|数据结构)',
+        r'(查看|预览|看看|结构|统计|inspect|preview|peek|查看数据|数据结构|'
+        r'检测编码|分隔符|编码格式|文件编码|分隔符检测|分隔符.*检测|'
+        r'检测.*编码|检测.*分隔符|检测.*格式|检测.*文件格式|'
+        r'NA.*比例|NA.*检测|缺失率|缺失值|缺失检测|缺失.*统计|统计.*缺失|统计.*NA|'
+        r'重叠|overlap|intersect|交集|并集|集合.*操作|'
+        r'BAM.*头|BAM.*header|VCF样本|VCF.*sample|检测样本|'
+        r'最小值|最大值|极值|min.*max|range.*值|分布.*范围|'
+        r'数据.*维度|行列.*数|多少.*行.*列|多少.*列|矩阵.*形状|shape.*矩阵|矩阵.*维度|'
+        r'读取.*列名|取得.*列名|列名.*列表|有哪些.*列)',
         re.IGNORECASE
     )
 
@@ -528,7 +551,10 @@ class ProbePatternRule(Rule):
         r'项目文件|项目有哪些|项目目录|项目结构|'
         r'文件树|目录树|扫描目录|扫描文件|列出文件|查看文件|浏览文件|'
         r'list\s*files|file\s*list|directory\s*tree|file\s*tree|'
-        r'scan\s*dir|show\s*files|what\s*files)',
+        r'scan\s*dir|show\s*files|what\s*files|'
+        r'扫描文件夹|扫描.*目录|文件.*配对|配对.*文件|配对末端|双端.*文件|'
+        r'R1.*R2|R2.*R1|匹配.*文件名|文件名.*匹配|'
+        r'FASTQ.*配对|fastq.*pair|查找.*配对|查找.*R1|查找.*R2)',
         re.IGNORECASE
     )
 

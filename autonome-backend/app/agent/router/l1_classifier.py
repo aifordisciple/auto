@@ -94,14 +94,26 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 
 | 判断维度 | ADHOC_INTERACTIVE_ANALYSIS | DATA_PROBE | SKILL_FORGE |
 |---------|---------------------------|------------|-------------|
-| 核心区别 | 有数据+要分析+无预设技能 | 查看数据结构/统计 | 写完整脚本 |
-| 典型表述 | "用这个 CSV 画个图"、"算一下分布" | "查看数据结构"、"有多少行列" | "写个 Python 脚本" |
-| 举例 | "画相关性热图" | "检查 NA 比例" | "写个 K-means 脚本" |
+| 核心区别 | 有数据+要分析+无预设技能 | 查看数据结构/统计/轻量文件内计算 | 写完整脚本 |
+| 典型表述 | "用这个 CSV 画个图"、"算一下分布" | "查看数据结构"、"有多少行列"、"检查 NA 比例" | "写个 Python 脚本" |
+| 举例 | "画相关性热图" | "计算两个文件的基因重叠"、"检测文件编码格式" | "写个 K-means 脚本" |
 
 **关键判断**：
-- 用户有文件 + 想做探索性分析 → INTENT_ADHOC_INTERACTIVE_ANALYSIS
-- 用户只想查看/检查数据 → INTENT_DATA_PROBE
+- 用户有文件 + 想做探索性**分析/建模/画图** → INTENT_ADHOC_INTERACTIVE_ANALYSIS
+- 用户只想**查看/检查/了解**数据的元信息或做**轻量文件内计算**（不涉及建模/画图）→ INTENT_DATA_PROBE
 - 用户明确说"写脚本" → INTENT_SKILL_FORGE
+
+**DATA_PROBE 扩展场景（V2.3）**：
+- 轻量文件内计算属于 DATA_PROBE，不是 ADHOC：
+  - "算基因重叠"、"取两个文件的交集"、"检查 NA 比例"、"统计缺失值"
+  - 判断标准：操作结果是"查看/了解"数据，目的不是生成图表或建立模型
+- 文件编码/格式检测属于 DATA_PROBE：
+  - "检测文件编码"、"查看分隔符是什么"、"文件是什么格式"
+- 文件配对/目录扫描属于 DATA_PROBE：
+  - "配对 R1/R2 文件"、"扫描文件夹找双端 FASTQ"、"文件是否一一对应"
+- 条件检查前置步骤属于 DATA_PROBE：
+  - "先检查 NA 比例"（前半段）→ DATA_PROBE，"再删掉缺失行"（后半段）→ SKILL_FORGE
+  - 如果用户同时说了两者，拆为两个节点：task_1=DATA_PROBE, task_2=SKILL_FORGE，task_2 依赖 task_1
 
 ### 边界 5: LITERATURE_MINING vs DATA_PROBE vs GENERAL_CHAT
 
