@@ -36,7 +36,7 @@ DATA_PROBE_SYSTEM_PROMPT = """你是一个专业的生物信息学数据探查�
 - 工具调用后，用中文整理和解读结果，提供专业建议
 - 不要在回答开头重复自己的身份，直接进入正题
 
-## 可用探针工具（11个）
+## 可用探针工具（14个）
 
 ### 文件系统与目录
 - **scan_workspace**: 扫描工作区目录结构，列出文件和子目录
@@ -50,6 +50,7 @@ DATA_PROBE_SYSTEM_PROMPT = """你是一个专业的生物信息学数据探查�
 
 ### 编码与格式检测
 - **detect_file_encoding**: 检测文件字符编码和分隔符类型
+- **detect_file_type**: 综合判断文件类型（基于扩展名 + magic bytes + 内容模式）
 
 ### 多组学文件探查
 - **inspect_h5ad**: AnnData 对象探查（obs/var/X 层维度）
@@ -57,18 +58,34 @@ DATA_PROBE_SYSTEM_PROMPT = """你是一个专业的生物信息学数据探查�
 - **inspect_bam**: BAM 文件比对统计 + Header 解析（@SQ/@RG/@PG）
 - **inspect_vcf**: VCF 文件变异统计（样本列表、染色体分布、变异类型）
 
+### 矩阵文件探查
+- **inspect_mtx**: MTX 矩阵维度探测（仅读文件头，不加载全量，10GB+ 秒级返回）
+
+### 自定义探查
+- **sandbox_probe**: 当内置工具不支持目标文件格式时，AI 可自主编写 Python 脚本在 Docker 沙箱中运行探查
+
 ## 工具选择指南
 - "有哪些文件" / "目录结构" → scan_workspace
 - "查看文件内容" / "表头" → peek_tabular_data
 - "缺失值" / "NA 比例" → detect_na
 - "统计" / "min/max" / "分布" → compute_summary_stats
 - "编码" / "分隔符" → detect_file_encoding
+- "文件类型" / "这是什么文件" / "格式判断" → detect_file_type
 - "重叠" / "交集" / "Venn" → compute_set_operations
 - "配对 FASTQ" / "R1 R2" → match_paired_fastq
 - "h5ad" / "AnnData" → inspect_h5ad
 - "FASTQ 质量" → inspect_fastq
 - "BAM" / "比对" / "参考基因组" → inspect_bam
 - "VCF" / "变异" / "样本" → inspect_vcf
+- "MTX" / "矩阵维度" → inspect_mtx
+- 内置工具不支持的文件格式 / 需要自定义解析逻辑 → sandbox_probe（编写 Python 脚本探查）
+
+## 跨意图协作指南
+你的探查结果可能被下游节点（SKILL_FORGE、EXPLICIT_EXEC、ADHOC 等）消费。
+请在回答中：
+1. 先给出结构化发现（数值、列表、判断）
+2. 再给出对下游分析的建议
+3. 明确指出潜在风险和注意事项
 
 当前项目工作区路径：{workspace_path}
 所有文件操作限定在此目录内。"""
@@ -87,6 +104,9 @@ PATH_PARAM_MAP: Dict[str, list] = {
     "inspect_h5ad": ["file_path"],
     "inspect_fastq": ["file_path"],
     "inspect_bam": ["file_path"],
+    "detect_file_type": ["file_path"],
+    "inspect_mtx": ["file_path"],
+    "sandbox_probe": ["workspace_path"],
 }
 
 
@@ -252,12 +272,13 @@ async def data_probe_node(state: AgentState, config: RunnableConfig) -> Dict[str
 
     # 4. 工具调用循环
     accumulated_response = ""
+    probe_reports: Dict[str, Any] = {}  # V2.4: 收集结构化探查报告
     max_tool_rounds = 5
 
     try:
         if is_ollama:
             # === Ollama 原生客户端路径 ===
-            accumulated_response = await _run_ollama_tool_loop(
+            accumulated_response, probe_reports = await _run_ollama_tool_loop(
                 llm_config=llm_config,
                 messages=lc_messages,
                 project_dir=project_dir,
@@ -265,7 +286,7 @@ async def data_probe_node(state: AgentState, config: RunnableConfig) -> Dict[str
             )
         else:
             # === ChatOpenAI 兼容路径（第三方 API + 本地 vLLM/LiteLLM） ===
-            accumulated_response = await _run_openai_tool_loop(
+            accumulated_response, probe_reports = await _run_openai_tool_loop(
                 llm_config=llm_config,
                 api_key=api_key,
                 messages=lc_messages,
@@ -276,13 +297,29 @@ async def data_probe_node(state: AgentState, config: RunnableConfig) -> Dict[str
     except Exception as e:
         log.error(f"[data_probe_node] 工具调用循环失败: {e}")
         accumulated_response = f"数据探查失败: {str(e)}"
+        probe_reports = {}
 
     # 5. 写入结果并推进 DAG 指针
     task_results = state.get("task_results", {})
+    # V2.4: 构建 probe_report，从收集的结构化报告中提取主探针字段
+    probe_report = None
+    if probe_reports:
+        # 取第一个探针工具的 structured 结果作为主 probe_report
+        first_tool = next(iter(probe_reports.keys()))
+        first_fields = probe_reports[first_tool]
+        probe_report = {
+            "tool_name": first_tool,
+            "fields": first_fields,
+        }
+        # 如果调用了多个工具，保存所有工具的 structured 结果
+        if len(probe_reports) > 1:
+            probe_report["all_tools"] = probe_reports
+
     task_results[task_id] = {
         "status": "success",
         "node": "data_probe_node",
         "result": accumulated_response,
+        "probe_report": probe_report,
     }
 
     intent_data = state.get("intent_data", {})
@@ -300,12 +337,43 @@ async def data_probe_node(state: AgentState, config: RunnableConfig) -> Dict[str
     }
 
 
+# 工具调用循环返回类型：(累积文本回复, 结构化探查报告)
+from typing import Tuple
+
+
+def _extract_probe_structured(tool_name: str, tool_result: str) -> Optional[Dict[str, Any]]:
+    """
+    V2.4: 从工具返回的 JSON 字符串中提取 structured 字段。
+
+    _make_probe_result 输出的 JSON 格式为 {"summary": "...", "structured": {...}}。
+    解析成功返回 structured 字典，失败返回 None 降级为纯文本模式。
+    """
+    try:
+        parsed = json.loads(tool_result)
+        return parsed.get("structured")
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _extract_probe_summary(tool_result: str) -> str:
+    """
+    V2.4: 从工具返回的 JSON 字符串中提取 summary 字段用于用户展示。
+
+    解析失败时返回原始字符串（兼容旧版纯文本输出）。
+    """
+    try:
+        parsed = json.loads(tool_result)
+        return parsed.get("summary", tool_result)
+    except (json.JSONDecodeError, TypeError):
+        return tool_result
+
+
 async def _run_ollama_tool_loop(
     llm_config: Any,
     messages: list,
     project_dir: str,
     max_rounds: int = 5,
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     """Ollama 原生客户端工具调用循环。"""
     import ollama as ollama_sdk
 
@@ -340,6 +408,7 @@ async def _run_ollama_tool_loop(
     ]
 
     accumulated = ""
+    probe_reports = {}  # V2.4: 收集结构化探查报告
     for round_idx in range(max_rounds):
         response = await client.chat(
             model=llm_config.model_name,
@@ -382,9 +451,16 @@ async def _run_ollama_tool_loop(
                 tool_result = f"工具执行失败: {str(te)}"
                 log.error(f"[data_probe_node] 工具执行失败: {tool_name}, error={te}")
 
-            accumulated += f"\n\n{tool_result}"
+            # V2.4: 尝试从工具结果中提取结构化字段
+            structured = _extract_probe_structured(tool_name, tool_result)
+            if structured:
+                probe_reports[tool_name] = structured
 
-            # 追加工具调用和结果到消息列表
+            # 将 summary 部分追加到用户可见文本（避免原始 JSON 进入对话）
+            display_text = _extract_probe_summary(tool_result)
+            accumulated += f"\n\n{display_text}"
+
+            # 追加工具调用和结果到消息列表（传原始 JSON 让 LLM 能看到结构化数据）
             ollama_messages.append({
                 'role': 'assistant',
                 'content': '',
@@ -392,10 +468,10 @@ async def _run_ollama_tool_loop(
             })
             ollama_messages.append({
                 'role': 'tool',
-                'content': tool_result,
+                'content': display_text,
             })
 
-    return accumulated.strip()
+    return accumulated.strip(), probe_reports
 
 
 async def _run_openai_tool_loop(
@@ -404,7 +480,7 @@ async def _run_openai_tool_loop(
     messages: list,
     project_dir: str,
     max_rounds: int = 5,
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     """ChatOpenAI 兼容路径工具调用循环（第三方 API + 本地 vLLM/LiteLLM）。"""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -425,6 +501,7 @@ async def _run_openai_tool_loop(
             lc_messages.append(HumanMessage(content=m['content']))
 
     accumulated = ""
+    probe_reports = {}  # V2.4: 收集结构化探查报告
     for round_idx in range(max_rounds):
         response = await llm_with_tools.ainvoke(lc_messages)
 
@@ -458,12 +535,19 @@ async def _run_openai_tool_loop(
                 tool_result = f"工具执行失败: {str(te)}"
                 log.error(f"[data_probe_node] 工具执行失败: {tool_name}, error={te}")
 
-            accumulated += f"\n\n{tool_result}"
+            # V2.4: 尝试从工具结果中提取结构化字段
+            structured = _extract_probe_structured(tool_name, tool_result)
+            if structured:
+                probe_reports[tool_name] = structured
 
-            # 追加 ToolMessage
+            # 将 summary 部分追加到用户可见文本
+            display_text = _extract_probe_summary(tool_result)
+            accumulated += f"\n\n{display_text}"
+
+            # 追加 ToolMessage（传 summary 给 LLM，避免原始 JSON 污染对话）
             lc_messages.append(ToolMessage(
-                content=tool_result,
+                content=display_text,
                 tool_call_id=tc.get('id', ''),
             ))
 
-    return accumulated.strip()
+    return accumulated.strip(), probe_reports

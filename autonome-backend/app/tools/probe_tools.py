@@ -1638,6 +1638,357 @@ def match_paired_fastq(directory_path: str) -> str:
         return _make_probe_result(f"❌ FASTQ 配对失败: {str(e)}", {"error": str(e)})
 
 
+@tool
+def detect_file_type(file_path: str) -> str:
+    """
+    基于文件扩展名、magic bytes 和内容模式综合判断文件类型。
+
+    适用于用户不确定文件类型或文件扩展名缺失的场景。
+    检测策略：扩展名（第一优先级）→ magic bytes → 内容模式匹配。
+
+    Args:
+        file_path: 文件的绝对路径
+
+    Returns:
+        文件类型检测报告（primary_type, confidence, alternative_types）
+    """
+    cache_key = _get_cache_key(file_path) + ":file_type"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] detect_file_type 缓存命中: {file_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] detect_file_type called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
+
+    if not os.path.isfile(file_path):
+        return _make_probe_result(f"❌ 路径不是文件: {file_path}", {"error": "not_a_file"})
+
+    try:
+        file_size = os.path.getsize(file_path)
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext.startswith('.'):
+            ext = ext[1:]
+
+        # ===== Step 1: 扩展名检测 =====
+        EXT_TYPE_MAP = {
+            'csv': 'tabular', 'tsv': 'tabular', 'txt': 'tabular',
+            'xlsx': 'tabular', 'xls': 'tabular', 'parquet': 'tabular',
+            'fastq': 'fastq', 'fq': 'fastq', 'fasta': 'fasta', 'fa': 'fasta',
+            'bam': 'bam', 'sam': 'sam', 'cram': 'cram',
+            'vcf': 'vcf', 'gvcf': 'vcf',
+            'bed': 'bed', 'gff': 'gff', 'gtf': 'gtf',
+            'h5ad': 'h5ad', 'h5': 'h5',
+            'mtx': 'mtx',
+            'gz': 'gzip', 'tar': 'tar', 'zip': 'zip', 'bz2': 'bzip2',
+            'py': 'python', 'r': 'r_script', 'sh': 'shell', 'ipynb': 'jupyter',
+            'md': 'markdown', 'json': 'json', 'yaml': 'yaml', 'yml': 'yaml',
+            'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'svg': 'image',
+            'pdf': 'pdf', 'tiff': 'image', 'bmp': 'image',
+        }
+
+        # 处理复合扩展名 (.mtx.gz, .fastq.gz 等)
+        compound_ext = ext
+        base_name = os.path.basename(file_path).lower()
+        for comp in ['mtx.gz', 'fastq.gz', 'fa.gz', 'fq.gz', 'csv.gz', 'tsv.gz']:
+            if base_name.endswith(comp):
+                compound_ext = comp
+                break
+
+        primary_from_ext = EXT_TYPE_MAP.get(compound_ext, ext if ext else 'unknown')
+        alternative_types = []
+
+        # ===== Step 2: Magic bytes 检测 =====
+        magic_primary = None
+        magic_confidence = 0.0
+        with open(file_path, 'rb') as f:
+            magic = f.read(16)
+
+        if magic[:4] == b'\x1f\x8b\x08\x04':
+            magic_primary = 'bam'  # BGZF-compressed SAM
+            magic_confidence = 0.95
+        elif magic[:3] in (b'@HD', b'@SQ', b'@RG', b'@PG'):
+            magic_primary = 'sam'
+            magic_confidence = 0.95
+        elif magic[:2] == b'\x1f\x8b':
+            magic_primary = 'gzip'
+            magic_confidence = 0.95
+        elif magic[:4] == b'\x89HDF':
+            magic_primary = 'h5'
+            magic_confidence = 0.95
+        elif magic[:4] == b'PAR1':
+            magic_primary = 'parquet'
+            magic_confidence = 0.95
+        elif magic[:2] == b'BZ':
+            magic_primary = 'bzip2'
+            magic_confidence = 0.95
+        elif magic[:4] == b'%PDF':
+            magic_primary = 'pdf'
+            magic_confidence = 0.95
+
+        # ===== Step 3: 内容模式匹配 =====
+        content_primary = None
+        content_confidence = 0.0
+        content_details = {}
+
+        if magic_primary != 'gzip' and file_size < 10 * 1024 * 1024:
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    first_lines = ''.join([f.readline() for _ in range(5)])
+
+                # VCF 检测: ##fileformat=VCF 或 #CHROM\tPOS...
+                if first_lines.startswith('##fileformat=VCF') or '#CHROM\t' in first_lines:
+                    content_primary = 'vcf'
+                    content_confidence = 0.95
+                # GTF/GFF 检测: 9列 tab 分隔
+                elif first_lines.strip():
+                    lines = first_lines.strip().split('\n')
+                    for line in lines:
+                        if line.startswith('##') or line.startswith('#'):
+                            continue
+                        cols = line.split('\t')
+                        if len(cols) == 9 and cols[2] in (
+                            'gene', 'exon', 'CDS', 'transcript',
+                            'start_codon', 'stop_codon'
+                        ):
+                            if 'gene_id' in line or 'transcript_id' in line:
+                                content_primary = 'gtf'
+                            else:
+                                content_primary = 'gff'
+                            content_confidence = 0.90
+                            break
+
+                # FASTA 检测: > 开头
+                if any(line.startswith('>') for line in first_lines.strip().split('\n')):
+                    if content_primary is None:
+                        content_primary = 'fasta'
+                        content_confidence = 0.90
+
+                # FASTQ 检测: @ 开头 + + 质量行
+                if first_lines.strip():
+                    line_list = first_lines.strip().split('\n')
+                    if len(line_list) >= 4:
+                        if line_list[0].startswith('@') and line_list[2].startswith('+'):
+                            if content_primary is None:
+                                content_primary = 'fastq'
+                                content_confidence = 0.85
+                            elif content_primary != 'fastq':
+                                alternative_types.append('fastq')
+
+                # MTX Matrix Market 检测: %%MatrixMarket 头
+                if first_lines.startswith('%%MatrixMarket'):
+                    content_primary = 'mtx'
+                    content_confidence = 0.98
+                    for line in first_lines.strip().split('\n'):
+                        if line.startswith('%%MatrixMarket'):
+                            content_details['format_header'] = line.strip()
+                        elif not line.startswith('%') and line.strip():
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                try:
+                                    content_details['n_rows'] = int(parts[0])
+                                    content_details['n_cols'] = int(parts[1])
+                                    content_details['n_nonzero'] = int(parts[2]) if len(parts) >= 3 else None
+                                except ValueError:
+                                    pass
+                            break
+                # Tabular 检测: 计数分隔符
+                elif first_lines and first_lines[0] != '#' and not first_lines[0].startswith('>') and not first_lines[0].startswith('@'):
+                    first_line = first_lines.split('\n')[0]
+                    if '\t' in first_line:
+                        content_details['delimiter'] = 'tab'
+                    elif ',' in first_line:
+                        content_details['delimiter'] = 'comma'
+            except UnicodeDecodeError:
+                pass  # 二进制文件，跳过内容检测
+
+        # ===== 综合判定 =====
+        if magic_primary and magic_confidence > 0.9:
+            primary_type = magic_primary
+            confidence = magic_confidence
+        elif content_primary and content_confidence > 0.9:
+            primary_type = content_primary
+            confidence = content_confidence
+        else:
+            primary_type = primary_from_ext
+            confidence = 0.7 if ext else 0.3
+
+        # 收集备选类型
+        for alt_type in [primary_from_ext, magic_primary, content_primary]:
+            if alt_type and alt_type != primary_type and alt_type not in alternative_types:
+                alternative_types.append(alt_type)
+
+        result = f"""🔍 文件类型检测报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {file_size / 1024:.1f} KB
+📎 扩展名: {ext if ext else '(无)'}
+🔬 Magic Bytes: {magic[:8].hex()} (前 8 字节)
+✅ 主要类型: {primary_type}
+🎯 置信度: {confidence:.0%}
+📋 候选类型: {', '.join(alternative_types) if alternative_types else '无'}
+"""
+        if content_details:
+            result += f"\n📝 内容详情:\n{json.dumps(content_details, ensure_ascii=False, indent=2)}"
+
+        structured = {
+            "primary_type": primary_type,
+            "confidence": round(confidence, 3),
+            "alternative_types": alternative_types,
+            "extension": ext if ext else None,
+            "file_size_kb": round(file_size / 1024, 1),
+            "details": content_details if content_details else None,
+        }
+        result = _make_probe_result(result, structured)
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] detect_file_type 失败: {str(e)}")
+        return _make_probe_result(f"❌ 文件类型检测失败: {str(e)}", {"error": str(e)})
+
+
+@tool
+def inspect_mtx(file_path: str) -> str:
+    """
+    轻量级 MTX 矩阵维度探测 —— 仅读文件头，不加载全量数据。
+
+    对 10GB+ 的 Matrix Market 文件同样秒级返回维度信息。
+    支持 gzip 压缩的 .mtx.gz 文件和标准 .mtx 文件。
+
+    Args:
+        file_path: MTX 文件的绝对路径
+
+    Returns:
+        MTX 矩阵维度、格式、稀疏度等结构化报告
+    """
+    cache_key = _get_cache_key(file_path) + ":mtx"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] inspect_mtx 缓存命中: {file_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] inspect_mtx called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
+
+    try:
+        file_size = os.path.getsize(file_path)
+        is_gzip = file_path.endswith('.gz')
+
+        # 打开文件（按需解压 gzip）
+        if is_gzip:
+            import gzip
+            f = gzip.open(file_path, 'rt', encoding='utf-8', errors='ignore')
+        else:
+            f = open(file_path, 'r', encoding='utf-8', errors='ignore')
+
+        try:
+            header_line = None
+            dims_line = None
+            n_comment_lines = 0
+
+            for line in f:
+                line = line.strip()
+                if line.startswith('%%MatrixMarket'):
+                    header_line = line
+                elif line.startswith('%'):
+                    n_comment_lines += 1
+                elif not line and not header_line:
+                    continue
+                elif line and not line.startswith('%'):
+                    dims_line = line
+                    break
+                if n_comment_lines > 1000:
+                    break
+
+            # 解析 MatrixMarket header
+            if header_line:
+                header_lower = header_line.lower()
+                if 'coordinate' in header_lower:
+                    mtx_format = 'coordinate'
+                elif 'array' in header_lower:
+                    mtx_format = 'array'
+                else:
+                    mtx_format = 'unknown'
+
+                if 'real' in header_lower:
+                    mtx_type = 'real'
+                elif 'integer' in header_lower:
+                    mtx_type = 'integer'
+                elif 'pattern' in header_lower:
+                    mtx_type = 'pattern'
+                else:
+                    mtx_type = 'unknown'
+            else:
+                mtx_format = 'unknown'
+                mtx_type = 'unknown'
+
+            # 解析维度行
+            n_rows = 0
+            n_cols = 0
+            n_nonzero = 0
+
+            if dims_line:
+                parts = dims_line.strip().split()
+                if len(parts) >= 2:
+                    try:
+                        n_rows = int(parts[0])
+                        n_cols = int(parts[1])
+                        if len(parts) >= 3:
+                            n_nonzero = int(parts[2])
+                    except ValueError:
+                        pass
+
+            result = f"""🔬 MTX 矩阵文件探查报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {file_size / 1024 / 1024:.2f} MB{" (gzip 压缩)" if is_gzip else ""}
+📐 矩阵维度: {n_rows} 行 × {n_cols} 列
+🔢 非零元素数: {n_nonzero:,}
+📦 存储格式: {mtx_format}
+🔤 元素类型: {mtx_type}
+💾 备注行数: {n_comment_lines}
+"""
+
+            # 计算稀疏度
+            if n_rows > 0 and n_cols > 0 and n_nonzero > 0:
+                total = n_rows * n_cols
+                sparsity = 1.0 - (n_nonzero / total)
+                result += f"🕸️ 稀疏度: {sparsity:.4%} ({n_nonzero:,} / {total:,})"
+                if sparsity > 0.95:
+                    result += " (极度稀疏)"
+                elif sparsity > 0.8:
+                    result += " (高度稀疏)"
+
+            if mtx_format == "unknown" and not header_line:
+                result += "\n\n⚠️ 未检测到 %%MatrixMarket 头部，文件可能不是标准 MTX 格式"
+
+            structured = {
+                "n_rows": n_rows,
+                "n_cols": n_cols,
+                "n_nonzero": n_nonzero,
+                "format": mtx_format,
+                "element_type": mtx_type,
+                "comment_lines": n_comment_lines,
+                "file_size_mb": round(file_size / 1024 / 1024, 2),
+                "is_gzip": is_gzip,
+            }
+            if n_rows > 0 and n_cols > 0 and n_nonzero > 0:
+                structured["sparsity"] = round(1.0 - (n_nonzero / (n_rows * n_cols)), 4)
+
+            result = _make_probe_result(result, structured)
+            _cache_result(cache_key, result)
+            return result
+        finally:
+            f.close()
+
+    except Exception as e:
+        log.error(f"❌ [Probe] inspect_mtx 失败: {str(e)}")
+        return _make_probe_result(f"❌ MTX 文件探查失败: {str(e)}", {"error": str(e)})
+
+
 def _get_file_icon(ext: str) -> str:
     """根据扩展名返回对应图标"""
     image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.pdf', '.tiff', '.bmp'}
@@ -1657,15 +2008,116 @@ def _get_file_icon(ext: str) -> str:
         return "📄"
 
 
-# 导出工具列表（供 bio_tools.py 导入）
+@tool
+def sandbox_probe(code: str, workspace_path: str, description: str = "") -> str:
+    """
+    在 Docker 沙箱中执行 AI 生成的 Python 探查脚本，探查内置工具不支持的文件格式。
+
+    当 13 个内置探针工具均无法处理目标文件格式时，LLM 可自主编写 Python 脚本，
+    通过此工具在安全的 Docker 沙箱容器中运行，读取工作区文件并输出探查结果。
+
+    典型场景：
+    - 探查非标准格式的生物信息学文件（如 GCT、GPR、SOFT 等）
+    - 对自定义二进制格式进行轻量级解析
+    - 补充内置探针工具未覆盖的特定文件结构探查
+
+    Args:
+        code: 完整的 Python 探查脚本源代码，通过 stdout 输出探查结果
+        workspace_path: 项目工作区的绝对路径（供脚本设置文件读取路径）
+        description: 脚本探查目的的简短描述（用于日志记录和审计）
+
+    Returns:
+        脚本执行的 stdout + stderr 输出
+    """
+    # 延迟导入以避免循环依赖（probe_tools.py ↔ bio_tools.py）
+    from app.tools.bio_tools import run_container_simple
+
+    log.info(f"🔍 [Probe] sandbox_probe called: description='{description[:100]}'")
+
+    if not code or not code.strip():
+        return _make_probe_result("❌ 探查脚本代码为空", {"error": "empty_code"})
+
+    # 构建沙箱执行环境：将输出目录设为工作区路径
+    # 探针脚本只需读取文件，无需写入结果文件，使用 workspace_path 作为工作目录
+    task_out_dir = workspace_path or "/workspace"
+    os.makedirs(task_out_dir, exist_ok=True)
+
+    environment = {
+        "TASK_OUT_DIR": task_out_dir,
+    }
+
+    log.info(
+        f"🛡️ [sandbox_probe] 执行探查脚本: "
+        f"code_len={len(code)}, workspace={task_out_dir}"
+    )
+
+    try:
+        # 使用简化的沙箱执行路径（60s 超时，探针应轻量快速）
+        result_output, exit_code = run_container_simple(
+            image='autonome-tool-env',
+            command=code,
+            language='python',
+            environment=environment,
+            timeout=60,  # 探针脚本应快速返回，1分钟硬超时
+        )
+
+        if exit_code == 0:
+            log.info(f"✅ [sandbox_probe] 探查脚本执行成功, output_len={len(result_output)}")
+            summary = f"""🛠️ 自定义探查脚本执行报告
+
+📝 探查目的: {description if description else '(未指定)'}
+✅ 执行状态: 成功 (exit_code=0)
+📏 输出长度: {len(result_output)} 字符
+📁 工作目录: {workspace_path}
+
+=== 探查脚本 ===
+{code[:500]}{'...' if len(code) > 500 else ''}
+
+=== 探查输出 ===
+{result_output[:3000]}{'...' if len(result_output) > 3000 else ''}
+"""
+            return _make_probe_result(summary, {
+                "exit_code": exit_code,
+                "output": result_output,
+                "description": description,
+                "code_snippet": code[:200],
+            })
+        else:
+            log.warning(f"⚠️ [sandbox_probe] 探查脚本返回非零退出码: {exit_code}")
+            summary = f"""🛠️ 自定义探查脚本执行报告
+
+📝 探查目的: {description if description else '(未指定)'}
+⚠️ 执行状态: 失败 (exit_code={exit_code})
+📁 工作目录: {workspace_path}
+
+=== 探查脚本 ===
+{code[:500]}{'...' if len(code) > 500 else ''}
+
+=== 错误输出 ===
+{result_output[:3000]}{'...' if len(result_output) > 3000 else ''}
+"""
+            return _make_probe_result(summary, {
+                "exit_code": exit_code,
+                "error": result_output,
+                "description": description,
+                "code_snippet": code[:200],
+            })
+
+    except Exception as e:
+        log.error(f"❌ [sandbox_probe] 沙箱执行异常: {str(e)}")
+        return _make_probe_result(f"❌ 探查脚本执行异常: {str(e)}", {"error": str(e)})
+
+
+# 导出工具列表（供 data_probe_node.py 导入）
 probe_tools_list = [
     peek_tabular_data, scan_workspace, inspect_h5ad, inspect_fastq, inspect_bam,
     detect_na, compute_summary_stats, detect_file_encoding,
     compute_set_operations, inspect_vcf, match_paired_fastq,
+    detect_file_type, inspect_mtx, sandbox_probe,
 ]
 
 # 工具分类：查看类（内容预览，附件注入时可跳过）vs 计算类（深度分析，附件注入时保留）
-VIEW_TOOLS = {"scan_workspace", "peek_tabular_data", "inspect_h5ad", "inspect_fastq", "inspect_bam", "inspect_vcf"}
+VIEW_TOOLS = {"scan_workspace", "peek_tabular_data", "inspect_h5ad", "inspect_fastq", "inspect_bam", "inspect_vcf", "inspect_mtx", "detect_file_type", "sandbox_probe"}
 COMPUTE_TOOLS = {"detect_na", "compute_summary_stats", "detect_file_encoding", "compute_set_operations", "match_paired_fastq"}
 
 log.info("🔍 环境探针工具模块已加载（含多组学探针）")

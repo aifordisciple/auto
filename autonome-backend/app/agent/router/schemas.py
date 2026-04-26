@@ -135,6 +135,30 @@ class SlotExtraction(BaseModel):
     )
 
 
+class DAGCondition(BaseModel):
+    """DAG 条件分支定义。
+
+    探针任务执行后，根据 probe_report 中指定字段的实际值，
+    与阈值比较决定下一步路由方向。
+
+    使用示例（Test Case 8: NA 比例检测）：
+        DAGCondition(
+            field="overall_na_ratio",
+            operator="gt",
+            value=0.05,
+            on_true="stop",
+            on_false="continue",
+            source_task_id="task_1"
+        )
+    """
+    field: str = Field(..., description="probe_report.fields 中用于判断的字段名，如 'overall_na_ratio'")
+    operator: str = Field(..., description="比较运算符: gt | lt | gte | lte | eq | neq")
+    value: Any = Field(..., description="比较阈值")
+    on_true: str = Field(..., description="条件成立时的路由目标: 'stop' | 'continue' | task_id")
+    on_false: str = Field(..., description="条件不成立时的路由目标: 'stop' | 'continue' | task_id")
+    source_task_id: str = Field(..., description="条件数据来源的探针任务 ID")
+
+
 class TaskNode(BaseModel):
     """DAG 中的单一执行节点"""
     task_id: str = Field(..., description="子任务的唯一标识符，如 'task_1'")
@@ -143,6 +167,11 @@ class TaskNode(BaseModel):
     dependencies: List[str] = Field(default_factory=list, description="依赖的前置 task_id 列表")
     resolved_assets: List[str] = Field(default_factory=list, description="指代消解后的具体 FileID 或 DB_Hash")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="初步提取的关键参数（若有）")
+    # V2.4: 条件探针分支定义（仅 DATA_PROBE 意图 + is_conditional DAG 时有值）
+    condition: Optional[DAGCondition] = Field(
+        default=None,
+        description="条件探针分支定义，包含字段、运算符、阈值和 true/false 路由目标"
+    )
     # 新增：用于即席分析的元数据（策略、生成的Schema、临时代码等）
     # 仅 ADHOC_INTERACTIVE_ANALYSIS 意图时有值
     adhoc_metadata: Optional[Dict[str, Any]] = Field(

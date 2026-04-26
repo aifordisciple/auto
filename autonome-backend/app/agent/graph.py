@@ -46,7 +46,7 @@ from app.agent.router.nodes.l3_executor_node import l3_executor_node
 from app.agent.router.engine import IntentRouterEngine
 from app.agent.router.schemas import (
     AgentState, IntentType, INTENT_NODE_MAP,
-    TaskDAG, TaskNode, ProbingRequest, RouteResult
+    TaskDAG, TaskNode, ProbingRequest, RouteResult, DAGCondition
 )
 from app.core.logger import log
 
@@ -266,6 +266,107 @@ def task_advance_or_end(state: AgentState) -> str:
     return "intent_router"
 
 
+# 条件运算符实现映射
+_OPERATOR_FN = {
+    "gt": lambda a, b: a > b,
+    "lt": lambda a, b: a < b,
+    "gte": lambda a, b: a >= b,
+    "lte": lambda a, b: a <= b,
+    "eq": lambda a, b: a == b,
+    "neq": lambda a, b: a != b,
+}
+
+
+def evaluate_condition_and_route(state: AgentState) -> str:
+    """
+    V2.4: data_probe_node 执行完毕后的条件路由判断。
+
+    检查当前 TaskNode 是否定义了 condition（条件探针分支）。
+    若存在条件：
+      1. 从 task_results 中获取 source_task_id 的 probe_report.fields 实际值
+      2. 执行比较运算
+      3. 根据 on_true/on_false 返回路由目标
+    若无条件 → 降级为 task_advance_or_end（顺序推进）。
+
+    路由目标：
+      - 'stop' → END（停止 DAG 执行）
+      - 'continue' → intent_router（推进到下一个任务）
+      - 具体 task_id → intent_router（当前仅支持 stop/continue）
+    """
+    dag_dict = state.get("dag")
+    if not dag_dict or not dag_dict.get("nodes"):
+        return END
+
+    idx = state.get("current_task_idx", 0)
+    nodes = dag_dict.get("nodes", [])
+    if idx >= len(nodes):
+        return END
+
+    current_node = nodes[idx]
+    condition_dict = current_node.get("condition")
+
+    # 无条件定义 → 降级为标准顺序推进
+    if not condition_dict:
+        return task_advance_or_end(state)
+
+    try:
+        condition = DAGCondition(**condition_dict)
+    except Exception as e:
+        log.warning(f"[evaluate_condition_and_route] DAGCondition 解析失败: {e}，降级为顺序推进")
+        return task_advance_or_end(state)
+
+    # 1. 从 task_results 获取实际值
+    task_results = state.get("task_results", {})
+    source_result = task_results.get(condition.source_task_id, {})
+    probe_report = source_result.get("probe_report")
+    if not probe_report or not probe_report.get("fields"):
+        log.warning(
+            f"[evaluate_condition_and_route] source_task_id={condition.source_task_id} "
+            f"probe_report 为空，降级为 END"
+        )
+        return END
+
+    actual_value = probe_report["fields"].get(condition.field)
+    if actual_value is None:
+        log.warning(
+            f"[evaluate_condition_and_route] probe_report.fields 中未找到 "
+            f"'{condition.field}'，降级为 END"
+        )
+        return END
+
+    # 2. 执行比较运算
+    op_fn = _OPERATOR_FN.get(condition.operator)
+    if not op_fn:
+        log.warning(f"[evaluate_condition_and_route] 不支持的运算符: {condition.operator}，降级为 END")
+        return END
+
+    try:
+        result_is_true = op_fn(actual_value, condition.value)
+    except TypeError as e:
+        log.warning(f"[evaluate_condition_and_route] 比较运算失败: {e}，降级为 END")
+        return END
+
+    # 3. 根据比较结果选择路由目标
+    target = condition.on_true if result_is_true else condition.on_false
+
+    log.info(
+        f"[evaluate_condition_and_route] 条件评估: "
+        f"{condition.field}({actual_value}) {condition.operator} {condition.value} "
+        f"→ {result_is_true}, 路由目标={target}"
+    )
+
+    if target == "stop":
+        return END
+    elif target == "continue":
+        return "intent_router"
+    else:
+        # 当前仅支持 stop/continue 两个路径
+        log.warning(
+            f"[evaluate_condition_and_route] 不支持的路由目标: {target}，降级为 END"
+        )
+        return END
+
+
 def build_intent_graph() -> StateGraph:
     """构建意图路由 LangGraph V2.0。"""
     workflow = StateGraph(AgentState)
@@ -325,13 +426,20 @@ def build_intent_graph() -> StateGraph:
         {"intent_router": "intent_router", END: END}
     )
 
-    # 各 Worker 节点 → task_advance_or_end
-    worker_only = [n for n in all_worker_nodes if n not in ("ask_user_node", "probing_response_node", "l3_executor_node")]
+    # 各 Worker 节点 → task_advance_or_end（data_probe_node 除外，使用条件路由）
+    worker_only = [n for n in all_worker_nodes if n not in ("ask_user_node", "probing_response_node", "l3_executor_node", "data_probe_node")]
     for node in worker_only:
         workflow.add_conditional_edges(
             node,
             task_advance_or_end,
             {"intent_router": "intent_router", END: END}
         )
+
+    # V2.4: data_probe_node → evaluate_condition_and_route（支持条件探针分支）
+    workflow.add_conditional_edges(
+        "data_probe_node",
+        evaluate_condition_and_route,
+        {"intent_router": "intent_router", END: END}
+    )
 
     return workflow.compile()
