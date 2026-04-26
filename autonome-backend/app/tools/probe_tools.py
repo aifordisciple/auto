@@ -16,6 +16,7 @@ from app.core.logger import log
 # 基于文件路径 + 修改时间，避免重复探查
 # ==========================================
 _probe_cache = {}
+_probe_structured_cache = {}  # cache_key → structured dict（与 _probe_cache 并行存储）
 _CACHE_MAX_SIZE = 100
 
 
@@ -28,31 +29,58 @@ def _get_cache_key(file_path: str) -> str:
         return file_path
 
 
+def _check_probe_cache(cache_key: str, tool_name: str = "") -> Optional[str]:
+    """
+    检查缓存；命中时设置 _last_probe_structured 并返回缓存的摘要文本。
+    未命中返回 None。
+    """
+    if cache_key in _probe_cache:
+        if tool_name:
+            log.info(f"🔍 [Probe] {tool_name} 缓存命中")
+        structured = _probe_structured_cache.get(cache_key)
+        if structured is not None:
+            _last_probe_structured.update(structured)
+        return _probe_cache[cache_key]
+    return None
+
+
 def _cache_result(cache_key: str, result: str) -> None:
-    """缓存结果并限制大小"""
+    """
+    缓存摘要文本 + 当前 _last_probe_structured 中的结构化数据。
+    _make_probe_result 已将 structured 写入 _last_probe_structured。
+    """
     _probe_cache[cache_key] = result
+    if _last_probe_structured:
+        _probe_structured_cache[cache_key] = dict(_last_probe_structured)
     if len(_probe_cache) > _CACHE_MAX_SIZE:
-        _probe_cache.pop(next(iter(_probe_cache)))
+        oldest = next(iter(_probe_cache))
+        _probe_cache.pop(oldest)
+        _probe_structured_cache.pop(oldest, None)
+
+
+# V2.5: 模块级变量传递结构化数据，避免将 structured 字段写入工具输出（防止明细数据展示到前端）
+# 使用普通 dict 而非 ContextVar（LangChain @tool.invoke 会隔离 ContextVar 上下文）
+_last_probe_structured: dict = {}
 
 
 def _make_probe_result(summary: str, structured: dict) -> str:
     """
-    V2.4: 生成双模探针结果 —— 人类可读文本 + 机器可解析 JSON。
+    V2.5: 生成探针结果 —— 仅返回人类可读摘要文本。
 
-    下游节点（SKILL_FORGE、EXPLICIT_EXEC、ADHOC 等）可通过
-    解析 structured 字段消费探针结果，实现跨意图数据流。
+    结构化数据通过模块级变量 _last_probe_structured 带外传递，
+    由 data_probe_node 中的 _extract_probe_structured 读取。
+    工具输出不再包含 structured JSON，避免明细数据展示到前端。
 
     Args:
-        summary: 人类可读的格式化报告（现有输出格式）
-        structured: 机器可解析的标准化字段字典
+        summary: 人类可读的格式化报告
+        structured: 机器可解析的标准化字段字典（仅内部使用，不展示给用户）
 
     Returns:
-        JSON 字符串 {"summary": ..., "structured": ...}
+        纯文本摘要（非 JSON）
     """
-    return json.dumps({
-        "summary": summary,
-        "structured": structured
-    }, ensure_ascii=False)
+    _last_probe_structured.clear()
+    _last_probe_structured.update(structured)
+    return summary
 
 
 @tool
@@ -71,9 +99,9 @@ def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
     """
     # ✨ 检查缓存
     cache_key = _get_cache_key(file_path) + f":{n_rows}"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] peek_tabular_data 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "peek_tabular_data")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] peek_tabular_data called: {file_path}")
 
@@ -768,9 +796,9 @@ def detect_na(file_path: str, threshold: Optional[float] = None) -> str:
         缺失值统计报告，含每列缺失数量和比例
     """
     cache_key = _get_cache_key(file_path) + f":na:{threshold}"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] detect_na 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "detect_na")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] detect_na called: {file_path}, threshold={threshold}")
 
@@ -908,9 +936,9 @@ def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
         汇总统计报告
     """
     cache_key = _get_cache_key(file_path) + f":stats:{columns}"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] compute_summary_stats 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "compute_summary_stats")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] compute_summary_stats called: {file_path}, columns={columns}")
 
@@ -1062,9 +1090,9 @@ def detect_file_encoding(file_path: str) -> str:
         编码和分隔符检测报告
     """
     cache_key = _get_cache_key(file_path) + ":encoding"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] detect_file_encoding 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "detect_file_encoding")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] detect_file_encoding called: {file_path}")
 
@@ -1231,9 +1259,9 @@ def compute_set_operations(
         集合操作结果报告
     """
     cache_key = f"{_get_cache_key(file_path_1)}|{_get_cache_key(file_path_2)}|{column}|{column_2}|{operation}"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] compute_set_operations 缓存命中")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "compute_set_operations")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] compute_set_operations called: {file_path_1}, {file_path_2}, col={column}")
 
@@ -1338,9 +1366,9 @@ def inspect_vcf(file_path: str) -> str:
         VCF 结构报告
     """
     cache_key = _get_cache_key(file_path)
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] inspect_vcf 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "inspect_vcf")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] inspect_vcf called: {file_path}")
 
@@ -1550,9 +1578,9 @@ def match_paired_fastq(directory_path: str) -> str:
         配对报告，列出所有样本及其 R1/R2 文件对
     """
     cache_key = _get_cache_key(directory_path) + ":pair"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] match_paired_fastq 缓存命中: {directory_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "match_paired_fastq")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] match_paired_fastq called: {directory_path}")
 
@@ -1714,9 +1742,9 @@ def detect_file_type(file_path: str) -> str:
         文件类型检测报告（primary_type, confidence, alternative_types）
     """
     cache_key = _get_cache_key(file_path) + ":file_type"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] detect_file_type 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "detect_file_type")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] detect_file_type called: {file_path}")
 
@@ -1925,9 +1953,9 @@ def inspect_mtx(file_path: str) -> str:
         MTX 矩阵维度、格式、稀疏度等结构化报告
     """
     cache_key = _get_cache_key(file_path) + ":mtx"
-    if cache_key in _probe_cache:
-        log.info(f"🔍 [Probe] inspect_mtx 缓存命中: {file_path}")
-        return _probe_cache[cache_key]
+    cached = _check_probe_cache(cache_key, "inspect_mtx")
+    if cached is not None:
+        return cached
 
     log.info(f"🔍 [Probe] inspect_mtx called: {file_path}")
 

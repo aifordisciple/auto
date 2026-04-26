@@ -343,29 +343,21 @@ from typing import Tuple
 
 def _extract_probe_structured(tool_name: str, tool_result: str) -> Optional[Dict[str, Any]]:
     """
-    V2.4: 从工具返回的 JSON 字符串中提取 structured 字段。
+    V2.5: 从模块级变量读取工具输出的结构化字段。
 
-    _make_probe_result 输出的 JSON 格式为 {"summary": "...", "structured": {...}}。
-    解析成功返回 structured 字典，失败返回 None 降级为纯文本模式。
+    _make_probe_result 已将 structured 写入 _last_probe_structured dict，
+    工具本身仅返回纯文本摘要。此函数从模块级变量中取回结构化数据。
+    使用普通 dict 而非 ContextVar（LangChain @tool.invoke 会隔离 ContextVar 上下文）。
     """
-    try:
-        parsed = json.loads(tool_result)
-        return parsed.get("structured")
-    except (json.JSONDecodeError, TypeError):
-        return None
+    from app.tools.probe_tools import _last_probe_structured
+    return dict(_last_probe_structured) if _last_probe_structured else None
 
 
 def _extract_probe_summary(tool_result: str) -> str:
     """
-    V2.4: 从工具返回的 JSON 字符串中提取 summary 字段用于用户展示。
-
-    解析失败时返回原始字符串（兼容旧版纯文本输出）。
+    V2.5: 工具已直接返回纯文本摘要，不再需要 JSON 解析。
     """
-    try:
-        parsed = json.loads(tool_result)
-        return parsed.get("summary", tool_result)
-    except (json.JSONDecodeError, TypeError):
-        return tool_result
+    return tool_result
 
 
 async def _run_ollama_tool_loop(
@@ -440,6 +432,10 @@ async def _run_ollama_tool_loop(
             # 路径安全修正
             tool_args = _apply_path_safety(tool_name, tool_args, project_dir)
 
+            # V2.5: 执行前清空模块级变量，防止上一工具的结构化数据残留
+            from app.tools.probe_tools import _last_probe_structured
+            _last_probe_structured.clear()
+
             # 执行工具
             tool_result = ""
             try:
@@ -451,16 +447,16 @@ async def _run_ollama_tool_loop(
                 tool_result = f"工具执行失败: {str(te)}"
                 log.error(f"[data_probe_node] 工具执行失败: {tool_name}, error={te}")
 
-            # V2.4: 尝试从工具结果中提取结构化字段
+            # V2.5: 从模块级变量提取结构化字段
             structured = _extract_probe_structured(tool_name, tool_result)
             if structured:
                 probe_reports[tool_name] = structured
 
-            # 将 summary 部分追加到用户可见文本（避免原始 JSON 进入对话）
+            # 将纯文本摘要追加到用户可见内容
             display_text = _extract_probe_summary(tool_result)
             accumulated += f"\n\n{display_text}"
 
-            # 追加工具调用和结果到消息列表（传原始 JSON 让 LLM 能看到结构化数据）
+            # 追加工具调用和结果到消息列表（仅发送摘要给 LLM）
             ollama_messages.append({
                 'role': 'assistant',
                 'content': '',
@@ -524,6 +520,10 @@ async def _run_openai_tool_loop(
             # 路径安全修正
             tool_args = _apply_path_safety(tool_name, tool_args, project_dir)
 
+            # V2.5: 执行前清空模块级变量，防止上一工具的结构化数据残留
+            from app.tools.probe_tools import _last_probe_structured
+            _last_probe_structured.clear()
+
             # 执行工具
             tool_result = ""
             try:
@@ -535,16 +535,16 @@ async def _run_openai_tool_loop(
                 tool_result = f"工具执行失败: {str(te)}"
                 log.error(f"[data_probe_node] 工具执行失败: {tool_name}, error={te}")
 
-            # V2.4: 尝试从工具结果中提取结构化字段
+            # V2.5: 从模块级变量提取结构化字段
             structured = _extract_probe_structured(tool_name, tool_result)
             if structured:
                 probe_reports[tool_name] = structured
 
-            # 将 summary 部分追加到用户可见文本
+            # 将纯文本摘要追加到用户可见内容
             display_text = _extract_probe_summary(tool_result)
             accumulated += f"\n\n{display_text}"
 
-            # 追加 ToolMessage（传 summary 给 LLM，避免原始 JSON 污染对话）
+            # 追加 ToolMessage（仅传摘要给 LLM）
             lc_messages.append(ToolMessage(
                 content=display_text,
                 tool_call_id=tc.get('id', ''),
