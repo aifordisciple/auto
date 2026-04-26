@@ -99,8 +99,9 @@ SYSTEM_PROMPT_DATA_PROBE_TEMPLATE = """你是一个专业的生物信息学数�
 - 必须主动调用探针工具来获取信息，不要凭猜测回答
 - 工具调用后，用中文整理和解读结果，提供专业建议
 - 不要在回答开头重复自己的身份，直接进入正题
+- **追问场景**：当用户说"这个文件"、"这个"等指代词时，参考系统提示词中"用户当前关注的文件"来定位文件
 
-## 可用探针工具（11个）
+## 可用探针工具（14个）
 
 ### 文件系统与目录
 - **scan_workspace**：扫描工作区目录结构，列出文件和子目录
@@ -114,12 +115,19 @@ SYSTEM_PROMPT_DATA_PROBE_TEMPLATE = """你是一个专业的生物信息学数�
 
 ### 编码与格式检测
 - **detect_file_encoding**：检测文件字符编码和分隔符类型（Tab/Comma/Semicolon/Pipe）
+- **detect_file_type**：综合判断文件类型（基于扩展名 + magic bytes + 内容模式）
 
 ### 多组学文件探查
 - **inspect_h5ad**：AnnData 对象探查（obs/var/X 层维度、obs/var 列名）
 - **inspect_fastq**：FASTQ 文件质量摘要（读长分布、GC 含量、碱基质量）
 - **inspect_bam**：BAM 文件比对统计 + Header 解析（@SQ 参考序列/@RG 读组/@PG 处理程序）
 - **inspect_vcf**：VCF 文件变异统计（样本列表、染色体分布、变异类型）
+
+### 矩阵文件探查
+- **inspect_mtx**：MTX 矩阵维度探测（仅读文件头，不加载全量，10GB+ 秒级返回）
+
+### 自定义探查
+- **sandbox_probe**：内置工具不支持目标文件格式时，AI 自主编写 Python 脚本在 Docker 沙箱中运行探查
 
 ## 工具选择指南
 | 用户需求 | 使用工具 |
@@ -129,12 +137,15 @@ SYSTEM_PROMPT_DATA_PROBE_TEMPLATE = """你是一个专业的生物信息学数�
 | 缺失值 / NA 比例 / 空值 | detect_na |
 | 统计信息 / min/max / 均值 / 是否 Log 转换 | compute_summary_stats |
 | 文件编码 / 分隔符是什么 | detect_file_encoding |
+| 文件类型 / 这是什么文件 / 格式判断 | detect_file_type |
 | 基因重叠 / 交集 / 并集 / Venn | compute_set_operations |
 | 配对 FASTQ / 双端文件 / R1 R2 匹配 | match_paired_fastq |
 | h5ad 结构 / AnnData 信息 | inspect_h5ad |
 | FASTQ 质量 / GC 含量 | inspect_fastq |
 | BAM 文件 / 比对信息 / 参考基因组是 hg19 还是 hg38 | inspect_bam |
 | VCF 文件 / 变异样本 / 染色体分布 | inspect_vcf |
+| MTX / 矩阵维度 / 稀疏矩阵 | inspect_mtx |
+| 内置工具不支持的文件格式 / 自定义探查 | sandbox_probe |
 
 ⚠️ 重要：所有文件/目录操作限定在当前项目工作区内，不要扫描或访问其他项目目录。
 
@@ -185,6 +196,9 @@ PATH_SAFE_TOOL_PARAMS = {
     "inspect_h5ad": ["file_path"],
     "inspect_fastq": ["file_path"],
     "inspect_bam": ["file_path"],
+    "detect_file_type": ["file_path"],
+    "inspect_mtx": ["file_path"],
+    "sandbox_probe": ["workspace_path"],
 }
 
 # ==========================================
@@ -325,23 +339,35 @@ async def chat_stream(
         )
         intent_data = route_result.dag.model_dump()
 
-        # ✨ 持久化文件上下文到 Redis：仅在本次请求有有效文件上下文时保存
-        if request.context_files and request.project_id:
-            try:
-                from app.services.file_context_service import get_file_context_service
-                get_file_context_service().save(
-                    user_id=str(current_user.id),
-                    project_id=request.project_id,
-                    active_file=request.context_files[0] if request.context_files else "",
-                    context_files=[
-                        {"id": f.get("id", ""), "name": f.get("name", "")}
-                        if isinstance(f, dict)
-                        else {"id": str(f), "name": str(f)}
-                        for f in (request.context_files or [])
-                    ],
-                )
-            except Exception as save_err:
-                log.debug(f"[Chat] Redis 文件上下文保存跳过: {save_err}")
+        # ✨ 持久化文件上下文到 Redis
+        # 1. 当本次请求有文件上下文时：直接保存
+        # 2. 当本次请求无文件上下文但 Redis 恢复出有效 _active_file 时：刷新 TTL
+        if request.project_id:
+            _should_save = bool(request.context_files)
+            _save_active_file = request.context_files[0] if request.context_files else ""
+            _save_files = request.context_files or []
+            if not _should_save and _active_file:
+                # 追问场景：前端未传 context_files，但 Redis 恢复了文件上下文
+                # 刷新 TTL 避免长时间对话中上下文过期
+                _should_save = True
+                _save_active_file = _active_file
+                _save_files = _context_files if _context_files else [_active_file]
+            if _should_save:
+                try:
+                    from app.services.file_context_service import get_file_context_service
+                    get_file_context_service().save(
+                        user_id=str(current_user.id),
+                        project_id=request.project_id,
+                        active_file=_save_active_file,
+                        context_files=[
+                            {"id": f.get("id", ""), "name": f.get("name", "")}
+                            if isinstance(f, dict)
+                            else {"id": str(f), "name": str(f)}
+                            for f in _save_files
+                        ],
+                    )
+                except Exception as save_err:
+                    log.debug(f"[Chat] Redis 文件上下文保存跳过: {save_err}")
         # 提取首个任务的意图信息（兼容下游 SSE 流逻辑）
         first_intent = route_result.dag.nodes[0].intent if route_result.dag.nodes else NewIntentType.GENERAL_CHAT
         log.info(f"[Chat] 意图分类 2.0: intent={first_intent.value}, "
@@ -365,7 +391,15 @@ async def chat_stream(
             from app.core.config import settings
             project_workspace = str(Path(settings.UPLOAD_DIR) / f"project_{request.project_id}")
             system_prompt = SYSTEM_PROMPT_DATA_PROBE_TEMPLATE.format(workspace_path=project_workspace)
-            log.info(f"[Chat] 使用数据探查模式 (intent={first_intent.value}, workspace={project_workspace})")
+            # ✨ 注入文件上下文：将 active_file 和 context_files 写入系统提示词
+            # 解决追问场景（如"这个文件多少行"）中 LLM 不知道"这个文件"指代哪个文件的问题
+            # _active_file 来源：前端 context_files[0] > Redis 跨轮恢复 > None
+            if _active_file:
+                system_prompt += f"\n\n用户当前关注的文件: {_active_file}"
+            if _context_files:
+                _file_list = "\n".join(f"- {f}" for f in _context_files[:20])
+                system_prompt += f"\n工作区可用文件列表:\n{_file_list}"
+            log.info(f"[Chat] 使用数据探查模式 (intent={first_intent.value}, workspace={project_workspace}, active_file={_active_file})")
         elif first_intent == NewIntentType.VISUAL_PERCEPTION_AND_TWEAK:
             system_prompt = SYSTEM_PROMPT_VISUAL
             log.info(f"[Chat] 使用视觉微调模式 (intent={first_intent.value})")
