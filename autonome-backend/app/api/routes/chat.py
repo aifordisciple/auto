@@ -538,6 +538,10 @@ async def chat_stream(
                 if is_data_probe and file_context_injected:
                     log.info("[Chat] 附件文件内容已注入，禁用 data_probe 探针工具，AI 将直接基于文件内容回答")
                     is_data_probe = False
+                    # ✨ 同时替换系统提示词为一般问答模式
+                    # 原因：工具已解绑，数据探查提示词指示 AI 调用探针工具，
+                    # 若无工具可调用 AI 会将工具名当作文本输出（如 inspect_tabular_data(...)）
+                    lc_messages[0] = {"role": "system", "content": SYSTEM_PROMPT_CHAT}
                 # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
                 data_probe_project_dir = ""
                 if is_data_probe:
