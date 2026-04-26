@@ -570,6 +570,13 @@ def inspect_bam(file_path: str) -> str:
             if total_reads >= 100000:
                 break
 
+        # V2.3: 解析 BAM header 信息（参考序列、读组、处理程序）
+        header_dict = dict(bamfile.header)
+        sq_records = header_dict.get('SQ', [])
+        rg_records = header_dict.get('RG', [])
+        pg_records = header_dict.get('PG', [])
+        co_records = header_dict.get('CO', [])
+
         bamfile.close()
 
         # 计算统计指标
@@ -598,6 +605,42 @@ def inspect_bam(file_path: str) -> str:
         if len(chrom_counts) > 10:
             result += f"  ... 共 {len(chrom_counts)} 个染色体/contig\n"
 
+        # V2.3: BAM header 解析输出
+        result += f"\n📋 BAM Header 信息:\n"
+
+        if sq_records:
+            result += f"\n🧬 参考序列 (@SQ, 共 {len(sq_records)} 条):\n"
+            for sq in sq_records[:15]:
+                sn = sq.get('SN', '?')
+                ln = sq.get('LN', '?')
+                as_tag = sq.get('AS', '')
+                result += f"  - {sn}: {ln} bp"
+                if as_tag:
+                    result += f" (assembly: {as_tag})"
+                result += "\n"
+            if len(sq_records) > 15:
+                result += f"  ... 共 {len(sq_records)} 条\n"
+
+        if rg_records:
+            result += f"\n🏷️ 读组 (@RG, 共 {len(rg_records)} 组):\n"
+            for rg in rg_records[:5]:
+                result += (
+                    f"  - ID={rg.get('ID', '?')}, "
+                    f"SM={rg.get('SM', '?')}, "
+                    f"PL={rg.get('PL', '?')}, "
+                    f"LB={rg.get('LB', '?')}\n"
+                )
+
+        if pg_records:
+            result += f"\n🔧 处理程序 (@PG):\n"
+            for pg in pg_records[:5]:
+                result += f"  - {pg.get('ID', '?')}: {pg.get('PN', '?')} v{pg.get('VN', '?')}\n"
+
+        if co_records:
+            result += f"\n💬 注释 (@CO):\n"
+            for co in co_records[:5]:
+                result += f"  - {co}\n"
+
         log.info(f"✅ [Probe] BAM 预览完成: {total_reads} reads, 比对率 {mapping_rate:.1f}%")
         return result
 
@@ -616,6 +659,823 @@ def _format_size(size_bytes: int) -> str:
         return f"{size_bytes / 1024 / 1024:.1f} MB"
     else:
         return f"{size_bytes / 1024 / 1024 / 1024:.1f} GB"
+
+
+# ==========================================
+# ✨ V2.3 新增探针工具
+# ==========================================
+
+@tool
+def detect_na(file_path: str, threshold: Optional[float] = None) -> str:
+    """
+    检测表格文件（CSV/TSV/TXT）中的缺失值（NA/NaN/空值/None）。
+    逐列统计缺失数量和比例，用于判断数据质量。
+
+    当用户询问"有没有缺失值"、"NA比例"、"缺失率"时调用此工具。
+
+    Args:
+        file_path: 表格文件的绝对路径
+        threshold: 可选，只报告缺失比例超过此阈值的列（如 0.05 表示 5%）
+
+    Returns:
+        缺失值统计报告，含每列缺失数量和比例
+    """
+    cache_key = _get_cache_key(file_path) + f":na:{threshold}"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] detect_na 缓存命中: {file_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] detect_na called: {file_path}, threshold={threshold}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    try:
+        # 检测分隔符（复用 peek_tabular_data 的逻辑）
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            first_line = f.readline()
+        if not first_line.strip():
+            return "❌ 文件为空"
+
+        delimiter = '\t'
+        if ',' in first_line and '\t' not in first_line:
+            delimiter = ','
+
+        import pandas as pd
+        # 安全检查：仅读取前 100 万行
+        df = pd.read_csv(file_path, sep=delimiter, nrows=1000000, low_memory=False)
+        n_cols = len(df.columns)
+        n_rows = len(df)
+
+        # 统计每列缺失值
+        na_counts = df.isna().sum()
+        na_ratios = (na_counts / n_rows).round(4)
+
+        # 额外检测空字符串（pandas isna 不包含空字符串）
+        empty_str_counts = {}
+        for col in df.columns:
+            try:
+                empty_str_counts[col] = (df[col].astype(str).str.strip() == '').sum()
+            except:
+                empty_str_counts[col] = 0
+
+        # 合并 NA + 空字符串
+        total_missing = {}
+        for col in df.columns:
+            total_missing[col] = int(na_counts[col]) + int(empty_str_counts[col])
+
+        # 按阈值过滤
+        if threshold is not None:
+            filtered_cols = [col for col in df.columns if total_missing[col] / n_rows > threshold]
+        else:
+            filtered_cols = list(df.columns)
+
+        # 构建报告
+        total_na_rows = df.isna().any(axis=1).sum()
+        result = f"""🔍 缺失值检测报告
+
+📁 文件路径: {file_path}
+📐 数据维度: {n_rows} 行 × {n_cols} 列
+📊 总缺失值: {sum(total_missing.values())} 个
+📊 含缺失值的行: {total_na_rows} ({total_na_rows / n_rows * 100:.1f}%)
+
+📋 逐列缺失统计:
+"""
+        if not filtered_cols:
+            result += "  ✅ 所有列均无缺失值\n"
+        else:
+            result += f"  {'列名':<25} {'缺失数':>8} {'缺失率':>8} {'状态'}\n"
+            result += f"  {'-'*25} {'-'*8} {'-'*8} {'-'*10}\n"
+            for col in filtered_cols:
+                missing = total_missing[col]
+                ratio = missing / n_rows
+                total_missing_calc = missing  # use the combined value
+                status = "⚠️ 需关注" if ratio > 0.1 else ("🔴 严重" if ratio > 0.3 else "✅ 正常")
+                result += f"  {col:<25} {total_missing_calc:>8} {ratio:>7.1%}  {status}\n"
+
+        # 总体判断
+        overall_na_ratio = sum(total_missing.values()) / (n_rows * n_cols) if n_cols > 0 else 0
+        result += f"\n📊 总体评估:\n"
+        result += f"  - 总缺失比例: {overall_na_ratio:.2%}\n"
+        if overall_na_ratio > 0.05:
+            result += f"  - ⚠️ 缺失比例较高，建议下游分析前进行缺失值处理（插补或删除）\n"
+        else:
+            result += f"  - ✅ 缺失比例较低，数据质量良好\n"
+
+        log.info(f"✅ [Probe] detect_na 完成: {n_rows} 行, {n_cols} 列")
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] detect_na 失败: {str(e)}")
+        return f"❌ 缺失值检测失败: {str(e)}"
+
+
+@tool
+def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
+    """
+    计算表格文件中数值列的汇总统计信息。
+    包括：计数、均值、标准差、最小值、25%/50%/75%分位数、最大值。
+
+    用于判断数据分布、是否已做 Log 转换、值范围等场景。
+
+    Args:
+        file_path: 表格文件的绝对路径
+        columns: 可选，逗号分隔的列名列表（如 "col1,col2"）；默认统计所有数值列
+
+    Returns:
+        汇总统计报告
+    """
+    cache_key = _get_cache_key(file_path) + f":stats:{columns}"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] compute_summary_stats 缓存命中: {file_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] compute_summary_stats called: {file_path}, columns={columns}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    try:
+        import pandas as pd
+
+        # 检测分隔符
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            first_line = f.readline()
+        delimiter = '\t'
+        if ',' in first_line and '\t' not in first_line:
+            delimiter = ','
+
+        df = pd.read_csv(file_path, sep=delimiter, nrows=500000, low_memory=False)
+
+        # 选择列
+        target_columns = None
+        if columns:
+            target_columns = [c.strip() for c in columns.split(',')]
+
+        # 筛选数值列
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        if target_columns:
+            numeric_cols = [c for c in target_columns if c in numeric_cols]
+            non_numeric = [c for c in target_columns if c not in numeric_cols]
+            if non_numeric:
+                log.warning(f"[Probe] 非数值列跳过: {non_numeric}")
+
+        if not numeric_cols:
+            return "⚠️ 没有可统计的数值列（所有列均为非数值类型）"
+
+        # 使用 describe() 计算统计
+        stats_df = df[numeric_cols].describe()
+        n_rows = len(df)
+        n_numeric = len(numeric_cols)
+
+        result = f"""📊 汇总统计报告
+
+📁 文件路径: {file_path}
+📐 数据维度: {n_rows} 行 × {len(df.columns)} 列
+🔢 数值列: {n_numeric} 个
+📏 统计样本: {int(stats_df.loc['count'].max())} 行
+
+📋 逐列统计:
+"""
+        stats_mapping = {
+            'count': '计数', 'mean': '均值', 'std': '标准差',
+            'min': '最小值', '25%': 'Q1(25%)', '50%': '中位数',
+            '75%': 'Q3(75%)', 'max': '最大值'
+        }
+
+        # 转置表格方便阅读
+        for col in numeric_cols:
+            result += f"\n  📌 {col}:\n"
+            for stat_key, stat_label in stats_mapping.items():
+                if stat_key in stats_df.index:
+                    val = stats_df.loc[stat_key, col]
+                    if stat_key == 'count':
+                        result += f"    {stat_label}: {int(val):,}\n"
+                    else:
+                        result += f"    {stat_label}: {val:.4f}\n"
+
+            # 额外推断
+            col_min = stats_df.loc['min', col]
+            col_max = stats_df.loc['max', col]
+            if col_max <= 30 and col_min >= -5:
+                result += f"    💡 值范围 [{col_min:.2f}, {col_max:.2f}]，可能已做 Log 转换\n"
+            elif col_max > 1000:
+                result += f"    💡 值范围 [{col_min:.2f}, {col_max:.2f}]，可能为原始计数/丰度值\n"
+
+        log.info(f"✅ [Probe] compute_summary_stats 完成: {n_rows} 行, {n_numeric} 数值列")
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] compute_summary_stats 失败: {str(e)}")
+        return f"❌ 汇总统计失败: {str(e)}"
+
+
+@tool
+def detect_file_encoding(file_path: str) -> str:
+    """
+    检测文本文件的字符编码和字段分隔符。
+
+    用于处理"文件打不开"、"乱码"、"不知道什么编码"等问题。
+    采样文件头部（100KB）进行编码检测，分析前 10 行判断分隔符。
+
+    Args:
+        file_path: 文件的绝对路径
+
+    Returns:
+        编码和分隔符检测报告
+    """
+    cache_key = _get_cache_key(file_path) + ":encoding"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] detect_file_encoding 缓存命中: {file_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] detect_file_encoding called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    try:
+        file_size = os.path.getsize(file_path)
+
+        # 步骤 1: 读取原始字节采样
+        with open(file_path, 'rb') as f:
+            raw_sample = f.read(min(100 * 1024, file_size))
+
+        # 步骤 2: 检测编码
+        encoding_result = None
+        encoding_confidence = 0
+        encoding_method = ""
+
+        # 尝试 chardet
+        try:
+            import chardet
+            detected = chardet.detect(raw_sample)
+            encoding_result = detected.get('encoding')
+            encoding_confidence = detected.get('confidence', 0)
+            encoding_method = "chardet"
+        except ImportError:
+            pass
+
+        # 降级：charset_normalizer
+        if encoding_result is None:
+            try:
+                import charset_normalizer
+                results = charset_normalizer.from_bytes(raw_sample)
+                if results:
+                    best = results[0]
+                    encoding_result = best.encoding
+                    encoding_confidence = 1.0
+                    encoding_method = "charset_normalizer"
+            except ImportError:
+                pass
+
+        # 最终降级：启发式检测
+        if encoding_result is None:
+            encoding_method = "heuristic"
+            # 尝试 UTF-8
+            try:
+                raw_sample.decode('utf-8')
+                encoding_result = 'utf-8'
+                encoding_confidence = 0.9
+            except UnicodeDecodeError:
+                # 尝试常见编码
+                for enc in ['gbk', 'gb2312', 'gb18030', 'latin-1', 'cp1252', 'shift_jis']:
+                    try:
+                        raw_sample.decode(enc)
+                        encoding_result = enc
+                        encoding_confidence = 0.7
+                        break
+                    except UnicodeDecodeError:
+                        continue
+
+        if encoding_result is None:
+            encoding_result = 'unknown'
+
+        # 步骤 3: 检测分隔符
+        delimiter_result = "未知"
+        delimiter_alternatives = []
+        try:
+            decoded_sample = raw_sample.decode(encoding_result, errors='replace')
+            lines = decoded_sample.split('\n')[:10]
+            lines = [l.rstrip('\r') for l in lines if l.strip()]
+
+            if lines:
+                # 统计各分隔符出现次数
+                candidates = {'\\t (制表符)': 0, ', (逗号)': 0, '; (分号)': 0, '  (空格)': 0, '| (竖线)': 0}
+                for line in lines[:5]:
+                    candidates['\\t (制表符)'] += line.count('\t')
+                    candidates[', (逗号)'] += line.count(',')
+                    candidates['; (分号)'] += line.count(';')
+                    candidates['| (竖线)'] += line.count('|')
+                    # 空格：统计连续空格
+                    space_count = len([s for s in line.split('  ') if s])
+                    candidates['  (空格)'] += space_count
+
+                # 一致性检查：每行分隔符数量是否相同
+                for delim_char, _ in [('\t', '\\t (制表符)'), (',', ', (逗号)'), (';', '; (分号)'), ('|', '| (竖线)')]:
+                    counts = [line.count(delim_char) for line in lines]
+                    if len(set(counts)) == 1 and counts[0] > 0:
+                        delimiter_result = f"{delim_char} (一致，每行 {counts[0]} 个字段)"
+                        break
+
+                # 如果上述都没匹配，取出现最多的
+                if delimiter_result == "未知":
+                    best_delim = max(candidates, key=candidates.get)
+                    if candidates[best_delim] > 0:
+                        delimiter_result = f"{best_delim} (推测，样本行中总计 {candidates[best_delim]} 次)"
+        except:
+            delimiter_result = "检测失败"
+
+        # 步骤 4: 检查 BOM
+        has_bom = raw_sample[:3] in (b'\xef\xbb\xbf',)  # UTF-8 BOM
+        if raw_sample[:2] in (b'\xff\xfe', b'\xfe\xff'):
+            has_bom = True
+
+        result = f"""🔤 文件编码与格式检测报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {_format_size(file_size)}
+
+🔍 字符编码:
+  - 检测编码: {encoding_result}
+  - 置信度: {encoding_confidence:.0%}
+  - 检测方法: {encoding_method}
+  - BOM 标记: {'有' if has_bom else '无'}
+
+📋 字段分隔符:
+  - 检测结果: {delimiter_result}
+
+💡 建议:
+"""
+        if encoding_result and encoding_result.lower() not in ('utf-8', 'ascii'):
+            result += f"  - 文件为非 UTF-8 编码 ({encoding_result})，建议转换后使用\n"
+        if delimiter_result != "未知":
+            result += f"  - 使用 pandas.read_csv(file, sep=<delimiter>, encoding='{encoding_result}') 读取\n"
+
+        log.info(f"✅ [Probe] detect_file_encoding 完成: encoding={encoding_result}")
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] detect_file_encoding 失败: {str(e)}")
+        return f"❌ 编码检测失败: {str(e)}"
+
+
+@tool
+def compute_set_operations(
+    file_path_1: str,
+    file_path_2: str,
+    column: str,
+    column_2: Optional[str] = None,
+    operation: str = "overlap"
+) -> str:
+    """
+    对两个表格文件的指定列执行集合操作（交集、并集、差集）。
+
+    用于"基因重叠"、"取交集"、"PTM位点交集"等场景。
+
+    Args:
+        file_path_1: 第一个表格文件的绝对路径
+        file_path_2: 第二个表格文件的绝对路径
+        column: 第一个文件中用于集合操作的列名
+        column_2: 可选，第二个文件中的列名（默认与 column 相同）
+        operation: 操作类型 — "overlap"(交集), "union"(并集),
+                  "diff_1"(在文件1不在文件2), "diff_2"(在文件2不在文件1)
+
+    Returns:
+        集合操作结果报告
+    """
+    cache_key = f"{_get_cache_key(file_path_1)}|{_get_cache_key(file_path_2)}|{column}|{column_2}|{operation}"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] compute_set_operations 缓存命中")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] compute_set_operations called: {file_path_1}, {file_path_2}, col={column}")
+
+    for fp in [file_path_1, file_path_2]:
+        if not os.path.exists(fp):
+            return f"❌ 文件不存在: {fp}"
+
+    try:
+        import pandas as pd
+
+        col_2 = column_2 or column
+
+        # 读取两个文件
+        dfs = []
+        for fp in [file_path_1, file_path_2]:
+            with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
+                first_line = f.readline()
+            delimiter = '\t'
+            if ',' in first_line and '\t' not in first_line:
+                delimiter = ','
+            dfs.append(pd.read_csv(fp, sep=delimiter))
+
+        df1, df2 = dfs
+
+        # 检查列是否存在
+        if column not in df1.columns:
+            return f"❌ 文件1中不存在列 '{column}'，可用列: {list(df1.columns)}"
+        if col_2 not in df2.columns:
+            return f"❌ 文件2中不存在列 '{col_2}'，可用列: {list(df2.columns)}"
+
+        set1 = set(df1[column].dropna().astype(str).unique())
+        set2 = set(df2[col_2].dropna().astype(str).unique())
+
+        n1, n2 = len(set1), len(set2)
+        intersection = set1 & set2
+        union = set1 | set2
+        diff_1 = set1 - set2
+        diff_2 = set2 - set1
+
+        result = f"""🔗 集合操作报告
+
+📁 文件 1: {file_path_1} (列: {column})
+📁 文件 2: {file_path_2} (列: {col_2})
+
+📊 基本统计:
+  - 文件 1 唯一值: {n1:,} 个
+  - 文件 2 唯一值: {n2:,} 个
+  - 交集 (overlap): {len(intersection):,} 个 ({len(intersection) / max(n1, 1) * 100:.1f}% of 文件1)
+  - 并集 (union): {len(union):,} 个
+  - 仅在文件1: {len(diff_1):,} 个
+  - 仅在文件2: {len(diff_2):,} 个
+"""
+
+        if operation == "overlap":
+            overlap_ratio = len(intersection) / max(n1, 1) * 100
+            result += f"\n📋 交集列表 ({len(intersection)} 个):\n"
+            result += ", ".join(sorted(list(intersection))[:20])
+            if len(intersection) > 20:
+                result += f"\n  ... 共 {len(intersection)} 个"
+            result += f"\n\n💡 重叠比例: {overlap_ratio:.1f}% (相对于文件1)"
+        elif operation == "union":
+            result += f"\n📋 并集大小: {len(union)} 个\n"
+        elif operation == "diff_1":
+            result += f"\n📋 仅在文件1 ({len(diff_1)} 个):\n"
+            result += ", ".join(sorted(list(diff_1))[:20])
+        elif operation == "diff_2":
+            result += f"\n📋 仅在文件2 ({len(diff_2)} 个):\n"
+            result += ", ".join(sorted(list(diff_2))[:20])
+
+        log.info(f"✅ [Probe] compute_set_operations 完成: |A|={n1}, |B|={n2}, |A∩B|={len(intersection)}")
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] compute_set_operations 失败: {str(e)}")
+        return f"❌ 集合运算失败: {str(e)}"
+
+
+@tool
+def inspect_vcf(file_path: str) -> str:
+    """
+    解析 VCF/BCF 变异检测文件的结构信息。
+    返回样本列表、染色体分布、变异类型（SNP/INDEL/SV）统计。
+
+    当用户询问"VCF文件"、"变异信息"、"样本名"时调用此工具。
+
+    Args:
+        file_path: VCF/BCF 文件的绝对路径（支持 .vcf, .vcf.gz, .bcf）
+
+    Returns:
+        VCF 结构报告
+    """
+    cache_key = _get_cache_key(file_path)
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] inspect_vcf 缓存命中: {file_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] inspect_vcf called: {file_path}")
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in ('.vcf', '.bcf', '.gz'):
+        return f"⚠️ 文件扩展名 {ext} 不是标准 VCF 格式（期望 .vcf/.vcf.gz/.bcf）"
+
+    try:
+        # 优先使用 pysam
+        try:
+            import pysam
+            vcf = pysam.VariantFile(file_path)
+            samples = list(vcf.header.samples)
+            contigs = list(vcf.header.contigs.keys())
+            n_samples = len(samples)
+            n_contigs = len(contigs)
+
+            # 统计变异（限制扫描 10 万条）
+            variant_types = {"SNP": 0, "INDEL": 0, "SV": 0, "OTHER": 0}
+            chrom_counts = {}
+            filter_stats = {"PASS": 0, "FILTERED": 0}
+            total_variants = 0
+
+            for rec in vcf:
+                total_variants += 1
+                chrom = rec.chrom
+                chrom_counts[chrom] = chrom_counts.get(chrom, 0) + 1
+
+                # 变异类型判断
+                ref_len = len(rec.ref)
+                alts = rec.alts or []
+                if alts:
+                    alt_lens = [len(a) for a in alts]
+                    max_alt_len = max(alt_lens)
+                    if ref_len == 1 and max_alt_len == 1:
+                        variant_types["SNP"] += 1
+                    elif ref_len != max_alt_len:
+                        variant_types["INDEL"] += 1
+                    elif max_alt_len > 50:
+                        variant_types["SV"] += 1
+                    else:
+                        variant_types["OTHER"] += 1
+
+                # FILTER 统计
+                if rec.filter.keys() and len(rec.filter.keys()) > 0 and 'PASS' not in rec.filter.keys():
+                    filter_stats["FILTERED"] += 1
+                else:
+                    filter_stats["PASS"] += 1
+
+                if total_variants >= 100000:
+                    break
+
+            vcf.close()
+
+            result = f"""🧬 VCF 变异文件结构报告
+
+📁 文件路径: {file_path}
+📏 文件大小: {_format_size(os.path.getsize(file_path))}
+
+📊 概览:
+  - 样本数: {n_samples}
+  - 参考序列 (contig): {n_contigs} 个
+  - 扫描变异数: {total_variants:,}
+
+📋 样本列表 ({n_samples} 个):
+"""
+            for s in samples[:30]:
+                result += f"  - {s}\n"
+            if n_samples > 30:
+                result += f"  ... 共 {n_samples} 个\n"
+
+            result += f"\n🧬 变异类型分布:\n"
+            for vtype, count in variant_types.items():
+                if count > 0:
+                    result += f"  - {vtype}: {count:,} ({count / max(total_variants, 1) * 100:.1f}%)\n"
+
+            result += f"\n🏷️ FILTER 统计:\n"
+            result += f"  - PASS: {filter_stats['PASS']:,}\n"
+            result += f"  - 过滤: {filter_stats['FILTERED']:,}\n"
+
+            sorted_chroms = sorted(chrom_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            result += f"\n📍 染色体分布 (Top 10):\n"
+            for chrom, count in sorted_chroms:
+                result += f"  - {chrom}: {count:,}\n"
+
+            log.info(f"✅ [Probe] inspect_vcf 完成 (pysam): {n_samples} 样本, {total_variants} 变异")
+            _cache_result(cache_key, result)
+            return result
+
+        except ImportError:
+            log.warning("[Probe] pysam 不可用，降级为手动 VCF 解析")
+
+        # 降级：手动解析 VCF
+        opener = open
+        if file_path.endswith('.gz'):
+            import gzip
+            opener = gzip.open
+
+        samples = []
+        contigs = set()
+        variant_types = {"SNP": 0, "INDEL": 0, "SV": 0, "OTHER": 0}
+        total_variants = 0
+
+        with opener(file_path, 'rt') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('#'):
+                    if line.startswith('##contig='):
+                        # ##contig=<ID=chr1,length=248956422>
+                        import re as regex
+                        m = regex.search(r'ID=([^,>]+)', line)
+                        if m:
+                            contigs.add(m.group(1))
+                    elif line.startswith('#CHROM'):
+                        # #CHROM  POS  ID  REF  ALT  QUAL  FILTER  INFO  FORMAT  sample1  sample2 ...
+                        parts = line.split('\t')
+                        if len(parts) > 9:
+                            samples = parts[9:]
+                    continue
+
+                total_variants += 1
+                parts = line.split('\t', 5)
+                if len(parts) >= 5:
+                    ref = parts[3]
+                    alt = parts[4]
+                    ref_len = len(ref)
+                    alt_fields = alt.split(',')
+                    max_alt_len = max(len(a) for a in alt_fields)
+
+                    if ref_len == 1 and max_alt_len == 1:
+                        variant_types["SNP"] += 1
+                    elif ref_len != max_alt_len:
+                        variant_types["INDEL"] += 1
+                    elif max_alt_len > 50:
+                        variant_types["SV"] += 1
+                    else:
+                        variant_types["OTHER"] += 1
+
+                if total_variants >= 100000:
+                    break
+
+        result = f"""🧬 VCF 变异文件结构报告 (手动解析)
+
+📁 文件路径: {file_path}
+📏 文件大小: {_format_size(os.path.getsize(file_path))}
+
+📊 概览:
+  - 样本数: {len(samples)}
+  - 参考序列: {len(contigs)} 个
+  - 扫描变异数: {total_variants:,}
+
+📋 样本列表:
+"""
+        for s in samples[:30]:
+            result += f"  - {s}\n"
+        if len(samples) > 30:
+            result += f"  ... 共 {len(samples)} 个\n"
+
+        result += f"\n🧬 变异类型分布:\n"
+        for vtype, count in variant_types.items():
+            if count > 0:
+                result += f"  - {vtype}: {count:,}\n"
+
+        if contigs:
+            result += f"\n📍 参考序列: {', '.join(sorted(contigs)[:10])}\n"
+
+        log.info(f"✅ [Probe] inspect_vcf 完成 (手动): {len(samples)} 样本, {total_variants} 变异")
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] inspect_vcf 失败: {str(e)}")
+        return f"❌ VCF 解析失败: {str(e)}"
+
+
+@tool
+def match_paired_fastq(directory_path: str) -> str:
+    """
+    扫描目录，查找并配对双端 FASTQ 文件（R1/R2 或 _1/_2）。
+
+    自动识别 Illumina 命名约定，配对双端文件，找出落单的 FASTQ 文件。
+    用于"检查 R1/R2 是否一一对应"、"双端文件配对"、"是否缺少某端文件"等场景。
+
+    Args:
+        directory_path: 要扫描的目录绝对路径
+
+    Returns:
+        配对报告，列出所有样本及其 R1/R2 文件对
+    """
+    cache_key = _get_cache_key(directory_path) + ":pair"
+    if cache_key in _probe_cache:
+        log.info(f"🔍 [Probe] match_paired_fastq 缓存命中: {directory_path}")
+        return _probe_cache[cache_key]
+
+    log.info(f"🔍 [Probe] match_paired_fastq called: {directory_path}")
+
+    if not os.path.exists(directory_path):
+        return f"❌ 目录不存在: {directory_path}"
+
+    if not os.path.isdir(directory_path):
+        return f"❌ 路径不是目录: {directory_path}"
+
+    try:
+        import re as regex
+
+        # 收集所有 FASTQ 文件
+        fastq_files = []
+        for root, dirs, files in os.walk(directory_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for f in files:
+                if f.startswith('.'):
+                    continue
+                f_lower = f.lower()
+                if any(f_lower.endswith(ext) for ext in ('.fastq', '.fq', '.fastq.gz', '.fq.gz')):
+                    full_path = os.path.join(root, f)
+                    file_size = os.path.getsize(full_path)
+                    fastq_files.append((f, full_path, file_size))
+
+        if not fastq_files:
+            return f"📂 目录 {directory_path} 中未找到 FASTQ 文件"
+
+        # 配对模式
+        pair_patterns = [
+            # _R1 / _R2 (Illumina 标准)
+            regex.compile(r'^(.+?)_R1[_\\.]?(.*\.(?:fastq|fq)(?:\.gz)?)$', regex.IGNORECASE),
+            regex.compile(r'^(.+?)_R2[_\\.]?(.*\.(?:fastq|fq)(?:\.gz)?)$', regex.IGNORECASE),
+            # _1 / _2 (替代)
+            regex.compile(r'^(.+?)_1[_\\.]?(.*\.(?:fastq|fq)(?:\.gz)?)$', regex.IGNORECASE),
+            regex.compile(r'^(.+?)_2[_\\.]?(.*\.(?:fastq|fq)(?:\.gz)?)$', regex.IGNORECASE),
+            # .R1. / .R2.
+            regex.compile(r'^(.+?)\.R1\.(.+)$', regex.IGNORECASE),
+            regex.compile(r'^(.+?)\.R2\.(.+)$', regex.IGNORECASE),
+        ]
+
+        # 分类：R1 文件、R2 文件
+        r1_files = {}  # sample_name -> (filename, full_path, size)
+        r2_files = {}
+        unmatched = []
+
+        for filename, full_path, size in fastq_files:
+            matched = False
+            for i, pattern in enumerate(pair_patterns):
+                m = pattern.search(filename)
+                if m:
+                    sample_name = m.group(1).rstrip('_').rstrip('.')
+                    if i % 2 == 0:  # R1 patterns (even indices)
+                        r1_files[sample_name] = (filename, full_path, size)
+                    else:  # R2 patterns (odd indices)
+                        r2_files[sample_name] = (filename, full_path, size)
+                    matched = True
+                    break
+            if not matched:
+                unmatched.append((filename, full_path, size))
+
+        # 配对分析
+        all_samples = set(list(r1_files.keys()) + list(r2_files.keys()))
+        paired = []
+        r1_only = []
+        r2_only = []
+
+        for sample in sorted(all_samples):
+            has_r1 = sample in r1_files
+            has_r2 = sample in r2_files
+            if has_r1 and has_r2:
+                _, path1, size1 = r1_files[sample]
+                _, path2, size2 = r2_files[sample]
+                paired.append((sample, path1, size1, path2, size2))
+            elif has_r1:
+                fname, path, size = r1_files[sample]
+                r1_only.append((sample, fname, path, size))
+            elif has_r2:
+                fname, path, size = r2_files[sample]
+                r2_only.append((sample, fname, path, size))
+
+        # 构建报告
+        result = f"""🔗 FASTQ 双端文件配对报告
+
+📂 目录: {directory_path}
+📊 总 FASTQ 文件: {len(fastq_files)} 个
+
+✅ 配对成功: {len(paired)} 对 ({len(paired) * 2} 个文件)
+"""
+        if paired:
+            result += "\n📋 配对详情:\n"
+            result += f"  {'样本名':<30} {'R1大小':>10} {'R2大小':>10}\n"
+            result += f"  {'-'*30} {'-'*10} {'-'*10}\n"
+            for sample, _, size1, _, size2 in paired[:20]:
+                result += f"  {sample:<30} {_format_size(size1):>10} {_format_size(size2):>10}\n"
+            if len(paired) > 20:
+                result += f"  ... 共 {len(paired)} 对\n"
+
+        if r1_only:
+            result += f"\n⚠️ 仅有 R1 (缺 R2) - {len(r1_only)} 个:\n"
+            for sample, fname, _, size in r1_only[:10]:
+                result += f"  - {sample}: {fname} ({_format_size(size)})\n"
+
+        if r2_only:
+            result += f"\n⚠️ 仅有 R2 (缺 R1) - {len(r2_only)} 个:\n"
+            for sample, fname, _, size in r2_only[:10]:
+                result += f"  - {sample}: {fname} ({_format_size(size)})\n"
+
+        if unmatched:
+            result += f"\n❓ 未识别配对模式 - {len(unmatched)} 个:\n"
+            for fname, _, size in unmatched[:10]:
+                result += f"  - {fname} ({_format_size(size)})\n"
+
+        # 总体判断
+        if not r1_only and not r2_only and not unmatched:
+            result += f"\n✅ 所有 {len(paired)} 对文件配对完整，R1/R2 一一对应"
+        else:
+            issues = []
+            if r1_only:
+                issues.append(f"{len(r1_only)} 个 R1 缺 R2")
+            if r2_only:
+                issues.append(f"{len(r2_only)} 个 R2 缺 R1")
+            if unmatched:
+                issues.append(f"{len(unmatched)} 个无法识别")
+            result += f"\n⚠️ 存在问题: {', '.join(issues)}"
+
+        log.info(f"✅ [Probe] match_paired_fastq 完成: {len(paired)} 对, {len(r1_only)} R1-only, {len(r2_only)} R2-only")
+        _cache_result(cache_key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"❌ [Probe] match_paired_fastq 失败: {str(e)}")
+        return f"❌ FASTQ 配对失败: {str(e)}"
 
 
 def _get_file_icon(ext: str) -> str:
@@ -638,6 +1498,10 @@ def _get_file_icon(ext: str) -> str:
 
 
 # 导出工具列表（供 bio_tools.py 导入）
-probe_tools_list = [peek_tabular_data, scan_workspace, inspect_h5ad, inspect_fastq, inspect_bam]
+probe_tools_list = [
+    peek_tabular_data, scan_workspace, inspect_h5ad, inspect_fastq, inspect_bam,
+    detect_na, compute_summary_stats, detect_file_encoding,
+    compute_set_operations, inspect_vcf, match_paired_fastq,
+]
 
 log.info("🔍 环境探针工具模块已加载（含多组学探针）")
