@@ -190,14 +190,16 @@ async def chat_stream(
         is_new_session = True
 
     # 4. 持久化用户消息
-    # ✨ 保存附件信息（图片路径、粘贴文件路径），用于历史消息重建
+    # ✨ 保存附件信息（图片路径、粘贴文件路径、项目文件路径），用于历史消息重建
     user_attachments = None
-    if request.images or request.pasted_files:
+    if request.images or request.pasted_files or request.context_files:
         user_attachments = {}
         if request.images:
             user_attachments["images"] = request.images
         if request.pasted_files:
             user_attachments["pastedFiles"] = request.pasted_files
+        if request.context_files:
+            user_attachments["files"] = request.context_files
     user_msg = ChatMessage(
         session_id=chat_session.id,
         role=RoleEnum.user,
@@ -319,40 +321,15 @@ async def chat_stream(
 
     # ✨ 追加当前用户消息（在历史之后，确保顺序正确）
     # ✨ 支持多模态：图片消息包含 images 字段（Ollama）或 image_url blocks（LangChain）
-    current_user_msg = {"role": "user", "content": request.message}
-    # 图片路径列表（服务器路径，如 raw_data/.pasted/image.png）
-    # 这些路径会在 Ollama 消息构建时转为 images 字段
+    # ✨ 附件文件内容合并到当前用户消息中（而不是追加额外消息对）
+    # 这样 AI 能直接看到文件内容并回答，不会被 data_probe 模式的探针工具干扰
+    current_user_content = request.message
     current_image_paths = request.images or []
-    lc_messages.append(current_user_msg)
 
-    # ✨ PDF 内容注入：提取粘贴的 PDF 文件文本，追加到用户消息后
-    pdf_context_text = ""
-    if request.pasted_files:
-        try:
-            from app.services.pdf_processor import extract_pdf_content, build_pdf_context_message
-            pdf_results = []
-            for pdf_path in request.pasted_files:
-                # 将相对路径转为绝对路径（项目工作区路径）
-                abs_path = pdf_path
-                if not os.path.isabs(pdf_path):
-                    # 项目目录格式：UPLOAD_DIR/project_{project_id}
-                    from app.core.config import settings as pdf_settings
-                    project_dir = str(Path(pdf_settings.UPLOAD_DIR) / f"project_{request.project_id}")
-                    abs_path = f"{project_dir}/{pdf_path}"
-                result = extract_pdf_content(abs_path)
-                pdf_results.append(result)
-                log.info(f"[Chat] PDF 提取完成: {abs_path}, {result['char_count']} 字符")
-            pdf_context_text = build_pdf_context_message(pdf_results)
-        except Exception as e:
-            log.warning(f"[Chat] PDF 内容提取失败: {e}")
-    # 如果有 PDF 上下文，作为额外的 user 消息注入
-    if pdf_context_text:
-        lc_messages.append({"role": "user", "content": pdf_context_text})
-        lc_messages.append({"role": "assistant", "content": "好的，我已经阅读了您上传的PDF文档内容，请继续提问。"})
-
-    # ✨ 附件文件内容注入：读取 context_files 的文件内容，追加到用户消息后
+    # ✨ 附件文件内容注入：读取 context_files 的文件内容，合并到当前用户消息
     # 当用户通过"添加附件"选择项目文件时，AI 需要看到文件内容才能回答相关问题
     # 根据文件扩展名选择不同的读取策略，直接读取文件内容（不经过 LangChain @tool 封装）
+    file_context_injected = False
     if request.context_files:
         try:
             from app.core.config import settings as cf_settings
@@ -369,30 +346,27 @@ async def chat_stream(
                 ext = os.path.splitext(abs_path)[1].lower()
 
                 if ext in ('.csv', '.tsv', '.txt', '.tab'):
-                    # 表格文件：直接用 pandas 读取表头和前几行（不经过 LangChain @tool）
+                    # 表格文件：直接用 pandas 读取表头和前几行
                     try:
                         import pandas as pd
-                        # 智能检测分隔符
                         with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
                             first_line = f.readline()
                         delimiter = '\t'
                         if ',' in first_line and '\t' not in first_line:
                             delimiter = ','
-                        df = pd.read_csv(abs_path, sep=delimiter, nrows=5)
+                        df = pd.read_csv(abs_path, sep=delimiter, nrows=10)
                         n_rows_total = sum(1 for _ in open(abs_path, 'r', encoding='utf-8', errors='ignore')) - 1
                         preview = f"文件维度: {n_rows_total} 行 × {len(df.columns)} 列\n"
-                        preview += f"表头: {list(df.columns)}\n"
-                        preview += f"前5行:\n{df.to_string(max_cols=10, max_colwidth=12)}"
+                        preview += f"表头: {list(df.columns[:10])}\n"
+                        preview += f"前10行:\n{df.to_string(max_cols=10, max_colwidth=12)}"
                         file_context_parts.append(f"## 文件: {file_path}\n{preview}")
                     except Exception as tbl_err:
-                        # pandas 读取失败时回退到纯文本读取
                         log.warning(f"[Chat] 表格文件 pandas 读取失败，回退纯文本: {tbl_err}")
                         with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
                             content = f.read(50000)
                         file_context_parts.append(f"## 文件: {file_path} (纯文本预览)\n```\n{content}\n```")
 
                 elif ext == '.h5ad':
-                    # AnnData 文件：使用 scanpy 读取基本信息
                     try:
                         import scanpy as sc
                         adata = sc.read_h5ad(abs_path, backed='r')
@@ -407,7 +381,6 @@ async def chat_stream(
                 elif ext in ('.py', '.r', '.sh', '.json', '.yaml', '.yml', '.md',
                              '.log', '.nf', '.conf', '.cfg', '.ini', '.toml',
                              '.tex', '.html', '.css', '.js', '.ts', '.sql'):
-                    # 文本文件：直接读取内容（限制 100KB 避免过长）
                     max_size = 100 * 1024  # 100KB
                     file_size = os.path.getsize(abs_path)
                     with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -420,24 +393,21 @@ async def chat_stream(
                         file_context_parts.append(f"## 文件: {file_path}\n```\n{content}\n```")
 
                 elif ext == '.pdf':
-                    # PDF 文件：使用已有的 PDF 处理器提取文本
                     from app.services.pdf_processor import extract_pdf_content
                     result = extract_pdf_content(abs_path)
                     text = result.get('text', '[PDF 内容提取失败]')[:5000]
                     file_context_parts.append(f"## 文件: {file_path}\n{text}")
 
                 elif ext in ('.fastq', '.fq'):
-                    # FASTQ 文件：读取前几条记录
                     try:
                         with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
-                            lines = [f.readline() for _ in range(8)]  # 2条记录，每条4行
+                            lines = [f.readline() for _ in range(8)]
                         preview = ''.join(lines)
                         file_context_parts.append(f"## 文件: {file_path}\n```\n{preview}\n... (更多记录省略)\n```")
                     except Exception as fq_err:
                         file_context_parts.append(f"## 文件: {file_path}\n[FASTQ 读取失败: {fq_err}]")
 
                 elif ext in ('.bam', '.sam'):
-                    # BAM/SAM 文件：使用 pysam 读取基本信息
                     try:
                         import pysam
                         if ext == '.bam':
@@ -451,21 +421,24 @@ async def chat_stream(
                         file_context_parts.append(f"## 文件: {file_path}\n[BAM/SAM 读取失败: {bam_err}]")
 
                 else:
-                    # 其他文件类型：仅告知文件存在和大小
                     file_size = os.path.getsize(abs_path)
                     file_context_parts.append(
                         f"## 文件: {file_path} (类型: {ext}, 大小: {file_size} 字节)\n[此文件类型暂不支持内容预览]"
                     )
 
-            # 将所有文件内容作为额外的 user 消息注入
+            # ✨ 合并文件内容到当前用户消息中（而不是追加额外消息对）
+            # 这样 AI 直接在用户消息中看到文件内容，不会被 data_probe 模式的探针工具干扰
             if file_context_parts:
                 file_context_text = "\n\n".join(file_context_parts)
-                lc_messages.append({"role": "user", "content": f"以下是我附加的文件内容：\n\n{file_context_text}"})
-                lc_messages.append({"role": "assistant", "content": "好的，我已经阅读了您附加的文件内容，请继续提问。"})
-                log.info(f"[Chat] 注入 {len(file_context_parts)} 个附件文件内容到 LLM 消息")
+                current_user_content += f"\n\n[用户附加的文件内容]\n{file_context_text}"
+                file_context_injected = True
+                log.info(f"[Chat] 合并 {len(file_context_parts)} 个附件文件内容到当前用户消息")
 
         except Exception as e:
             log.warning(f"[Chat] 附件文件内容注入失败: {e}")
+
+    current_user_msg = {"role": "user", "content": current_user_content}
+    lc_messages.append(current_user_msg)
 
     # ✨ 消息列表完整性校验：确保 user/assistant 交替
     # 根因修复：空助手消息已在上游插入占位，正常情况下不会出现连续 user 消息
@@ -559,6 +532,12 @@ async def chat_stream(
                     and len(intent_data["nodes"]) > 0
                     and intent_data["nodes"][0].get("intent") == "INTENT_DATA_PROBE"
                 )
+                # ✨ 当附件文件内容已注入用户消息时，禁用 data_probe 探针工具
+                # 原因：探针工具会强制 AI 调用工具扫描文件，而非直接从注入的内容回答
+                # 附件文件内容已经在用户消息中，AI 可以直接基于内容回答，无需再探测
+                if is_data_probe and file_context_injected:
+                    log.info("[Chat] 附件文件内容已注入，禁用 data_probe 探针工具，AI 将直接基于文件内容回答")
+                    is_data_probe = False
                 # ✨ data_probe 项目路径：工具执行时强制限定在此目录内，防止扫描其他项目
                 data_probe_project_dir = ""
                 if is_data_probe:
