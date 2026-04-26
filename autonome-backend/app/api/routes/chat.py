@@ -286,17 +286,62 @@ async def chat_stream(
         from app.agent.router.engine import IntentRouterEngine
         from app.agent.router.schemas import IntentType as NewIntentType
 
+        # ✨ 跨轮回合文件上下文：优先使用前端传来的 context_files，
+        # 若前端未传则尝试从 Redis 恢复上次的文件上下文
+        _active_file = request.context_files[0] if request.context_files else None
+        _context_files = request.context_files
+
+        if not _active_file and not _context_files and request.project_id:
+            try:
+                from app.services.file_context_service import get_file_context_service
+                restored = get_file_context_service().restore(
+                    user_id=str(current_user.id),
+                    project_id=request.project_id,
+                )
+                if restored:
+                    _active_file = restored.get("active_file") or None
+                    _context_files_raw = restored.get("context_files") or []
+                    _context_files = [
+                        f.get("name", "") if isinstance(f, dict) else str(f)
+                        for f in _context_files_raw
+                    ]
+                    if _active_file or _context_files:
+                        log.info(
+                            f"[Chat] 从 Redis 恢复文件上下文: "
+                            f"active_file={_active_file}, context_files={len(_context_files)}"
+                        )
+            except Exception as restore_err:
+                log.debug(f"[Chat] Redis 文件上下文恢复跳过: {restore_err}")
+
         router_engine = IntentRouterEngine(session=session, user_id=current_user.id)
         route_result = await router_engine.route(
             query=request.message,
             context={
                 "project_id": request.project_id,
                 "skill_id": request.skill_id,
-                "active_file": request.context_files[0] if request.context_files else None,
-                "context_files": request.context_files,
+                "active_file": _active_file,
+                "context_files": _context_files,
             }
         )
         intent_data = route_result.dag.model_dump()
+
+        # ✨ 持久化文件上下文到 Redis：仅在本次请求有有效文件上下文时保存
+        if request.context_files and request.project_id:
+            try:
+                from app.services.file_context_service import get_file_context_service
+                get_file_context_service().save(
+                    user_id=str(current_user.id),
+                    project_id=request.project_id,
+                    active_file=request.context_files[0] if request.context_files else "",
+                    context_files=[
+                        {"id": f.get("id", ""), "name": f.get("name", "")}
+                        if isinstance(f, dict)
+                        else {"id": str(f), "name": str(f)}
+                        for f in (request.context_files or [])
+                    ],
+                )
+            except Exception as save_err:
+                log.debug(f"[Chat] Redis 文件上下文保存跳过: {save_err}")
         # 提取首个任务的意图信息（兼容下游 SSE 流逻辑）
         first_intent = route_result.dag.nodes[0].intent if route_result.dag.nodes else NewIntentType.GENERAL_CHAT
         log.info(f"[Chat] 意图分类 2.0: intent={first_intent.value}, "
@@ -880,31 +925,106 @@ async def chat_stream(
                         log.info(f"[Chat] data_probe: 绑定 {len(_tools_lc)} 个探针工具到 LangChain LLM")
 
                         # 工具调用循环：LLM 可能多次调用工具
+                        # V2.3 升级：使用 astream_events 流式输出，消除 ainvoke 导致的空白等待
                         max_tool_rounds = 5
                         current_messages = list(lc_messages)  # 复制消息列表
+                        from langchain_core.messages import AIMessage, ToolMessage
 
                         for round_idx in range(max_tool_rounds):
-                            # 非流式调用以获取完整的 tool_calls
-                            response = await llm_with_tools.ainvoke(current_messages)
+                            # 流式调用 LLM，边生成文本边输出，同时收集 tool_call_chunks
+                            full_content = ""
+                            tool_call_chunks_by_idx: dict = {}
+                            has_any_stream_output = False
 
-                            # 如果有文本内容，流式输出
-                            if response.content:
-                                filtered_content, content_type = content_filter.filter_chunk(response.content)
-                                if filtered_content:
-                                    start = ensure_text_started()
-                                    if start:
-                                        yield start
-                                    ai_full_response += filtered_content
-                                    yield encoder.text_chunk(filtered_content)
+                            try:
+                                async for event in llm_with_tools.astream_events(
+                                    current_messages,
+                                    version="v2",
+                                ):
+                                    kind = event["event"]
+                                    if kind == "on_chat_model_stream":
+                                        chunk = event["data"]["chunk"]
+                                        # 流式输出文本内容
+                                        if chunk.content:
+                                            has_any_stream_output = True
+                                            filtered_content, content_type = content_filter.filter_chunk(chunk.content)
+                                            if filtered_content:
+                                                if content_type == "thinking":
+                                                    yield encoder.from_thinking(filtered_content)
+                                                else:
+                                                    start = ensure_text_started()
+                                                    if start:
+                                                        yield start
+                                                    full_content += filtered_content
+                                                    ai_full_response += filtered_content
+                                                    yield encoder.text_chunk(filtered_content)
+                                        # 收集 tool_call_chunks（按 index 聚合，流式模式下分片到达）
+                                        if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+                                            for tc_chunk in chunk.tool_call_chunks:
+                                                idx = tc_chunk.get('index', 0)
+                                                if idx not in tool_call_chunks_by_idx:
+                                                    tool_call_chunks_by_idx[idx] = {
+                                                        'name': '',
+                                                        'args': '',
+                                                        'id': tc_chunk.get('id') or '',
+                                                    }
+                                                if tc_chunk.get('name'):
+                                                    tool_call_chunks_by_idx[idx]['name'] += tc_chunk['name']
+                                                if tc_chunk.get('args'):
+                                                    tool_call_chunks_by_idx[idx]['args'] += tc_chunk['args']
+                                                if tc_chunk.get('id') and not tool_call_chunks_by_idx[idx]['id']:
+                                                    tool_call_chunks_by_idx[idx]['id'] = tc_chunk['id']
+                            except Exception as stream_err:
+                                log.warning(
+                                    f"[Chat] astream_events 失败，回退到 ainvoke: {stream_err}"
+                                )
+                                # 回退到非流式调用
+                                response = await llm_with_tools.ainvoke(current_messages)
+                                if response.content:
+                                    filtered_content, content_type = content_filter.filter_chunk(response.content)
+                                    if filtered_content:
+                                        start = ensure_text_started()
+                                        if start:
+                                            yield start
+                                        full_content = filtered_content
+                                        ai_full_response += filtered_content
+                                        yield encoder.text_chunk(filtered_content)
+                                if not hasattr(response, 'tool_calls') or not response.tool_calls:
+                                    break
+                                # 从 ainvoke 响应构建 tool_call_chunks_by_idx
+                                for i, tc in enumerate(response.tool_calls):
+                                    tool_call_chunks_by_idx[i] = {
+                                        'name': tc['name'],
+                                        'args': json.dumps(tc.get('args', {}), ensure_ascii=False),
+                                        'id': tc.get('id', ''),
+                                    }
 
                             # 如果没有工具调用，退出循环
-                            if not hasattr(response, 'tool_calls') or not response.tool_calls:
+                            if not tool_call_chunks_by_idx:
                                 break
 
+                            # 构建 AMessage 追加到对话历史（LLM 需要知道它调用过什么工具）
+                            tool_calls_for_history = []
+                            for idx in sorted(tool_call_chunks_by_idx.keys()):
+                                tc_data = tool_call_chunks_by_idx[idx]
+                                try:
+                                    tc_args = json.loads(tc_data['args']) if tc_data['args'] else {}
+                                except json.JSONDecodeError:
+                                    tc_args = {}
+                                tool_calls_for_history.append({
+                                    "id": tc_data['id'] or f"call_{round_idx}_{idx}",
+                                    "name": tc_data['name'],
+                                    "args": tc_args,
+                                })
+                            current_messages.append(AIMessage(
+                                content=full_content,
+                                tool_calls=tool_calls_for_history,
+                            ))
+
                             # 执行每个工具调用
-                            for tc in response.tool_calls:
+                            for tc in tool_calls_for_history:
                                 tool_name = tc['name']
-                                tool_args = tc.get('args', {})
+                                tool_args = tc['args']
                                 log.info(f"[Chat] data_probe 工具调用: {tool_name}({tool_args})")
 
                                 # 输出工具调用进度
@@ -917,17 +1037,14 @@ async def chat_stream(
 
                                 # 执行工具
                                 # ✨ 路径安全修正：强制限定在当前项目目录内
-                                # 对所有文件/目录路径参数进行安全校验
                                 if data_probe_project_dir and tool_name in PATH_SAFE_TOOL_PARAMS:
                                     for path_key in PATH_SAFE_TOOL_PARAMS[tool_name]:
                                         if path_key in tool_args:
                                             requested_path = tool_args[path_key]
-                                            # 相对路径 → 拼接到项目目录下，而非替换
                                             if not requested_path.startswith("/"):
                                                 corrected_path = os.path.join(data_probe_project_dir, requested_path)
                                                 log.info(f"[Chat] data_probe 路径拼接: {requested_path} → {corrected_path}")
                                                 tool_args[path_key] = corrected_path
-                                            # 绝对路径但不在项目目录下 → 限制在项目目录内
                                             elif not requested_path.startswith(data_probe_project_dir):
                                                 log.warning(f"[Chat] data_probe 路径限制: {requested_path} 不在项目目录内，替换为 {data_probe_project_dir}")
                                                 tool_args[path_key] = data_probe_project_dir
@@ -948,15 +1065,10 @@ async def chat_stream(
                                 ai_full_response += tool_result
                                 yield encoder.text_chunk(tool_result)
 
-                                # 追加工具调用和结果到消息列表
-                                from langchain_core.messages import AIMessage, ToolMessage
-                                current_messages.append(AIMessage(
-                                    content="",
-                                    tool_calls=[{"id": tc.get('id', ''), "name": tool_name, "args": tool_args}]
-                                ))
+                                # 追加工具结果到消息列表
                                 current_messages.append(ToolMessage(
                                     content=tool_result,
-                                    tool_call_id=tc.get('id', ''),
+                                    tool_call_id=tc['id'],
                                 ))
 
                         log.info(f"[Chat] data_probe 工具调用完成，共 {round_idx + 1} 轮")
