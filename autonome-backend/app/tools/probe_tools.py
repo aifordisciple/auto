@@ -78,23 +78,36 @@ def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
     log.info(f"🔍 [Probe] peek_tabular_data called: {file_path}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     if not os.path.isfile(file_path):
-        return f"❌ 路径不是文件: {file_path}"
+        return _make_probe_result(f"❌ 路径不是文件: {file_path}", {"error": "not_a_file"})
 
     # 检测文件大小，避免读取超大文件
     file_size = os.path.getsize(file_path)
     if file_size > 100 * 1024 * 1024:  # 100MB
-        return f"⚠️ 文件过大 ({file_size / 1024 / 1024:.1f} MB)，建议使用分块读取方式处理"
+        return _make_probe_result(
+            f"⚠️ 文件过大 ({file_size / 1024 / 1024:.1f} MB)，建议使用分块读取方式处理",
+            {"error": "file_too_large", "file_size_mb": round(file_size / 1024 / 1024, 1)}
+        )
 
     try:
+        # 透明解压 gzip 文件
+        is_gzip = file_path.endswith('.gz')
+        if is_gzip:
+            import gzip as _gz
+            f_open = _gz.open
+            f_mode = 'rt'
+        else:
+            f_open = open
+            f_mode = 'r'
+
         # 尝试检测分隔符
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with f_open(file_path, f_mode, encoding='utf-8', errors='ignore') as f:
             first_line = f.readline()
 
         if not first_line.strip():
-            return "❌ 文件为空"
+            return _make_probe_result("❌ 文件为空", {"error": "empty_file"})
 
         # 智能检测分隔符
         delimiter = '\t'  # 默认 TSV
@@ -111,11 +124,11 @@ def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
         preview_data = []
         n_total_rows = 0
 
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with f_open(file_path, f_mode, encoding='utf-8', errors='ignore') as f:
             # 读取第一行作为表头
             first_line = f.readline()
             if not first_line.strip():
-                return "❌ 文件为空"
+                return _make_probe_result("❌ 文件为空", {"error": "empty_file"})
 
             if delimiter:
                 headers = [h.strip() for h in first_line.strip().split(delimiter)]
@@ -225,10 +238,10 @@ def scan_workspace(directory_path: str, max_depth: int = 3) -> str:
     log.info(f"🔍 [Probe] scan_workspace called: {directory_path}")
 
     if not os.path.exists(directory_path):
-        return f"❌ 目录不存在: {directory_path}"
+        return _make_probe_result(f"❌ 目录不存在: {directory_path}", {"error": "dir_not_found"})
 
     if not os.path.isdir(directory_path):
-        return f"❌ 路径不是目录: {directory_path}"
+        return _make_probe_result(f"❌ 路径不是目录: {directory_path}", {"error": "not_a_directory"})
 
     try:
         result_lines = []

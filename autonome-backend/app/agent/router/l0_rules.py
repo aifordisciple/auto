@@ -787,7 +787,7 @@ class CodeGenPatternRule(Rule):
             log.debug("[L0] CodeGenPatternRule 命中")
             return IntentExtraction(
                 intent=IntentType.SKILL_FORGE,
-                confidence=0.80,
+                confidence=0.85,
                 entities={},
                 requires_followup=False
             )
