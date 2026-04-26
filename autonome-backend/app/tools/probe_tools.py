@@ -35,6 +35,26 @@ def _cache_result(cache_key: str, result: str) -> None:
         _probe_cache.pop(next(iter(_probe_cache)))
 
 
+def _make_probe_result(summary: str, structured: dict) -> str:
+    """
+    V2.4: 生成双模探针结果 —— 人类可读文本 + 机器可解析 JSON。
+
+    下游节点（SKILL_FORGE、EXPLICIT_EXEC、ADHOC 等）可通过
+    解析 structured 字段消费探针结果，实现跨意图数据流。
+
+    Args:
+        summary: 人类可读的格式化报告（现有输出格式）
+        structured: 机器可解析的标准化字段字典
+
+    Returns:
+        JSON 字符串 {"summary": ..., "structured": ...}
+    """
+    return json.dumps({
+        "summary": summary,
+        "structured": structured
+    }, ensure_ascii=False)
+
+
 @tool
 def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
     """
@@ -171,13 +191,21 @@ def peek_tabular_data(file_path: str, n_rows: int = 5) -> str:
                 result += f"  - {w}\n"
 
         log.info(f"✅ [Probe] 预览完成: {n_total_rows} 行, {n_cols} 列")
-        # ✨ 缓存结果
+        # V2.4: 双模输出
+        structured = {
+            "n_rows": n_total_rows if isinstance(n_total_rows, int) else 1000000,
+            "n_cols": n_cols,
+            "headers": headers,
+            "delimiter": delimiter_desc,
+            "file_size_kb": round(file_size / 1024, 1),
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] 读取文件失败: {str(e)}")
-        return f"❌ 读取文件失败: {str(e)}"
+        return _make_probe_result(f"❌ 读取文件失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -291,11 +319,18 @@ def scan_workspace(directory_path: str, max_depth: int = 3) -> str:
         result = "🌳 目录树扫描结果\n\n" + "\n".join(result_lines) + stats
 
         log.info(f"✅ [Probe] 扫描完成: {file_counts['total']} 个文件, {dir_counts} 个文件夹")
+        # V2.4: 双模输出
+        structured = {
+            "n_files": file_counts['total'],
+            "n_dirs": dir_counts,
+            "extensions": file_counts["by_extension"],
+        }
+        result = _make_probe_result(result, structured)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] 扫描目录失败: {str(e)}")
-        return f"❌ 扫描目录失败: {str(e)}"
+        return _make_probe_result(f"❌ 扫描目录失败: {str(e)}", {"error": str(e)})
 
 
 # ==========================================
@@ -319,17 +354,17 @@ def inspect_h5ad(file_path: str) -> str:
     log.info(f"🔍 [Probe] inspect_h5ad called: {file_path}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     if not file_path.endswith('.h5ad'):
-        return f"⚠️ 文件扩展名不是 .h5ad，可能不是有效的 AnnData 文件"
+        return _make_probe_result(f"⚠️ 文件扩展名不是 .h5ad，可能不是有效的 AnnData 文件", {"error": "invalid_extension"})
 
     try:
         # 尝试导入 scanpy
         try:
             import scanpy as sc
         except ImportError:
-            return "❌ scanpy 未安装，无法解析 .h5ad 文件。请在沙箱环境中安装 scanpy。"
+            return _make_probe_result("❌ scanpy 未安装，无法解析 .h5ad 文件。请在沙箱环境中安装 scanpy。", {"error": "scanpy_not_installed"})
 
         # 读取文件
         adata = sc.read_h5ad(file_path)
@@ -398,11 +433,20 @@ def inspect_h5ad(file_path: str) -> str:
             result += "  （无额外数据层）\n"
 
         log.info(f"✅ [Probe] h5ad 解析完成: {adata.n_obs} 细胞, {adata.n_vars} 基因")
+        # V2.4: 双模输出
+        structured = {
+            "n_obs": adata.n_obs,
+            "n_vars": adata.n_vars,
+            "obs_columns": list(adata.obs.columns) if adata.obs is not None else [],
+            "var_columns": list(adata.var.columns) if adata.var is not None else [],
+            "obsm_keys": list(adata.obsm.keys()) if adata.obsm is not None else [],
+        }
+        result = _make_probe_result(result, structured)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] h5ad 解析失败: {str(e)}")
-        return f"❌ 解析 .h5ad 文件失败: {str(e)}"
+        return _make_probe_result(f"❌ 解析 .h5ad 文件失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -423,11 +467,11 @@ def inspect_fastq(file_path: str, n_reads: int = 5) -> str:
     log.info(f"🔍 [Probe] inspect_fastq called: {file_path}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     ext = os.path.splitext(file_path)[1].lower()
     if ext not in ['.fastq', '.fq', '.gz']:
-        return f"⚠️ 文件扩展名 {ext} 不是标准的 FASTQ 格式"
+        return _make_probe_result(f"⚠️ 文件扩展名 {ext} 不是标准的 FASTQ 格式", {"error": "invalid_extension"})
 
     try:
         import gzip
@@ -504,11 +548,20 @@ Qual: {read['qual']}
 """
 
         log.info(f"✅ [Probe] FASTQ 预览完成: {total_reads} reads, 平均长度 {avg_length:.1f}bp")
+        # V2.4: 双模输出
+        structured = {
+            "n_reads": total_reads,
+            "avg_length": round(avg_length, 1),
+            "min_length": min(read_lengths) if read_lengths else 0,
+            "max_length": max(read_lengths) if read_lengths else 0,
+            "avg_gc": round(avg_gc, 1),
+        }
+        result = _make_probe_result(result, structured)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] FASTQ 解析失败: {str(e)}")
-        return f"❌ 解析 FASTQ 文件失败: {str(e)}"
+        return _make_probe_result(f"❌ 解析 FASTQ 文件失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -528,17 +581,17 @@ def inspect_bam(file_path: str) -> str:
     log.info(f"🔍 [Probe] inspect_bam called: {file_path}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     if not file_path.endswith('.bam'):
-        return f"⚠️ 文件扩展名不是 .bam"
+        return _make_probe_result(f"⚠️ 文件扩展名不是 .bam", {"error": "invalid_extension"})
 
     try:
         # 检查 pysam 是否可用
         try:
             import pysam
         except ImportError:
-            return "❌ pysam 未安装，无法解析 BAM 文件。请在沙箱环境中安装 pysam。"
+            return _make_probe_result("❌ pysam 未安装，无法解析 BAM 文件。请在沙箱环境中安装 pysam。", {"error": "pysam_not_installed"})
 
         # 打开 BAM 文件
         bamfile = pysam.AlignmentFile(file_path, "rb")
@@ -642,11 +695,25 @@ def inspect_bam(file_path: str) -> str:
                 result += f"  - {co}\n"
 
         log.info(f"✅ [Probe] BAM 预览完成: {total_reads} reads, 比对率 {mapping_rate:.1f}%")
+        # V2.4: 双模输出
+        ref_genome = ""
+        if sq_records:
+            ref_genome = sq_records[0].get('AS', '')
+        rg_samples = [rg.get('SM', '') for rg in rg_records if rg.get('SM')]
+        structured = {
+            "total_reads": total_reads,
+            "mapped_reads": mapped_reads,
+            "mapping_rate": round(mapping_rate, 1),
+            "avg_insert_size": round(avg_insert, 1),
+            "reference_genome": ref_genome,
+            "rg_samples": rg_samples,
+        }
+        result = _make_probe_result(result, structured)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] BAM 解析失败: {str(e)}")
-        return f"❌ 解析 BAM 文件失败: {str(e)}"
+        return _make_probe_result(f"❌ 解析 BAM 文件失败: {str(e)}", {"error": str(e)})
 
 
 def _format_size(size_bytes: int) -> str:
@@ -688,14 +755,14 @@ def detect_na(file_path: str, threshold: Optional[float] = None) -> str:
     log.info(f"🔍 [Probe] detect_na called: {file_path}, threshold={threshold}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     try:
         # 检测分隔符（复用 peek_tabular_data 的逻辑）
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             first_line = f.readline()
         if not first_line.strip():
-            return "❌ 文件为空"
+            return _make_probe_result("❌ 文件为空", {"error": "empty_file"})
 
         delimiter = '\t'
         if ',' in first_line and '\t' not in first_line:
@@ -763,12 +830,29 @@ def detect_na(file_path: str, threshold: Optional[float] = None) -> str:
             result += f"  - ✅ 缺失比例较低，数据质量良好\n"
 
         log.info(f"✅ [Probe] detect_na 完成: {n_rows} 行, {n_cols} 列")
+        # V2.4: 双模输出
+        overall_na_ratio = sum(total_missing.values()) / (n_rows * n_cols) if n_cols > 0 else 0
+        na_columns = []
+        for col in df.columns:
+            na_columns.append({
+                "name": col,
+                "missing_count": total_missing[col],
+                "missing_ratio": round(total_missing[col] / n_rows, 4) if n_rows > 0 else 0,
+            })
+        structured = {
+            "overall_na_ratio": round(overall_na_ratio, 4),
+            "total_missing": sum(total_missing.values()),
+            "columns": na_columns,
+            "n_rows": n_rows,
+            "n_cols": n_cols,
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] detect_na 失败: {str(e)}")
-        return f"❌ 缺失值检测失败: {str(e)}"
+        return _make_probe_result(f"❌ 缺失值检测失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -794,7 +878,7 @@ def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
     log.info(f"🔍 [Probe] compute_summary_stats called: {file_path}, columns={columns}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     try:
         import pandas as pd
@@ -822,7 +906,7 @@ def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
                 log.warning(f"[Probe] 非数值列跳过: {non_numeric}")
 
         if not numeric_cols:
-            return "⚠️ 没有可统计的数值列（所有列均为非数值类型）"
+            return _make_probe_result("⚠️ 没有可统计的数值列（所有列均为非数值类型）", {"error": "no_numeric_columns"})
 
         # 使用 describe() 计算统计
         stats_df = df[numeric_cols].describe()
@@ -864,12 +948,42 @@ def compute_summary_stats(file_path: str, columns: Optional[str] = None) -> str:
                 result += f"    💡 值范围 [{col_min:.2f}, {col_max:.2f}]，可能为原始计数/丰度值\n"
 
         log.info(f"✅ [Probe] compute_summary_stats 完成: {n_rows} 行, {n_numeric} 数值列")
+        # V2.4: 双模输出
+        structured_columns = []
+        log_transformed_hint = False
+        for col in numeric_cols:
+            col_stats = {"name": col}
+            for stat_key in ['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']:
+                if stat_key in stats_df.index:
+                    val = stats_df.loc[stat_key, col]
+                    if stat_key == 'count':
+                        col_stats[stat_key] = int(val)
+                    else:
+                        col_stats[stat_key] = round(float(val), 4) if not pd.isna(val) else None
+                else:
+                    col_stats[stat_key] = None
+            # rename keys for clarity
+            col_stats["q1"] = col_stats.pop("25%")
+            col_stats["median"] = col_stats.pop("50%")
+            col_stats["q3"] = col_stats.pop("75%")
+            col_min = col_stats.get("min")
+            col_max = col_stats.get("max")
+            if col_min is not None and col_max is not None and col_max <= 30 and col_min >= -5:
+                log_transformed_hint = True
+            structured_columns.append(col_stats)
+        structured = {
+            "columns": structured_columns,
+            "log_transformed_hint": log_transformed_hint,
+            "n_rows": n_rows,
+            "n_numeric_cols": n_numeric,
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] compute_summary_stats 失败: {str(e)}")
-        return f"❌ 汇总统计失败: {str(e)}"
+        return _make_probe_result(f"❌ 汇总统计失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -894,7 +1008,7 @@ def detect_file_encoding(file_path: str) -> str:
     log.info(f"🔍 [Probe] detect_file_encoding called: {file_path}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     try:
         file_size = os.path.getsize(file_path)
@@ -1015,12 +1129,20 @@ def detect_file_encoding(file_path: str) -> str:
             result += f"  - 使用 pandas.read_csv(file, sep=<delimiter>, encoding='{encoding_result}') 读取\n"
 
         log.info(f"✅ [Probe] detect_file_encoding 完成: encoding={encoding_result}")
+        # V2.4: 双模输出
+        structured = {
+            "encoding": encoding_result,
+            "confidence": encoding_confidence,
+            "delimiter": delimiter_result,
+            "has_bom": has_bom,
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] detect_file_encoding 失败: {str(e)}")
-        return f"❌ 编码检测失败: {str(e)}"
+        return _make_probe_result(f"❌ 编码检测失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -1056,7 +1178,7 @@ def compute_set_operations(
 
     for fp in [file_path_1, file_path_2]:
         if not os.path.exists(fp):
-            return f"❌ 文件不存在: {fp}"
+            return _make_probe_result(f"❌ 文件不存在: {fp}", {"error": "file_not_found"})
 
     try:
         import pandas as pd
@@ -1077,9 +1199,9 @@ def compute_set_operations(
 
         # 检查列是否存在
         if column not in df1.columns:
-            return f"❌ 文件1中不存在列 '{column}'，可用列: {list(df1.columns)}"
+            return _make_probe_result(f"❌ 文件1中不存在列 '{column}'，可用列: {list(df1.columns)}", {"error": "column_not_found"})
         if col_2 not in df2.columns:
-            return f"❌ 文件2中不存在列 '{col_2}'，可用列: {list(df2.columns)}"
+            return _make_probe_result(f"❌ 文件2中不存在列 '{col_2}'，可用列: {list(df2.columns)}", {"error": "column_not_found"})
 
         set1 = set(df1[column].dropna().astype(str).unique())
         set2 = set(df2[col_2].dropna().astype(str).unique())
@@ -1121,12 +1243,23 @@ def compute_set_operations(
             result += ", ".join(sorted(list(diff_2))[:20])
 
         log.info(f"✅ [Probe] compute_set_operations 完成: |A|={n1}, |B|={n2}, |A∩B|={len(intersection)}")
+        # V2.4: 双模输出
+        structured = {
+            "n_set1": n1,
+            "n_set2": n2,
+            "n_intersection": len(intersection),
+            "n_union": len(union),
+            "n_diff1": len(diff_1),
+            "n_diff2": len(diff_2),
+            "overlap_ratio": round(len(intersection) / max(n1, 1) * 100, 1),
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] compute_set_operations 失败: {str(e)}")
-        return f"❌ 集合运算失败: {str(e)}"
+        return _make_probe_result(f"❌ 集合运算失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -1151,11 +1284,11 @@ def inspect_vcf(file_path: str) -> str:
     log.info(f"🔍 [Probe] inspect_vcf called: {file_path}")
 
     if not os.path.exists(file_path):
-        return f"❌ 文件不存在: {file_path}"
+        return _make_probe_result(f"❌ 文件不存在: {file_path}", {"error": "file_not_found"})
 
     ext = os.path.splitext(file_path)[1].lower()
     if ext not in ('.vcf', '.bcf', '.gz'):
-        return f"⚠️ 文件扩展名 {ext} 不是标准 VCF 格式（期望 .vcf/.vcf.gz/.bcf）"
+        return _make_probe_result(f"⚠️ 文件扩展名 {ext} 不是标准 VCF 格式（期望 .vcf/.vcf.gz/.bcf）", {"error": "invalid_extension"})
 
     try:
         # 优先使用 pysam
@@ -1236,6 +1369,14 @@ def inspect_vcf(file_path: str) -> str:
                 result += f"  - {chrom}: {count:,}\n"
 
             log.info(f"✅ [Probe] inspect_vcf 完成 (pysam): {n_samples} 样本, {total_variants} 变异")
+            # V2.4: 双模输出
+            structured = {
+                "n_samples": n_samples,
+                "n_variants": total_variants,
+                "samples": samples,
+                "variant_types": variant_types,
+            }
+            result = _make_probe_result(result, structured)
             _cache_result(cache_key, result)
             return result
 
@@ -1317,12 +1458,20 @@ def inspect_vcf(file_path: str) -> str:
             result += f"\n📍 参考序列: {', '.join(sorted(contigs)[:10])}\n"
 
         log.info(f"✅ [Probe] inspect_vcf 完成 (手动): {len(samples)} 样本, {total_variants} 变异")
+        # V2.4: 双模输出
+        structured = {
+            "n_samples": len(samples),
+            "n_variants": total_variants,
+            "samples": samples,
+            "variant_types": variant_types,
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] inspect_vcf 失败: {str(e)}")
-        return f"❌ VCF 解析失败: {str(e)}"
+        return _make_probe_result(f"❌ VCF 解析失败: {str(e)}", {"error": str(e)})
 
 
 @tool
@@ -1347,10 +1496,10 @@ def match_paired_fastq(directory_path: str) -> str:
     log.info(f"🔍 [Probe] match_paired_fastq called: {directory_path}")
 
     if not os.path.exists(directory_path):
-        return f"❌ 目录不存在: {directory_path}"
+        return _make_probe_result(f"❌ 目录不存在: {directory_path}", {"error": "directory_not_found"})
 
     if not os.path.isdir(directory_path):
-        return f"❌ 路径不是目录: {directory_path}"
+        return _make_probe_result(f"❌ 路径不是目录: {directory_path}", {"error": "not_a_directory"})
 
     try:
         import re as regex
@@ -1369,7 +1518,7 @@ def match_paired_fastq(directory_path: str) -> str:
                     fastq_files.append((f, full_path, file_size))
 
         if not fastq_files:
-            return f"📂 目录 {directory_path} 中未找到 FASTQ 文件"
+            return _make_probe_result(f"📂 目录 {directory_path} 中未找到 FASTQ 文件", {"error": "no_fastq_found"})
 
         # 配对模式
         pair_patterns = [
@@ -1470,12 +1619,23 @@ def match_paired_fastq(directory_path: str) -> str:
             result += f"\n⚠️ 存在问题: {', '.join(issues)}"
 
         log.info(f"✅ [Probe] match_paired_fastq 完成: {len(paired)} 对, {len(r1_only)} R1-only, {len(r2_only)} R2-only")
+        # V2.4: 双模输出
+        structured = {
+            "n_pairs": len(paired),
+            "n_r1_only": len(r1_only),
+            "n_r2_only": len(r2_only),
+            "n_unmatched": len(unmatched),
+            "pairs": [sample for sample, _, _, _, _ in paired],
+            "r1_only_samples": [sample for sample, _, _, _ in r1_only],
+            "r2_only_samples": [sample for sample, _, _, _ in r2_only],
+        }
+        result = _make_probe_result(result, structured)
         _cache_result(cache_key, result)
         return result
 
     except Exception as e:
         log.error(f"❌ [Probe] match_paired_fastq 失败: {str(e)}")
-        return f"❌ FASTQ 配对失败: {str(e)}"
+        return _make_probe_result(f"❌ FASTQ 配对失败: {str(e)}", {"error": str(e)})
 
 
 def _get_file_icon(ext: str) -> str:

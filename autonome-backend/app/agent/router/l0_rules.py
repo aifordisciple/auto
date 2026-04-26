@@ -528,11 +528,10 @@ class ProbePatternRule(Rule):
     """
 
     # 数据集探查关键词（需要文件上下文）
-    # V2.3 扩展：覆盖编码检测、NA检测、集合运算、summary stats、VCF解析等场景
+    # V2.4 升级：编码/分隔符/格式检测移入 FILE_EXPLORATION_KEYWORDS（无需文件上下文也可匹配）
+    # 因为乱码/打不开的文件不会是 active_file，但仍需 DATA_PROBE 意图来处理
     PROBE_KEYWORDS = re.compile(
         r'(查看|预览|看看|结构|统计|inspect|preview|peek|查看数据|数据结构|'
-        r'检测编码|分隔符|编码格式|文件编码|分隔符检测|分隔符.*检测|'
-        r'检测.*编码|检测.*分隔符|检测.*格式|检测.*文件格式|'
         r'NA.*比例|NA.*检测|缺失率|缺失值|缺失检测|缺失.*统计|统计.*缺失|统计.*NA|'
         r'重叠|overlap|intersect|交集|并集|集合.*操作|'
         r'BAM.*头|BAM.*header|VCF样本|VCF.*sample|检测样本|'
@@ -549,6 +548,7 @@ class ProbePatternRule(Rule):
     )
 
     # 文件系统探索关键词（无需文件上下文，查询工作区文件结构）
+    # V2.4 升级：新增编码/分隔符/格式检测场景（乱码/打不开的文件不会是 active_file）
     # 包含两种语序：
     #   - "有哪些文件"、"哪些文件"（疑问词在前）
     #   - "文件有哪些"、"文件列表"（名词在前）
@@ -560,7 +560,21 @@ class ProbePatternRule(Rule):
         r'scan\s*dir|show\s*files|what\s*files|'
         r'扫描文件夹|扫描.*目录|文件.*配对|配对.*文件|配对末端|双端.*文件|'
         r'R1.*R2|R2.*R1|匹配.*文件名|文件名.*匹配|'
-        r'FASTQ.*配对|fastq.*pair|查找.*配对|查找.*R1|查找.*R2)',
+        r'FASTQ.*配对|fastq.*pair|查找.*配对|查找.*R1|查找.*R2|'
+        r'检测.*编码|检测.*分隔符|检测.*格式|检测.*文件格式|'
+        r'探测.*编码|探测.*分隔符|探测.*格式|探测.*文件格式|'
+        r'编码.*检测|分隔符.*检测|格式.*检测|文件编码|编码格式|'
+        r'乱码|打不开|文件.*格式|分隔符|什么.*编码|什么.*分隔符)',
+        re.IGNORECASE
+    )
+
+    # V2.4 新增：编码/格式检测类关键词（无需 active_file，但需要文件）
+    # 与纯目录扫描的区别：这类查询需要 L2 追问文件路径
+    ENCODING_DETECTION_KEYWORDS = re.compile(
+        r'(检测.*编码|检测.*分隔符|检测.*格式|检测.*文件格式|'
+        r'探测.*编码|探测.*分隔符|探测.*格式|探测.*文件格式|'
+        r'编码.*检测|分隔符.*检测|格式.*检测|文件编码|编码格式|'
+        r'乱码|打不开|文件.*格式|什么.*编码|什么.*分隔符)',
         re.IGNORECASE
     )
 
@@ -585,6 +599,15 @@ class ProbePatternRule(Rule):
 
         # 场景 2: 文件系统探索关键词（无需文件上下文）→ 工作区扫描
         if self.FILE_EXPLORATION_KEYWORDS.search(query):
+            # 区分：编码/格式检测类需要文件，但不要求 active_file，由 L2 追问
+            if self.ENCODING_DETECTION_KEYWORDS.search(query):
+                log.debug("[L0] ProbePatternRule 命中(编码/格式检测)")
+                return IntentExtraction(
+                    intent=IntentType.DATA_PROBE,
+                    confidence=0.85,
+                    entities={},
+                    requires_followup=False
+                )
             log.debug("[L0] ProbePatternRule 命中(文件系统探索)")
             return IntentExtraction(
                 intent=IntentType.DATA_PROBE,
@@ -745,7 +768,20 @@ class CodeGenPatternRule(Rule):
         re.IGNORECASE
     )
 
+    # 探查动词排除：查询包含探查动词时，不应被误判为 SKILL_FORGE
+    # 例："跑流程前，扫描 FASTQ 文件夹..." → 核心意图是扫描，不是跑流程
+    PROBE_VERB_EXCLUSION = re.compile(
+        r'(扫描|检查.*文件|看看.*文件|查看.*文件|预览|探测|配对)',
+        re.IGNORECASE
+    )
+
     def evaluate(self, query: str, context: Dict[str, Any]) -> Optional[IntentExtraction]:
+        # 排除：查询包含探查动词时，不拦截为 SKILL_FORGE
+        # 例："跑流程前扫描文件夹" → 核心意图是扫描，放行至 ProbePatternRule（优先级 6）
+        if self.PROBE_VERB_EXCLUSION.search(query):
+            log.debug("[L0] CodeGenPatternRule 未命中: 包含探查动词")
+            return None
+
         if self.CODEGEN_PATTERN.search(query):
             log.debug("[L0] CodeGenPatternRule 命中")
             return IntentExtraction(

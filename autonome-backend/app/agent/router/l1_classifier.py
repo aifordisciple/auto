@@ -95,25 +95,54 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 | 判断维度 | ADHOC_INTERACTIVE_ANALYSIS | DATA_PROBE | SKILL_FORGE |
 |---------|---------------------------|------------|-------------|
 | 核心区别 | 有数据+要分析+无预设技能 | 查看数据结构/统计/轻量文件内计算 | 写完整脚本 |
-| 典型表述 | "用这个 CSV 画个图"、"算一下分布" | "查看数据结构"、"有多少行列"、"检查 NA 比例" | "写个 Python 脚本" |
-| 举例 | "画相关性热图" | "计算两个文件的基因重叠"、"检测文件编码格式" | "写个 K-means 脚本" |
+| 典型表述 | "用这个 CSV 画个图"、"画一下分布图"、"做个聚类分析" | "查看数据结构"、"有多少行列"、"检查 NA 比例"、"算基因重叠" | "写个 Python 脚本" |
+| 举例 | "画相关性热图"、"可视化表达矩阵" | "计算两个文件的基因重叠比例"、"检测文件编码格式" | "写个 K-means 脚本" |
 
 **关键判断**：
 - 用户有文件 + 想做探索性**分析/建模/画图** → INTENT_ADHOC_INTERACTIVE_ANALYSIS
 - 用户只想**查看/检查/了解**数据的元信息或做**轻量文件内计算**（不涉及建模/画图）→ INTENT_DATA_PROBE
 - 用户明确说"写脚本" → INTENT_SKILL_FORGE
 
-**DATA_PROBE 扩展场景（V2.3）**：
+**DATA_PROBE 扩展场景（V2.4）**：
 - 轻量文件内计算属于 DATA_PROBE，不是 ADHOC：
-  - "算基因重叠"、"取两个文件的交集"、"检查 NA 比例"、"统计缺失值"
+  - "算基因重叠"、"取两个文件的交集"、"检查 NA 比例"、"统计缺失值"、"算一下重叠比例"
   - 判断标准：操作结果是"查看/了解"数据，目的不是生成图表或建立模型
 - 文件编码/格式检测属于 DATA_PROBE：
-  - "检测文件编码"、"查看分隔符是什么"、"文件是什么格式"
+  - "检测文件编码"、"查看分隔符是什么"、"文件是什么格式"、"文件打不开乱码了"
 - 文件配对/目录扫描属于 DATA_PROBE：
   - "配对 R1/R2 文件"、"扫描文件夹找双端 FASTQ"、"文件是否一一对应"
 - 条件检查前置步骤属于 DATA_PROBE：
   - "先检查 NA 比例"（前半段）→ DATA_PROBE，"再删掉缺失行"（后半段）→ SKILL_FORGE
   - 如果用户同时说了两者，拆为两个节点：task_1=DATA_PROBE, task_2=SKILL_FORGE，task_2 依赖 task_1
+
+**⚠️ 操作动词 → 意图映射表（V2.4 新增，防止误分类）**：
+- "查看/检查/探测/检测/扫描/配对/预览/看一眼" → INTENT_DATA_PROBE
+- "计算重叠/取交集/算比例/统计缺失/算...重叠" → INTENT_DATA_PROBE（轻量计算，了解数据）
+- "画图/可视化/制图/出图/聚类/建模/差异分析" → INTENT_ADHOC_INTERACTIVE_ANALYSIS（生成图表或模型）
+- "写脚本/生成代码/重构/编写/制作" → INTENT_SKILL_FORGE（代码产出）
+- "跑/执行/运行" + 已知技能名 → INTENT_EXPLICIT_EXEC
+- 具体示例：
+  - "算两个文件的基因重叠比例" → INTENT_DATA_PROBE（集合运算，轻量计算）
+  - "画基因重叠的 Venn 图" → INTENT_ADHOC_INTERACTIVE_ANALYSIS（可视化产出）
+  - "检查 NA 比例" → INTENT_DATA_PROBE
+  - "用这个 CSV 画个热图" → INTENT_ADHOC_INTERACTIVE_ANALYSIS
+
+**⚠️ 条件分支 DAG 生成规则（V2.4 新增）**：
+- 当用户输入包含"先检查A → 如果满足条件X就B，否则C"模式时，生成 is_conditional=true 的 DAG
+- task_1 = INTENT_DATA_PROBE（前置探针），parameters 中包含 condition 描述：
+  - condition_field: 探针结果中用于判断的字段名（如 "overall_na_ratio"、"reference_genome"）
+  - condition_operator: 比较运算符（gt/lt/gte/lte/eq/neq）
+  - condition_value: 阈值
+  - on_true: "stop" | "continue" | task_id
+  - on_false: "stop" | "continue" | task_id
+- task_2（可选）= 条件满足或失败时的后续动作
+- 示例：
+  - "先检查 NA 比例，超过 5% 就停止，否则输出可以继续" →
+    task_1: DATA_PROBE, parameters: {{probe_action:"detect_na", condition_field:"overall_na_ratio", condition_operator:"gt", condition_value:0.05, on_true:"stop", on_false:"continue"}}
+    task_2: GENERAL_CHAT, dependencies:["task_1"]
+  - "先看看 BAM 参考基因组是不是 hg38，是的话就跑 featureCounts" →
+    task_1: DATA_PROBE, parameters: {{probe_action:"inspect_bam", condition_field:"reference_genome", condition_operator:"eq", condition_value:"hg38", on_true:"continue", on_false:"stop"}}
+    task_2: EXPLICIT_EXEC(featureCounts), dependencies:["task_1"]
 
 ### 边界 5: LITERATURE_MINING vs DATA_PROBE vs GENERAL_CHAT
 
@@ -169,6 +198,11 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
    - 用户报告报错 + 要求重新执行 → INTENT_EXPLICIT_EXEC（或双意图）
    - 用户报告报错 + 要求对比环境差异 → INTENT_VERSION_CONTROL
    - 判断关键：用户的核心诉求是"诊断"还是"修代码"还是"重新执行"
+8. 条件分支出探针判定原则：
+   - 当用户输入包含"先检查/先看看 → 如果满足条件就B，否则C"模式时，必须设置 is_conditional=true
+   - 前置探针任务（task_1）的 parameters 中必须包含 condition_field、condition_operator、condition_value、on_true、on_false
+   - on_true/on_false 可选值："stop"（停止执行）、"continue"（继续下一个任务）、或具体 task_id（跳转到指定任务）
+   - 示例："先检查 NA 比例，超过 5% 就停止，否则输出可以继续" → task_1=DATA_PROBE(detect_na, condition: na_ratio>0.05→stop, ≤0.05→continue), task_2=GENERAL_CHAT
 
 ## 指代消解规则 (Coreference Resolution)
 
@@ -203,6 +237,36 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
     }}
   ],
   "is_conditional": false
+}}
+```
+
+对于条件 DAG（V2.4），设置 is_conditional=true，前置探针节点的 parameters 包含条件定义：
+
+```json
+{{
+  "nodes": [
+    {{
+      "task_id": "task_1",
+      "intent": "INTENT_DATA_PROBE",
+      "raw_instruction": "检查矩阵的 NA 比例",
+      "dependencies": [],
+      "parameters": {{
+        "probe_action": "detect_na",
+        "condition_field": "overall_na_ratio",
+        "condition_operator": "gt",
+        "condition_value": 0.05,
+        "on_true": "stop",
+        "on_false": "continue"
+      }}
+    }},
+    {{
+      "task_id": "task_2",
+      "intent": "INTENT_GENERAL_CHAT",
+      "raw_instruction": "告知用户数据质量良好可以继续",
+      "dependencies": ["task_1"]
+    }}
+  ],
+  "is_conditional": true
 }}
 ```
 
