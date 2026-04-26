@@ -152,15 +152,19 @@ function closeUnclosedMath(text: string): string {
 
 // ==========================================
 // 代码块组件（带复制按钮）
+// ✨ 流式期间使用纯 <pre> 渲染（避免 Prism 高亮导致浏览器卡死）
+// ✨ 流结束后使用 Prism 语法高亮
 // ==========================================
 
 interface CodeBlockProps {
   language: string;
   children: string;
   isDark: boolean;
+  /** ✨ 是否正在流式输出（流式时跳过 Prism 高亮，避免卡顿） */
+  isStreaming?: boolean;
 }
 
-const CodeBlock = memo(({ language, children, isDark }: CodeBlockProps) => {
+const CodeBlock = memo(({ language, children, isDark, isStreaming }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -169,6 +173,31 @@ const CodeBlock = memo(({ language, children, isDark }: CodeBlockProps) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // ✨ 流式期间：使用纯 <pre> 渲染，避免 Prism 高亮导致浏览器卡死
+  // Prism 对长代码块的高亮是 CPU 密集型操作，每个 token 到达时重新高亮会冻结主线程
+  if (isStreaming) {
+    return (
+      <div className="relative group my-4">
+        <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] dark:bg-[#1e1e1e] rounded-t-xl border-b border-neutral-700/50">
+          <span className="text-xs text-neutral-400 font-mono">{language}</span>
+          <button
+            onClick={handleCopy}
+            className="p-1.5 rounded-md text-neutral-400 hover:text-white hover:bg-neutral-700/50 transition-all"
+            title="复制代码"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+        <pre className="!m-0 !p-4 !rounded-b-xl !bg-[#1e1e1e] !text-[0.875rem] overflow-x-auto custom-scrollbar">
+          <code className={`language-${language} font-mono text-neutral-200`}>
+            {children}
+          </code>
+        </pre>
+      </div>
+    );
+  }
+
+  // ✨ 流结束后：使用 Prism 语法高亮（一次性渲染，不会卡顿）
   return (
     <div className="relative group my-4">
       <button
@@ -313,7 +342,7 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
 
       // 代码块
       return (
-        <CodeBlock language={language} isDark={isDark}>
+        <CodeBlock language={language} isDark={isDark} isStreaming={isStreaming}>
           {String(children).replace(/\n$/, '')}
         </CodeBlock>
       );
@@ -389,7 +418,7 @@ export const StreamingMarkdown = memo(({ content, isStreaming = false, thinkingC
       }
       return <>{children}</>;
     },
-  }), [isDark]);
+  }), [isDark, isStreaming]);
 
   // ✨ 关键修复：允许空内容渲染，只要是流式状态或者正在思考
   if (!content && !isStreaming && !isCurrentlyThinking && !isThinkingProp) return null;
