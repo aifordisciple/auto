@@ -455,8 +455,12 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
             </div>
           ) : (
             <div className="flex flex-col gap-4 w-full">
-              {/* ✨ 意图识别标签：AI 消息左上角显示意图类型胶囊 */}
-              {msg.intentLabel && <IntentTag intentType={msg.intentLabel} />}
+              {/* ✨ 意图识别标签：AI 消息左上角显示意图类型文字（低调纯文字） */}
+              {msg.intentLabel && (
+                <div className="flex items-center gap-1.5 -mb-2">
+                  <IntentTag intentType={msg.intentLabel} />
+                </div>
+              )}
               {/* ✨ 任务元数据卡片：显示任务 ID 和名称 */}
               {taskMeta && (
                 <TaskMetaCard taskId={taskMeta.taskId} taskName={taskMeta.taskName} />

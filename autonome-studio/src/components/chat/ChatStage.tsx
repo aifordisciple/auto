@@ -195,6 +195,18 @@ export function ChatStage() {
     // 需要直接关联到最后一条用户消息
     const pendingAttachments = pendingAttachmentsRef.current;
 
+    // ✨ 意图标签：流式期间 pendingIntentLabel 还没回填到 mirroredMessages，
+    // 需要直接关联到最后一条 assistant 消息
+    const currentPendingIntentLabel = pendingIntentLabel;
+    // ✨ 找到 aiMessages 中最后一条 assistant 消息的索引（用于 pendingIntentLabel 回填）
+    let lastAssistantIdx = -1;
+    for (let i = aiMessages.length - 1; i >= 0; i--) {
+      if (aiMessages[i].role === 'assistant') {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+
     return aiMessages.map((msg, idx) => {
       let content = msg.content || '';
       if (msg.parts && msg.parts.length > 0) {
@@ -215,6 +227,10 @@ export function ChatStage() {
           (p.type.startsWith('tool-') || p.type === 'dynamic-tool')
       ) || [];
 
+      // ✨ 意图标签：优先从 mirroredMessages 合并，流式期间回退到 pendingIntentLabel
+      const resolvedIntentLabel = intentLabelMap.get(msg.id)
+        || (idx === lastAssistantIdx && currentPendingIntentLabel ? currentPendingIntentLabel : undefined);
+
       return {
         id: msg.id,
         role: msg.role as 'user' | 'assistant' | 'system',
@@ -226,11 +242,11 @@ export function ChatStage() {
           || (isLastUserMsg && pendingAttachments ? pendingAttachments : undefined),
         // ✨ Active Probing：工具调用 parts，用于渲染参数探查表单
         toolInvocationParts: toolInvocationParts.length > 0 ? toolInvocationParts : undefined,
-        // ✨ 意图识别标签：从 mirroredMessages 合并
-        intentLabel: intentLabelMap.get(msg.id),
+        // ✨ 意图识别标签：从 mirroredMessages 合并，流式期间使用 pendingIntentLabel
+        intentLabel: resolvedIntentLabel,
       };
     });
-  }, [aiMessages, mirroredMessages]);
+  }, [aiMessages, mirroredMessages, pendingIntentLabel]);
   const isTyping = isLoading;
 
   // ==========================================
