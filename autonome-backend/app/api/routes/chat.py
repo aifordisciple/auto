@@ -350,6 +350,87 @@ async def chat_stream(
         lc_messages.append({"role": "user", "content": pdf_context_text})
         lc_messages.append({"role": "assistant", "content": "好的，我已经阅读了您上传的PDF文档内容，请继续提问。"})
 
+    # ✨ 附件文件内容注入：读取 context_files 的文件内容，追加到用户消息后
+    # 当用户通过"添加附件"选择项目文件时，AI 需要看到文件内容才能回答相关问题
+    # 根据文件扩展名选择不同的读取策略，复用已有的探针工具和处理器
+    if request.context_files:
+        try:
+            from app.core.config import settings as cf_settings
+            project_dir = str(Path(cf_settings.UPLOAD_DIR) / f"project_{request.project_id}")
+            file_context_parts = []
+            for file_path in request.context_files:
+                # 将相对路径转为绝对路径（项目工作区路径）
+                abs_path = file_path if os.path.isabs(file_path) else f"{project_dir}/{file_path}"
+                if not os.path.exists(abs_path):
+                    file_context_parts.append(f"## 文件: {file_path}\n[文件不存在]")
+                    continue
+
+                # 根据文件扩展名选择读取策略
+                ext = os.path.splitext(abs_path)[1].lower()
+
+                if ext in ('.csv', '.tsv', '.txt', '.tab'):
+                    # 表格文件：使用探针工具预览表头和前几行
+                    from app.tools.probe_tools import peek_tabular_data
+                    preview = peek_tabular_data(abs_path, n_rows=5)
+                    file_context_parts.append(f"## 文件: {file_path}\n{preview}")
+
+                elif ext == '.h5ad':
+                    # AnnData 文件：使用探针工具读取结构信息
+                    from app.tools.probe_tools import inspect_h5ad
+                    info = inspect_h5ad(abs_path)
+                    file_context_parts.append(f"## 文件: {file_path}\n{info}")
+
+                elif ext in ('.py', '.r', '.sh', '.json', '.yaml', '.yml', '.md',
+                             '.log', '.nf', '.conf', '.cfg', '.ini', '.toml',
+                             '.tex', '.html', '.css', '.js', '.ts', '.sql'):
+                    # 文本文件：直接读取内容（限制 100KB 避免过长）
+                    max_size = 100 * 1024  # 100KB
+                    file_size = os.path.getsize(abs_path)
+                    with open(abs_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read(max_size)
+                    if file_size > max_size:
+                        file_context_parts.append(
+                            f"## 文件: {file_path} ({file_size} 字节，截断显示前 100KB)\n```\n{content}\n... (截断)\n```"
+                        )
+                    else:
+                        file_context_parts.append(f"## 文件: {file_path}\n```\n{content}\n```")
+
+                elif ext == '.pdf':
+                    # PDF 文件：使用已有的 PDF 处理器提取文本
+                    from app.services.pdf_processor import extract_pdf_content
+                    result = extract_pdf_content(abs_path)
+                    text = result.get('text', '[PDF 内容提取失败]')[:5000]
+                    file_context_parts.append(f"## 文件: {file_path}\n{text}")
+
+                elif ext in ('.fastq', '.fq'):
+                    # FASTQ 文件：使用探针工具预览
+                    from app.tools.probe_tools import inspect_fastq
+                    info = inspect_fastq(abs_path)
+                    file_context_parts.append(f"## 文件: {file_path}\n{info}")
+
+                elif ext in ('.bam', '.sam'):
+                    # BAM/SAM 文件：使用探针工具预览
+                    from app.tools.probe_tools import inspect_bam
+                    info = inspect_bam(abs_path)
+                    file_context_parts.append(f"## 文件: {file_path}\n{info}")
+
+                else:
+                    # 其他文件类型：仅告知文件存在和大小
+                    file_size = os.path.getsize(abs_path)
+                    file_context_parts.append(
+                        f"## 文件: {file_path} (类型: {ext}, 大小: {file_size} 字节)\n[此文件类型暂不支持内容预览]"
+                    )
+
+            # 将所有文件内容作为额外的 user 消息注入
+            if file_context_parts:
+                file_context_text = "\n\n".join(file_context_parts)
+                lc_messages.append({"role": "user", "content": f"以下是我附加的文件内容：\n\n{file_context_text}"})
+                lc_messages.append({"role": "assistant", "content": "好的，我已经阅读了您附加的文件内容，请继续提问。"})
+                log.info(f"[Chat] 注入 {len(file_context_parts)} 个附件文件内容到 LLM 消息")
+
+        except Exception as e:
+            log.warning(f"[Chat] 附件文件内容注入失败: {e}")
+
     # ✨ 消息列表完整性校验：确保 user/assistant 交替
     # 根因修复：空助手消息已在上游插入占位，正常情况下不会出现连续 user 消息
     # 此处仅做防御性检查，如发现异常则插入占位 assistant 消息

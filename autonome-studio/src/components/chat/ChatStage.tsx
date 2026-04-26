@@ -446,7 +446,7 @@ export function ChatStage() {
     // 1. 先从 store 提取图片/文件路径，存入 ref 缓冲区
     // 2. 然后调用 sendMessage（body() 会从 ref 读取）
     // 3. 最后清理粘贴附件和 ref
-    const { pastedAttachments } = useWorkspaceStore.getState();
+    const { pastedAttachments, pendingChatAttachments: contextFiles } = useWorkspaceStore.getState();
     const imagePaths = pastedAttachments
       .filter(att => att.type === 'image' && att.serverPath && !att.isUploading)
       .map(att => att.serverPath);
@@ -458,10 +458,12 @@ export function ChatStage() {
     pendingFilesRef.current = filePaths;
 
     // ✨ 设置待关联的 attachments（发送后 useChatSync 会将其附加到最新用户消息）
-    if (imagePaths.length > 0 || filePaths.length > 0) {
+    // 包含粘贴附件（图片/文件）和项目文件附件（contextFiles → files 字段，蓝色标签）
+    if (imagePaths.length > 0 || filePaths.length > 0 || contextFiles.length > 0) {
       const attachments: MessageAttachments = {};
       if (imagePaths.length > 0) attachments.images = imagePaths;
       if (filePaths.length > 0) attachments.pastedFiles = filePaths;
+      if (contextFiles.length > 0) attachments.files = contextFiles;
       pendingAttachmentsRef.current = attachments;
     } else {
       pendingAttachmentsRef.current = null;
@@ -470,8 +472,10 @@ export function ChatStage() {
     // 调用 sendMessage 发送消息（v5 API）
     sendMessage({ text: messageText });
 
-    // 发送后清理粘贴附件和 ref 缓冲区
+    // 发送后清理粘贴附件、项目文件附件和 ref 缓冲区
     cleanupPastedAttachments();
+    // ✨ 清空项目文件附件（避免附件标签残留在输入框上方）
+    useWorkspaceStore.getState().clearPendingChatAttachments();
     // 延迟清空 ref，确保 body() 已经读取
     setTimeout(() => {
       pendingImagesRef.current = [];
