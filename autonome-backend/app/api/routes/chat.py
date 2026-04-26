@@ -537,12 +537,12 @@ async def chat_stream(
         # Active Probing: 参数缺失时发送 ToolCall 事件（V2.0 升级）
         # 替代旧的追问拦截逻辑，改用 Vercel AI SDK 兼容的 ToolCall 格式，
         # 前端 ParameterProbingCard 组件接收后渲染动态表单
-        if route_result and route_result.probing and route_result.probing.is_missing:
+        _should_probe = (route_result and route_result.probing and route_result.probing.is_missing)
+        if _should_probe:
             # ✨ DATA_PROBE 追问场景：对话历史中已包含文件数据内容时跳过探查
             # 典型场景：用户上一轮已查看文件内容，追问"列名叫什么"等细节问题时，
             # L2 在当前消息中找不到 input_file 会触发 probing，但 AI 可以直接
             # 从对话历史中的文件内容回答，无需重新探查
-            _skip_probing = False
             if (route_result.dag.nodes
                 and route_result.dag.nodes[0].intent == NewIntentType.DATA_PROBE):
                 for msg in reversed(lc_messages):
@@ -552,24 +552,24 @@ async def chat_stream(
                         # ```/|：代码块或markdown表格中的表格数据（附件注入路径的输出）
                         _data_markers = ["📊", "表头", "数据维度", "```", "|"]
                         if any(marker in msg["content"] for marker in _data_markers):
-                            _skip_probing = True
+                            _should_probe = False
                             log.info("[Chat] DATA_PROBE 追问场景，对话历史已含数据内容，跳过 Active Probing")
                         break
-            if not _skip_probing:
-                # 发送 request_parameters ToolCall（Vercel AI SDK 兼容格式）
-                tool_call_event = {
-                    "type": "data-tool-call",
-                    "toolCallId": f"call_probe_0",
-                    "toolName": "request_parameters",
-                    "args": {
-                        "message": route_result.probing.message_to_user,
-                        "schema": route_result.probing.ui_schema,
-                    },
-                }
-                yield encoder.from_custom_event("tool_call", tool_call_event)
-                # 参数缺失时不调用 LLM，直接结束流
-                yield encoder.finish()
-                return
+        if _should_probe:
+            # 发送 request_parameters ToolCall（Vercel AI SDK 兼容格式）
+            tool_call_event = {
+                "type": "data-tool-call",
+                "toolCallId": f"call_probe_0",
+                "toolName": "request_parameters",
+                "args": {
+                    "message": route_result.probing.message_to_user,
+                    "schema": route_result.probing.ui_schema,
+                },
+            }
+            yield encoder.from_custom_event("tool_call", tool_call_event)
+            # 参数缺失时不调用 LLM，直接结束流
+            yield encoder.finish()
+            return
         else:
             # 检查 API Key
             if not is_local_model and not api_key:
