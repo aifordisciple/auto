@@ -497,10 +497,13 @@ async def chat_stream(
                 and route_result.dag.nodes[0].intent == NewIntentType.DATA_PROBE):
                 for msg in reversed(lc_messages):
                     if msg["role"] == "assistant" and msg.get("content"):
-                        # 助手消息中包含数据探查标记（探针工具的输出格式），说明之前已探查过
-                        if "📊" in msg["content"] or "表头" in msg["content"] or "数据维度" in msg["content"]:
+                        # 助手消息中包含数据探查标记，说明之前已探查过文件内容
+                        # 📊/表头/数据维度：探针工具输出格式
+                        # ```/|：代码块或markdown表格中的表格数据（附件注入路径的输出）
+                        _data_markers = ["📊", "表头", "数据维度", "```", "|"]
+                        if any(marker in msg["content"] for marker in _data_markers):
                             _skip_probing = True
-                            log.info("[Chat] DATA_PROBE 追问场景，对话历史已含探针结果，跳过 Active Probing")
+                            log.info("[Chat] DATA_PROBE 追问场景，对话历史已含数据内容，跳过 Active Probing")
                         break
             if not _skip_probing:
                 # 发送 request_parameters ToolCall（Vercel AI SDK 兼容格式）
