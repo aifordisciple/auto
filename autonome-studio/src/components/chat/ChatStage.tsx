@@ -206,6 +206,11 @@ export function ChatStage() {
         break;
       }
     }
+    // ✨ 判断最后一条 assistant 消息是否是"新消息"（不在旧的 mirroredMessages 中）
+    // intent 事件在 assistant 消息创建之前到达，此时 pendingIntentLabel 不应回填到旧消息上
+    const mirroredIds = new Set(mirroredMessages.map(m => m.id));
+    const lastAssistantIsNew = lastAssistantIdx !== -1
+      && !mirroredIds.has(aiMessages[lastAssistantIdx].id);
 
     return aiMessages.map((msg, idx) => {
       let content = msg.content || '';
@@ -227,9 +232,11 @@ export function ChatStage() {
           (p.type.startsWith('tool-') || p.type === 'dynamic-tool')
       ) || [];
 
-      // ✨ 意图标签：优先从 mirroredMessages 合并，流式期间回退到 pendingIntentLabel
+      // ✨ 意图标签：优先从 mirroredMessages 合并
+      // 流式期间：只有当最后一条 assistant 是新消息时，才回填 pendingIntentLabel
+      // 避免把当前轮的 intentLabel 错误地显示到上一轮的 assistant 消息上
       const resolvedIntentLabel = intentLabelMap.get(msg.id)
-        || (idx === lastAssistantIdx && currentPendingIntentLabel ? currentPendingIntentLabel : undefined);
+        || (idx === lastAssistantIdx && lastAssistantIsNew && currentPendingIntentLabel ? currentPendingIntentLabel : undefined);
 
       return {
         id: msg.id,

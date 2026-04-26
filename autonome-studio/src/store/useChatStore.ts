@@ -386,20 +386,11 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
   dagProgress: null,
   setDagProgress: (progress) => set({ dagProgress: progress }),
   // ✨ 设置最近一条 assistant 消息的意图标签
-  // intent 事件在 assistant 消息之前到达，此时 assistant 消息可能还未创建
-  // 使用 pendingIntentLabel 暂存，在 ChatStage 构建 messages 时回填
+  // intent 事件在 assistant 消息之前到达，此时新 assistant 消息可能还未创建
+  // 或者 mirroredMessages 中只有上一轮的 assistant 消息（流式期间不更新）
+  // 所以始终使用 pendingIntentLabel 暂存，由 ChatStage 回填到正确的消息上
   setLastAssistantIntentLabel: (intentType: string) =>
-    set((state) => {
-      // 尝试直接更新已有的 mirroredMessages 中的最后一条 assistant 消息
-      const newMirrored = [...state.mirroredMessages];
-      const lastIdx = newMirrored.map(m => m.role).lastIndexOf('assistant');
-      if (lastIdx !== -1) {
-        newMirrored[lastIdx] = { ...newMirrored[lastIdx], intentLabel: intentType };
-        return { mirroredMessages: newMirrored };
-      }
-      // assistant 消息还未创建，暂存到 pendingIntentLabel
-      return { pendingIntentLabel: intentType };
-    }),
+    set({ pendingIntentLabel: intentType }),
   pendingIntentLabel: undefined,
   clearPendingIntentLabel: () => set({ pendingIntentLabel: undefined }),
 
