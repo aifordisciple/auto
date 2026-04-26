@@ -23,46 +23,111 @@ from app.core.logger import log
 from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _is_local_model, _is_ollama
 
 
-# L1 意图解构系统提示词（v3: 输出 TaskDAG，支持多任务分解）
+# L1 意图解构系统提示词（v4: 扩展意图触发场景 + 6 组边界规则 + ADHOC 兜底优先级）
 L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责将用户的自然语言输入解析为结构化的任务图谱（TaskDAG）。
 
 ## 可用意图类型（13 种原子意图）
 
-| 意图 | 枚举值 | 触发场景 |
-|------|--------|----------|
-| 工作流编排 | INTENT_WORKFLOW_ORCHESTRATE | 真正执行多步骤流程编排、生成 Nextflow 工作流脚本并运行 |
-| 技能锻造 | INTENT_SKILL_FORGE | 创建/修改技能、真正执行代码生成 |
-| 显式执行 | INTENT_EXPLICIT_EXEC | 明确调用已注册技能 |
-| 版本控制 | INTENT_VERSION_CONTROL | 回滚、版本对比、历史查看 |
-| 视觉微调 | INTENT_VISUAL_PERCEPTION_AND_TWEAK | 配色、阈值、DPI、样式调整 |
-| 数据探查 | INTENT_DATA_PROBE | 数据查询、统计分析、可视化 |
+| 意图 | 枚举值 | 触发场景 | 典型表述 | 不要混淆 |
+|------|--------|----------|----------|----------|
+| 工作流编排 | INTENT_WORKFLOW_ORCHESTRATE | 多步骤流程编排、Nextflow/Snakemake 流水线、多个技能串联、自动化 pipeline | "编排一个 RNA-seq 流程"、"用 Nextflow 把 FastQC 和 HISAT2 连起来" | 单技能执行(→EXPLICIT_EXEC)、写单脚本(→SKILL_FORGE) |
+| 技能锻造 | INTENT_SKILL_FORGE | 创建/修改代码脚本、修改已有代码逻辑、重构代码、加功能 | "写一个 R 脚本"、"帮我加一段清洗逻辑"、"重构一下这个脚本" | 描述大纲(→GENERAL_CHAT)、单技能执行(→EXPLICIT_EXEC) |
+| 显式执行 | INTENT_EXPLICIT_EXEC | 明确调用已注册技能（跑 FastQC、跑 Cell Ranger、跑 DESeq2），单工具执行 | "跑一遍 FastQC"、"用 DESeq2 算一下"、"调用 Cellpose" | 多技能串联(→WORKFLOW_ORCHESTRATE) |
+| 版本控制 | INTENT_VERSION_CONTROL | 回滚/撤销、版本对比、历史查看、环境差异对比 | "回滚到昨天版本"、"对比两次运行结果"、"撤销操作" | 纯报错诊断(→DIAGNOSTIC_RECOVERY) |
+| 视觉微调 | INTENT_VISUAL_PERCEPTION_AND_TWEAK | 配色/阈值/DPI/样式调整、图表格式修改、截图导出 | "换成 Nature 配色"、"DPI 改成 600"、"导出高清 PDF" | 数据分析(→DATA_PROBE/ADHOC) |
+| 数据探查 | INTENT_DATA_PROBE | 数据查询/预览/统计、文件系统探索、数据结构检查 | "查看 h5ad 结构"、"有哪些文件"、"检查 NA 比例" | 文献提取(→LITERATURE_MINING) |
+| 文献挖掘 | INTENT_LITERATURE_MINING | 从论文/文献/PDF 中提取信息、对比两篇文献、文献知识问答 | "这篇文献用了什么方法"、"提取 Table S1 数据"、"对比文献 A 和 B" | 普通知识问答(→GENERAL_CHAT) |
+| 系统资产 | INTENT_SYSTEM_ASSET_OPS | 文件移动/删除/归档、计算节点/实例切换、积分/配额查询、环境打包/自定义镜像、数据库挂载/卸载、任务启停/取消 | "移动文件到 Raw_Data"、"切换高配实例"、"查积分"、"打包镜像"、"停掉任务" | 报错诊断(→DIAGNOSTIC_RECOVERY)、技能执行(→EXPLICIT_EXEC) |
+| 团队协作 | INTENT_COLLABORATION | 共享/权限管理、分享链接、团队技能库、克隆工作区、导出审计日志 | "分享给李教授"、"生成分享链接"、"加入项目"、"发布到团队技能库" | 文件管理(→SYSTEM_ASSET_OPS) |
+| 诊断恢复 | INTENT_DIAGNOSTIC_RECOVERY | 用户正在经历的真实报错/崩溃，需要诊断和修复 | "脚本挂了报 Error"、"OOMKilled"、"进程卡住了" | 假设性讨论(→GENERAL_CHAT)、修改代码修bug(→SKILL_FORGE) |
+| 即席分析 | INTENT_ADHOC_INTERACTIVE_ANALYSIS | 用户提供数据文件+分析需求，但无匹配的预设技能，需要交互式探索分析 | "用这个 CSV 画个热图"、"算一下 GC 含量分布" | 有匹配技能(→EXPLICIT_EXEC)、写完整脚本(→SKILL_FORGE) |
+| 通用问答 | INTENT_GENERAL_CHAT | 闲聊、概念解释、流程大纲、步骤列举、知识对比、假设性讨论 | "什么是 drop-out？"、"GATK WES 的 10 步大纲"、"如果遇到报错怎么办" | 需要执行(→SKILL_FORGE/WORKFLOW)、文献操作(→LITERATURE_MINING) |
+| 系统宏 | INTENT_SYSTEM_MACRO | 系统命令(/status /help)、短确认(继续/确定/好) | "/status"、"继续"、"好的" | 非确认的短文本(→L1判断) |
 
 **DATA_PROBE 子意图说明**：
 - 当用户询问"有哪些文件"、"目录结构"、"项目文件"等文件系统探索类问题时，
   parameters 中必须设置 `probe_type: "workspace_scan"`，表示扫描工作区目录，无需 input_file
 - 当用户询问"查看数据结构"、"预览文件"等需要指定文件的问题时，
   parameters 中需包含 `input_file`，表示探查特定文件
-| 文献挖掘 | INTENT_LITERATURE_MINING | 文献检索、知识提取 |
-| 系统资产 | INTENT_SYSTEM_ASSET_OPS | 资源调度、计费、配额管理 |
-| 团队协作 | INTENT_COLLABORATION | 共享、评论、权限管理 |
-| 诊断恢复 | INTENT_DIAGNOSTIC_RECOVERY | 错误诊断、自愈、日志分析 |
-| 通用问答 | INTENT_GENERAL_CHAT | 闲聊、常识问答、概念解释、流程大纲、步骤列举、知识描述 |
-| 即席分析 | INTENT_ADHOC_INTERACTIVE_ANALYSIS | 用户提供数据文件+分析需求+无技能匹配 |
 
-## ⚠️ 关键区分规则：描述 vs 执行（防止误触发 WORKFLOW_ORCHESTRATE）
+## ⚠️ 关键区分规则：6 组意图边界（必须严格遵守）
 
-这是最常见的误分类场景，必须严格遵守以下边界：
+### 边界 1: WORKFLOW_ORCHESTRATE vs SKILL_FORGE vs EXPLICIT_EXEC
 
-| 用户表述模式 | 正确意图 | 原因 |
-|-------------|---------|------|
-| "给我列一个XX分析的N步大纲" | INTENT_GENERAL_CHAT | 只是索要文本描述，不需要执行 |
-| "介绍一下XX流程" / "XX分析的步骤是什么" | INTENT_GENERAL_CHAT | 知识解释请求，纯文本输出 |
-| "解释一下XX的概念/原理" | INTENT_GENERAL_CHAT | 概念解释，纯文本输出 |
-| "XX和YY有什么区别" | INTENT_GENERAL_CHAT | 对比解释，纯文本输出 |
-| "帮我跑XX分析" / "执行这个pipeline" | INTENT_WORKFLOW_ORCHESTRATE | 明确要求执行，需要编排运行 |
-| "用Nextflow写一个XX工作流" | INTENT_SKILL_FORGE | 要求生成可执行代码 |
+| 判断维度 | WORKFLOW_ORCHESTRATE | SKILL_FORGE | EXPLICIT_EXEC |
+|---------|---------------------|-------------|---------------|
+| 工具数量 | 多个工具/技能串联 | 单个脚本/工具 | 单个已注册技能 |
+| 典型关键词 | 编排/流程/pipeline/Nextflow/Snakemake | 写脚本/修改代码/重构/加逻辑 | 跑/运行/调用+技能名 |
+| 举例 | "用 Nextflow 连 FastQC 和 HISAT2" | "写一个 PCA 脚本"、"帮我加清洗逻辑" | "跑 FastQC"、"用 DESeq2 算" |
 
-**判断原则**：如果用户只是"索要信息"（大纲、步骤、解释、介绍、对比），即使涉及专业领域术语（如 GATK、WES、RNA-seq），也应归类为 INTENT_GENERAL_CHAT。只有用户明确要求"执行/运行/跑/做"时，才触发 INTENT_WORKFLOW_ORCHESTRATE 或 INTENT_SKILL_FORGE。
+**关键判断**：
+- "跑 ESTIMATE" / "跑 Cell Ranger" / "跑 Monocle3" → INTENT_EXPLICIT_EXEC（单工具执行，不是工作流）
+- "写一个 Nextflow 脚本" → INTENT_WORKFLOW_ORCHESTRATE（Nextflow 是工作流引擎）
+- "先跑 STAR 再跑 featureCounts 最后算 TPM" → INTENT_WORKFLOW_ORCHESTRATE（多步骤串联）
+
+### 边界 2: DIAGNOSTIC_RECOVERY vs SKILL_FORGE vs GENERAL_CHAT
+
+| 判断维度 | DIAGNOSTIC_RECOVERY | SKILL_FORGE | GENERAL_CHAT |
+|---------|---------------------|-------------|--------------|
+| 用户意图 | 诊断+修复运行时错误 | 修改代码逻辑/修 bug | 假设性讨论错误概念 |
+| 典型表述 | "报错了"、"脚本挂了" | "帮我加清洗逻辑"、"修复这个 bug" | "如果遇到报错怎么办" |
+| 举例 | "Python 报 ValueError" | "代码报 NaN error，帮我加过滤逻辑" | "遇到 OOMKilled 有几种思路" |
+
+**关键判断**：
+- 用户正在经历报错 + 要求修改代码 → INTENT_SKILL_FORGE（"帮我加逻辑修复报错"）
+- 用户正在经历报错 + 要求诊断原因 → INTENT_DIAGNOSTIC_RECOVERY（"为什么报错了"）
+- 用户只是假设性讨论 → INTENT_GENERAL_CHAT（"如果遇到报错怎么办"）
+
+### 边界 3: SYSTEM_ASSET_OPS vs DIAGNOSTIC_RECOVERY vs EXPLICIT_EXEC
+
+| 判断维度 | SYSTEM_ASSET_OPS | DIAGNOSTIC_RECOVERY | EXPLICIT_EXEC |
+|---------|-----------------|---------------------|---------------|
+| 核心动作 | 资源管理/文件管理/环境管理 | 诊断报错/修复环境 | 执行分析技能 |
+| 典型表述 | 移动/删除/归档/挂载/切换节点/积分/镜像 | 报错/崩溃/诊断/日志 | 跑XX分析/用XX工具 |
+| 举例 | "删掉 failed 文件"、"切高配实例" | "脚本报错了" | "跑 FastQC" |
+
+**关键判断**：
+- "帮我切到大内存节点" → INTENT_SYSTEM_ASSET_OPS（资源调度，不是执行分析）
+- "停掉任务并删掉中间文件" → INTENT_SYSTEM_ASSET_OPS（任务控制+文件管理）
+
+### 边界 4: ADHOC_INTERACTIVE_ANALYSIS vs DATA_PROBE vs SKILL_FORGE
+
+| 判断维度 | ADHOC_INTERACTIVE_ANALYSIS | DATA_PROBE | SKILL_FORGE |
+|---------|---------------------------|------------|-------------|
+| 核心区别 | 有数据+要分析+无预设技能 | 查看数据结构/统计 | 写完整脚本 |
+| 典型表述 | "用这个 CSV 画个图"、"算一下分布" | "查看数据结构"、"有多少行列" | "写个 Python 脚本" |
+| 举例 | "画相关性热图" | "检查 NA 比例" | "写个 K-means 脚本" |
+
+**关键判断**：
+- 用户有文件 + 想做探索性分析 → INTENT_ADHOC_INTERACTIVE_ANALYSIS
+- 用户只想查看/检查数据 → INTENT_DATA_PROBE
+- 用户明确说"写脚本" → INTENT_SKILL_FORGE
+
+### 边界 5: LITERATURE_MINING vs DATA_PROBE vs GENERAL_CHAT
+
+| 判断维度 | LITERATURE_MINING | DATA_PROBE | GENERAL_CHAT |
+|---------|-------------------|------------|--------------|
+| 数据来源 | 论文/文献/PDF | 数据文件（h5ad/CSV 等） | 无特定数据源 |
+| 典型表述 | "这篇文献"、"文章里"、"PDF 中" | "这个 h5ad"、"数据集里" | "XX 的原理是什么" |
+| 举例 | "提取 Table S1 数据" | "查看 h5ad 结构" | "解释 UMAP 原理" |
+
+**关键判断**：
+- "总结这篇论文的流程" → INTENT_LITERATURE_MINING（不是 GENERAL_CHAT，因为有具体文献）
+- "对比文献 A 和文献 B" → INTENT_LITERATURE_MINING
+- "解释 XX 原理"（无文献来源）→ INTENT_GENERAL_CHAT
+
+### 边界 6: COLLABORATION vs SYSTEM_ASSET_OPS
+
+| 判断维度 | COLLABORATION | SYSTEM_ASSET_OPS |
+|---------|--------------|-----------------|
+| 核心动作 | 共享/权限/团队协作 | 文件管理/资源管理/环境管理 |
+| 典型表述 | 分享/权限/协同/团队 | 移动/删除/节点/积分/镜像 |
+| 举例 | "分享给李教授"、"发布到团队技能库" | "删掉文件"、"切换节点" |
+
+**关键判断**：
+- "把文件分享给 XX" → INTENT_COLLABORATION
+- "把文件移动到 XX 文件夹" → INTENT_SYSTEM_ASSET_OPS
+- "克隆工作区给实习生" → INTENT_COLLABORATION（涉及人员协作，不是纯资源管理）
 
 ## 工作区上下文
 
@@ -80,9 +145,18 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 4. 对指代词（"这个文件"、"上面的结果"等）进行消解，填入 resolved_assets
 5. 从用户输入中提取关键参数，填入 parameters
 6. 即席分析判定原则：
-   - 如果用户指令包含具体数据文件，且要求进行通用的分析/可视化操作（非系统预设标准技能），优先路由为 INTENT_ADHOC_INTERACTIVE_ANALYSIS
-   - 如果用户明确说"写代码"、"写脚本"、"帮我写一个..."，路由为 INTENT_SKILL_FORGE
-   - 如果技能库中有匹配的技能，路由为 INTENT_EXPLICIT_EXEC
+   - 只有当用户指令包含具体数据文件，且要求进行轻量级的探索性分析/可视化操作，
+     且技能库中无直接匹配的预设技能时，才路由为 INTENT_ADHOC_INTERACTIVE_ANALYSIS
+   - 如果用户明确说"写代码/脚本"，路由为 INTENT_SKILL_FORGE（即使有数据文件）
+   - 如果技能库中有匹配的技能（如 FastQC、Cell Ranger、DESeq2），路由为 INTENT_EXPLICIT_EXEC
+   - 如果用户只是查看/检查数据结构，路由为 INTENT_DATA_PROBE
+   - ADHOC 是兜底意图，不是默认首选：只有当 DATA_PROBE/SKILL_FORGE/EXPLICIT_EXEC 都不适用时才使用
+7. 报错修复合意图判定原则：
+   - 用户报告报错 + 要求诊断原因 → INTENT_DIAGNOSTIC_RECOVERY
+   - 用户报告报错 + 要求修改代码修复 → INTENT_SKILL_FORGE
+   - 用户报告报错 + 要求重新执行 → INTENT_EXPLICIT_EXEC（或双意图）
+   - 用户报告报错 + 要求对比环境差异 → INTENT_VERSION_CONTROL
+   - 判断关键：用户的核心诉求是"诊断"还是"修代码"还是"重新执行"
 
 ## 指代消解规则 (Coreference Resolution)
 

@@ -154,10 +154,15 @@ class IntentRouterEngine:
             return RouteResult(dag=dag, probing=None)
 
         # L1: DAG 解构
-        log.info(f"[Router] L0 未命中，调用 L1 解构: query='{query[:50]}...'")
+        log.info(f"[Router] L0 未命中，调用 L1 解构: query='{query[:80]}...'")
         # V2.0: 注入技能摘要，增强 L1 对 INTENT_EXPLICIT_EXEC 的识别能力
         skill_summary = await self.get_skill_summary(query)
         dag = await self.classifier.decompose(query, context, skill_summary=skill_summary)
+
+        # V2.2: 记录 L1 解构结果摘要，便于排查误分类
+        if dag.nodes:
+            node_intents = [n.intent.value for n in dag.nodes]
+            log.info(f"[Router] L1 解构完成: nodes={len(dag.nodes)}, intents={node_intents}")
 
         # L2: 参数探查（仅检查第一个任务节点）
         if dag.nodes:

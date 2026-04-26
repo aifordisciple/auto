@@ -171,17 +171,23 @@ export function ChatStage() {
   // ==========================================
   const mirroredMessages = useChatStore(state => state.mirroredMessages);
   const dagProgress = useChatStore(state => state.dagProgress);
+  // ✨ 意图标签：读取暂存的意图标签（intent 事件先于 assistant 消息到达）
+  const pendingIntentLabel = useChatStore(state => state.pendingIntentLabel);
 
   const messages = useMemo(() => {
-    // 构建 thinkingContent 和 attachments 索引：key=message.id
+    // 构建 thinkingContent、attachments 和 intentLabel 索引：key=message.id
     const thinkingMap = new Map<string, string>();
     const attachmentsMap = new Map<string, MessageAttachments>();
+    const intentLabelMap = new Map<string, string>();
     for (const msg of mirroredMessages) {
       if (msg.thinkingContent) {
         thinkingMap.set(msg.id, msg.thinkingContent);
       }
       if (msg.attachments) {
         attachmentsMap.set(msg.id, msg.attachments);
+      }
+      if (msg.intentLabel) {
+        intentLabelMap.set(msg.id, msg.intentLabel);
       }
     }
 
@@ -214,12 +220,14 @@ export function ChatStage() {
         role: msg.role as 'user' | 'assistant' | 'system',
         content,
         timestamp: Date.now(),
-        // ✨ 合并 mirroredMessages 上的 thinkingContent 和 attachments
+        // ✨ 合并 mirroredMessages 上的 thinkingContent、attachments 和 intentLabel
         thinkingContent: thinkingMap.get(msg.id),
         attachments: attachmentsMap.get(msg.id)
           || (isLastUserMsg && pendingAttachments ? pendingAttachments : undefined),
         // ✨ Active Probing：工具调用 parts，用于渲染参数探查表单
         toolInvocationParts: toolInvocationParts.length > 0 ? toolInvocationParts : undefined,
+        // ✨ 意图识别标签：从 mirroredMessages 合并
+        intentLabel: intentLabelMap.get(msg.id),
       };
     });
   }, [aiMessages, mirroredMessages]);

@@ -25,89 +25,89 @@ const INTENT_CONFIG: Record<string, {
     label: "探查",
     group: "analysis",
     gradient: "linear-gradient(135deg, #6366f1, #818cf8)",
-    shadow: "0 1px 3px rgba(99,102,241,0.3)",
+    shadow: "0 1px 2px rgba(99,102,241,0.2)",
   },
   INTENT_VISUAL_PERCEPTION_AND_TWEAK: {
     label: "可视化",
     group: "analysis",
     gradient: "linear-gradient(135deg, #6366f1, #818cf8)",
-    shadow: "0 1px 3px rgba(99,102,241,0.3)",
+    shadow: "0 1px 2px rgba(99,102,241,0.2)",
   },
   INTENT_ADHOC_INTERACTIVE_ANALYSIS: {
     label: "即席",
     group: "analysis",
     gradient: "linear-gradient(135deg, #6366f1, #818cf8)",
-    shadow: "0 1px 3px rgba(99,102,241,0.3)",
+    shadow: "0 1px 2px rgba(99,102,241,0.2)",
   },
   INTENT_LITERATURE_MINING: {
     label: "文献",
     group: "analysis",
     gradient: "linear-gradient(135deg, #6366f1, #818cf8)",
-    shadow: "0 1px 3px rgba(99,102,241,0.3)",
+    shadow: "0 1px 2px rgba(99,102,241,0.2)",
   },
   // --- 执行类（翠绿） ---
   INTENT_EXPLICIT_EXEC: {
     label: "执行",
     group: "execution",
     gradient: "linear-gradient(135deg, #10b981, #34d399)",
-    shadow: "0 1px 3px rgba(16,185,129,0.3)",
+    shadow: "0 1px 2px rgba(16,185,129,0.2)",
   },
   INTENT_SKILL_FORGE: {
     label: "锻造",
     group: "execution",
     gradient: "linear-gradient(135deg, #10b981, #34d399)",
-    shadow: "0 1px 3px rgba(16,185,129,0.3)",
+    shadow: "0 1px 2px rgba(16,185,129,0.2)",
   },
   INTENT_WORKFLOW_ORCHESTRATE: {
     label: "工作流",
     group: "execution",
     gradient: "linear-gradient(135deg, #10b981, #34d399)",
-    shadow: "0 1px 3px rgba(16,185,129,0.3)",
+    shadow: "0 1px 2px rgba(16,185,129,0.2)",
   },
   INTENT_VERSION_CONTROL: {
     label: "版本",
     group: "execution",
     gradient: "linear-gradient(135deg, #10b981, #34d399)",
-    shadow: "0 1px 3px rgba(16,185,129,0.3)",
+    shadow: "0 1px 2px rgba(16,185,129,0.2)",
   },
   // --- 交互类（琥珀） ---
   INTENT_GENERAL_CHAT: {
     label: "问答",
     group: "interaction",
     gradient: "linear-gradient(135deg, #f59e0b, #fbbf24)",
-    shadow: "0 1px 3px rgba(245,158,11,0.3)",
+    shadow: "0 1px 2px rgba(245,158,11,0.2)",
   },
   INTENT_COLLABORATION: {
     label: "协作",
     group: "interaction",
     gradient: "linear-gradient(135deg, #f59e0b, #fbbf24)",
-    shadow: "0 1px 3px rgba(245,158,11,0.3)",
+    shadow: "0 1px 2px rgba(245,158,11,0.2)",
   },
   INTENT_SYSTEM_MACRO: {
     label: "指令",
     group: "interaction",
     gradient: "linear-gradient(135deg, #f59e0b, #fbbf24)",
-    shadow: "0 1px 3px rgba(245,158,11,0.3)",
+    shadow: "0 1px 2px rgba(245,158,11,0.2)",
   },
   // --- 异常类（玫红） ---
   INTENT_DIAGNOSTIC_RECOVERY: {
     label: "诊断",
     group: "exception",
     gradient: "linear-gradient(135deg, #ef4444, #f87171)",
-    shadow: "0 1px 3px rgba(239,68,68,0.3)",
+    shadow: "0 1px 2px rgba(239,68,68,0.2)",
   },
   INTENT_SYSTEM_ASSET_OPS: {
     label: "运维",
     group: "exception",
     gradient: "linear-gradient(135deg, #ef4444, #f87171)",
-    shadow: "0 1px 3px rgba(239,68,68,0.3)",
+    shadow: "0 1px 2px rgba(239,68,68,0.2)",
   },
 };
 
 // ✨ 未知意图的兜底样式（灰色胶囊 + 原始字符串）
 const FALLBACK_STYLE = {
   gradient: "linear-gradient(135deg, #64748b, #94a3b8)",
-  shadow: "0 1px 3px rgba(100,116,139,0.3)",
+  shadow: "0 1px 2px rgba(100,116,139,0.2)",
 };
 
 // ==========================================
@@ -152,7 +152,7 @@ const IntentTag = memo(function IntentTag({ intentType }: IntentTagProps) {
         background: config.gradient,
         boxShadow: config.shadow,
       }}
-      className="text-white text-[11px] px-2.5 py-0.5 rounded-xl font-medium tracking-wide inline-flex items-center"
+      className="text-white text-[10px] px-1.5 py-px rounded font-normal inline-flex items-center"
     >
       {config.label}
     </span>
