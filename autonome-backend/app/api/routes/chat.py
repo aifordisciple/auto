@@ -1631,11 +1631,13 @@ async def adhoc_execute(
     with open(script_path, 'w', encoding='utf-8') as f:
         f.write(code_snapshot)
 
-    # 构建执行命令（脚本在工作目录下，可以使用相对路径）
+    # 构建执行命令：必须使用沙箱容器内可见路径
+    # 沙箱挂载 project_proj_{id} → /workspace，因此容器内路径为 /workspace/results/{name}/{script}
+    container_script_path = f"{container_out_dir}/{script_name}"
     if code_language == "python":
-        cmd = ["python", script_path]
+        cmd = ["python", container_script_path]
     else:
-        cmd = ["Rscript", script_path]
+        cmd = ["Rscript", container_script_path]
 
     # 追加命令行参数
     for key, value in parameters.items():
