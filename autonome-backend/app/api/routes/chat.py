@@ -682,13 +682,11 @@ async def chat_stream(
                     file_id = resolved_assets[0] if resolved_assets else "unknown"
 
                     # 收集用户实际提供的文件路径，填充到参数 Schema 默认值中
-                    # 注意：context_files 中是相对项目目录的路径（如 raw_data/pca/xxx），
-                    # 实际文件在 /workspace/project_{project_id}/raw_data/pca/xxx
-                    # 必须补全项目前缀，否则 LLM 生成的代码会使用错误路径导致沙箱执行失败
+                    # 注意：沙箱容器现在按项目挂载（project_{id} → /workspace），
+                    # 所以文件路径只需补全 /workspace/ 前缀，无需 project_{id} 中间层
                     context_file_paths = request.context_files or []
                     full_file_paths = [
-                        f"/workspace/project_{request.project_id}/{f}"
-                        if not f.startswith("/") else f
+                        f"/workspace/{f}" if not f.startswith("/") else f
                         for f in context_file_paths
                     ]
                     file_paths_str = "\n  - ".join(full_file_paths)
@@ -708,6 +706,7 @@ async def chat_stream(
 
                     # 策略包存入 Redis，供用户确认执行后读取
                     # key 格式: adhoc:{message_id}，TTL 10 分钟
+                    # 同时存储 project_id，供 execute 端点确定项目文件系统范围
                     import redis as redis_client
                     from app.core.config import settings as app_settings
                     r = redis_client.Redis(
@@ -716,10 +715,14 @@ async def chat_stream(
                         db=0,
                         decode_responses=True,
                     )
+                    redis_data = {
+                        **strategy_pack,
+                        "project_id": request.project_id,
+                    }
                     r.setex(
                         f"adhoc:{user_msg.id}",
                         600,
-                        json.dumps(strategy_pack, ensure_ascii=False),
+                        json.dumps(redis_data, ensure_ascii=False),
                     )
                     log.info(f"[Chat] 即席分析策略包已存入 Redis: key=adhoc:{user_msg.id}")
 
@@ -1496,6 +1499,44 @@ async def probing_submit(
 # ==========================================
 
 
+def _derive_short_name(strategy_text: str, max_len: int = 20) -> str:
+    """
+    从即席分析策略描述中提取简短英文标识，用于输出目录命名。
+
+    程序说明：
+    - 优先从描述中提取英文关键词（PCA、Heatmap、Volcano 等）
+    - 若描述不含英文，使用 "analysis" 作为默认值
+    - 结果转为小写、空格替换为下划线
+
+    Args:
+        strategy_text: LLM 生成的策略描述文本
+        max_len: 最大长度限制
+
+    Returns:
+        简短英文标识字符串（如 "pca_analysis"）
+    """
+    import re
+    # 常见生信分析方法关键词
+    known_keywords = [
+        "PCA", "Heatmap", "Volcano", "MA", "UMAP", "t-SNE", "tSNE",
+        "DEG", "GO", "KEGG", "GSEA", "Boxplot", "Violin", "Barplot",
+        "Scatter", "Correlation", "Clustering", "QC", "Normalization",
+        "DESeq2", "edgeR", "limma", "Seurat", "Scanpy",
+    ]
+    # 提取策略文本中的英文单词
+    english_words = re.findall(r'[A-Za-z][A-Za-z0-9_-]*', strategy_text)
+    # 优先匹配已知关键词
+    for word in english_words:
+        if word in known_keywords:
+            return word.lower().replace("-", "_")
+    # 回退：使用前几个英文单词
+    if english_words:
+        name = "_".join(english_words[:3]).lower()
+        return name[:max_len]
+    # 无英文时使用默认值
+    return "analysis"
+
+
 class AdhocExecuteRequest(BaseModel):
     """即席分析执行请求 —— 用户在前端策略卡片点击"执行"后提交"""
     message_id: str = Field(..., description="关联的 render_adhoc_card tool_call 的 message_id")
@@ -1545,33 +1586,52 @@ async def adhoc_execute(
         log.error(f"[adhoc_execute] Redis 读取失败: {e}")
         raise HTTPException(status_code=500, detail=f"读取策略包失败: {str(e)}")
 
-    # 提取执行参数
+    # 提取执行参数和项目信息
     payload = request.payload or {}
     parameters = payload.get("parameters", {})
     code_snapshot = payload.get("code_snapshot", "")
     code_language = strategy_pack.get("code_language", "python")
+    project_id = strategy_pack.get("project_id", "default")
 
     if not code_snapshot:
         raise HTTPException(status_code=400, detail="缺少代码快照，无法执行")
 
     log.info(
         f"[adhoc_execute] 开始执行: language={code_language}, "
-        f"params={list(parameters.keys())}"
+        f"project_id={project_id}, params={list(parameters.keys())}"
     )
 
-    # 准备执行环境：输出目录 + 脚本文件
-    safe_msg_id = request.message_id.replace("/", "_").replace("..", "_")
-    container_out_subdir = f"results/default/{safe_msg_id}"
-    container_out_dir = f"/workspace/{container_out_subdir}"
-    host_out_dir = os.path.join(settings.UPLOAD_DIR, container_out_subdir)
+    # 准备执行环境：按项目隔离挂载 + 时间戳命名输出目录
+    # 沙箱容器挂载: uploads/project_{id} → /workspace（只挂当前项目，非整个 uploads）
+    from datetime import datetime
+    project_host_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
+    os.makedirs(project_host_dir, exist_ok=True)
+
+    # 生成输出目录名: 时间戳_分析简称_短ID
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 从策略描述中提取简短英文标识，或使用默认值
+    strategy_text = strategy_pack.get("strategy", "analysis")
+    short_name = _derive_short_name(strategy_text)
+    short_id = request.message_id.replace("/", "_").replace("..", "_")[:8]
+    output_dir_name = f"{timestamp}_{short_name}_{short_id}"
+
+    # 容器内路径：项目目录是 /workspace 根
+    container_out_dir = f"/workspace/results/{output_dir_name}"
+    # 宿主机路径：在项目目录下的 results 子目录
+    host_out_dir = os.path.join(project_host_dir, "results", output_dir_name)
     os.makedirs(host_out_dir, exist_ok=True)
 
+    log.info(
+        f"[adhoc_execute] 输出目录: host={host_out_dir}, container={container_out_dir}"
+    )
+
+    # 写入脚本文件到输出目录
     script_name = "latest_script.py" if code_language == "python" else "latest_script.R"
     script_path = os.path.join(host_out_dir, script_name)
     with open(script_path, 'w', encoding='utf-8') as f:
         f.write(code_snapshot)
 
-    # 构建执行命令
+    # 构建执行命令（脚本在工作目录下，可以使用相对路径）
     if code_language == "python":
         cmd = ["python", script_path]
     else:
@@ -1589,6 +1649,7 @@ async def adhoc_execute(
         else:
             str_value = str(value)
             str_value = str_value.replace("${TASK_OUT_DIR}", container_out_dir)
+            # 相对文件路径转绝对路径：项目目录即 /workspace 根，补全 /workspace/ 即可
             if (
                 not str_value.startswith("/")
                 and not str_value.startswith("$")
@@ -1625,6 +1686,10 @@ async def adhoc_execute(
                     cli_mode=True,
                     user_id=user.id,
                     log_callback=log_callback,
+                    # 按项目隔离挂载：只挂当前项目目录，非整个 uploads
+                    host_upload_dir=project_host_dir,
+                    # 宿主机输出目录（用于 os.makedirs）
+                    host_output_dir=host_out_dir,
                 )
                 log.info(
                     f"[adhoc_execute] Docker 执行结束: exit_code={exit_code}, "

@@ -26,6 +26,8 @@ def run_container_simple(
     cli_mode: bool = False,
     user_id: int = None,
     enable_network: bool = False,
+    host_upload_dir: str = None,
+    host_output_dir: str = None,
 ) -> tuple[str, int]:
     """简化版容器执行（向后兼容）
 
@@ -47,6 +49,8 @@ def run_container_simple(
         user_id=user_id,
         enable_network=enable_network,
         billing_context=None,
+        host_upload_dir=host_upload_dir,
+        host_output_dir=host_output_dir,
     )
     return output, exit_code
 
@@ -62,6 +66,8 @@ def run_container(
     enable_network: bool = False,  # ✨ 新增：是否启用网络（用于包安装）
     billing_context: dict = None,  # ✨ 新增：计费上下文
     log_callback: callable = None,  # ✨ 新增：实时日志回调，用于 SSE 流式推送
+    host_upload_dir: str = None,  # ✨ 新增：自定义宿主机上传目录（默认从环境变量读取）
+    host_output_dir: str = None,  # ✨ 新增：自定义宿主机输出目录（默认使用 TASK_OUT_DIR）
 ) -> tuple[str, int, dict]:  # ✨ 修改：返回 (日志, 退出码, 计费信息)
     """通过 Docker API 运行容器（基础沙箱，支持用户级包管理和计费）
 
@@ -82,6 +88,10 @@ def run_container(
             - compute_record_id: 已创建的计算记录 ID（可选）
             - estimated_cost: 预估费用（可选）
         log_callback: 实时日志回调函数，接收单行日志字符串。用于 SSE 流式推送。
+        host_upload_dir: 自定义宿主机上传目录路径。默认为 HOST_UPLOAD_DIR 环境变量或 /workspace。
+            即席分析场景传入项目目录（如 uploads/project_{id}），只挂载当前项目而非整个 uploads。
+        host_output_dir: 自定义宿主机输出目录路径。用于 os.makedirs 创建。
+            默认使用 task_out_dir（来自 environment["TASK_OUT_DIR"]）。
 
     Returns:
         (输出日志, 退出码, 计费信息) 元组
@@ -173,8 +183,15 @@ def run_container(
         # ✨ 脚本写入路径：使用任务输出目录（由 Celery 任务创建并传入）
         task_out_dir = environment.get("TASK_OUT_DIR", "/workspace") if environment else "/workspace"
 
-        # ✨ 确保目录存在
-        os.makedirs(task_out_dir, exist_ok=True)
+        # ✨ 宿主机上传目录：默认从环境变量读取，可被 callers 覆盖（如即席分析按项目挂载）
+        if host_upload_dir is None:
+            host_upload_dir = os.environ.get("HOST_UPLOAD_DIR", "/workspace")
+
+        # ✨ 确保输出目录存在：优先使用 host_output_dir（宿主机路径），回退到 task_out_dir
+        if host_output_dir:
+            os.makedirs(host_output_dir, exist_ok=True)
+        else:
+            os.makedirs(task_out_dir, exist_ok=True)
 
         # ✨ 新增：准备环境变量（如果有）
         env_list = []
@@ -270,7 +287,6 @@ def run_container(
 
         # ✨ 记录完整的 Docker 执行命令
         cmd_str = " ".join(cmd)
-        host_upload_dir = os.environ.get("HOST_UPLOAD_DIR", "/workspace")
 
         # ✨ 网络模式：默认禁用，包安装时启用
         network_mode = "bridge" if enable_network else "none"
