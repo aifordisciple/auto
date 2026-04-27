@@ -58,8 +58,8 @@ class VercelDataStreamEncoder:
         return _sse_line({"type": "text-end", "id": self._message_id})
 
     def tool_call(self, tool_call_id: str, tool_name: str, args: dict[str, Any]) -> str:
-        """工具调用 — tool-call 事件"""
-        return _sse_line({"type": "tool-call", "id": tool_call_id, "toolName": tool_name, "args": args})
+        """工具调用 — tool-call 事件（AI SDK v5 规范：使用 toolCallId 非 id）"""
+        return _sse_line({"type": "tool-call", "toolCallId": tool_call_id, "toolName": tool_name, "args": args})
 
     def tool_result(self, tool_call_id: str, result: Any) -> str:
         """工具结果 — tool-result 事件"""

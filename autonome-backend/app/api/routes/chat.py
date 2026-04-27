@@ -640,17 +640,11 @@ async def chat_stream(
                             log.info("[Chat] DATA_PROBE 追问场景，对话历史已含数据内容，跳过 Active Probing")
                             break
         if _should_probe:
-            # 发送 request_parameters ToolCall（Vercel AI SDK 兼容格式）
-            tool_call_event = {
-                "type": "data-tool-call",
-                "toolCallId": f"call_probe_0",
-                "toolName": "request_parameters",
-                "args": {
-                    "message": route_result.probing.message_to_user,
-                    "schema": route_result.probing.ui_schema,
-                },
-            }
-            yield encoder.from_custom_event("tool_call", tool_call_event)
+            # 发送 request_parameters ToolCall（Vercel AI SDK v5 标准 tool-call 事件）
+            yield encoder.tool_call("call_probe_0", "request_parameters", {
+                "message": route_result.probing.message_to_user,
+                "schema": route_result.probing.ui_schema,
+            })
             # 参数缺失时不调用 LLM，直接结束流
             yield encoder.finish()
             return
@@ -706,23 +700,18 @@ async def chat_stream(
                     )
                     log.info(f"[Chat] 即席分析策略包已存入 Redis: key=adhoc:{user_msg.id}")
 
-                    # 发送 render_adhoc_card ToolCall（Vercel AI SDK 兼容格式）
-                    # message_id 传递给前端，执行时前端回传用于 Redis 查找策略包
-                    tool_call_event = {
-                        "type": "data-tool-call",
-                        "toolCallId": f"call_adhoc_{user_msg.id}",
-                        "toolName": "render_adhoc_card",
-                        "args": {
-                            "strategy": strategy_pack.get("strategy", ""),
-                            "code": strategy_pack.get("code", ""),
-                            "code_language": strategy_pack.get("code_language", "python"),
-                            "parameter_schema": strategy_pack.get("parameter_schema", {}),
-                            "input_mapping": strategy_pack.get("input_mapping", {}),
-                            "message": "即席分析策略已生成，请在卡片上确认参数后执行",
-                            "message_id": user_msg.id,
-                        },
-                    }
-                    yield encoder.from_custom_event("tool_call", tool_call_event)
+                    # 发送 render_adhoc_card ToolCall（Vercel AI SDK v5 标准 tool-call 事件）
+                    # toolCallId 前缀与前端 AdhocAnalysisCard 关联，message_id 用于 Redis 查找策略包
+                    tool_call_id = f"call_adhoc_{user_msg.id}"
+                    yield encoder.tool_call(tool_call_id, "render_adhoc_card", {
+                        "strategy": strategy_pack.get("strategy", ""),
+                        "code": strategy_pack.get("code", ""),
+                        "code_language": strategy_pack.get("code_language", "python"),
+                        "parameter_schema": strategy_pack.get("parameter_schema", {}),
+                        "input_mapping": strategy_pack.get("input_mapping", {}),
+                        "message": "即席分析策略已生成，请在卡片上确认参数后执行",
+                        "message_id": user_msg.id,
+                    })
                     yield encoder.finish()
                     return
                 except Exception as adhoc_err:
