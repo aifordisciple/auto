@@ -253,10 +253,20 @@ def route_after_execution(state: AgentState) -> str:
 
 
 def task_advance_or_end(state: AgentState) -> str:
-    """Worker 节点执行完毕后：推进任务指针或结束。"""
+    """Worker 节点执行完毕后：推进任务指针或结束。
+
+    V2.5 新增：当 Worker 节点设置了 active_probing 挂起（如 adhoc_analysis_node
+    生成的策略卡片等待用户确认），不推进任务指针，回到 intent_router 让
+    determine_next_step 路由到 ask_user_node 发送 ToolCall 给前端。
+    """
     dag_dict = state.get("dag")
     if not dag_dict or not dag_dict.get("nodes"):
         return END
+
+    # V2.5: 如果有 active_probing 挂起（如 adhoc_analysis_node 生成的策略卡片），
+    # 回到 intent_router 让 determine_next_step 路由到 ask_user_node
+    if state.get("active_probing"):
+        return "intent_router"
 
     idx = state.get("current_task_idx", 0)
     nodes = dag_dict.get("nodes", [])

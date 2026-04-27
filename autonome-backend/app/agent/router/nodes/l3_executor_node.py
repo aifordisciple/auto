@@ -225,13 +225,22 @@ async def _execute_adhoc_analysis(
         configurable = config.get("configurable", {})
         user_id = configurable.get("user_id")
 
+        # V2.5: 创建唯一输出子目录（与 chat.py /adhoc/execute 模式一致），
+        # 用于执行后扫描输出文件树
+        from app.core.config import settings as app_settings
+        safe_task_id = task_id.replace("/", "_").replace("..", "_")
+        container_out_subdir = f"results/default/{safe_task_id}"
+        container_out_dir = f"/workspace/{container_out_subdir}"
+        host_out_dir = os.path.join(app_settings.UPLOAD_DIR, container_out_subdir)
+        os.makedirs(host_out_dir, exist_ok=True)
+
         # 在 Docker 沙箱中执行
         output, exit_code = run_container(
             image='autonome-tool-env',
             command=cmd,
             language=code_language,
             environment={
-                "TASK_OUT_DIR": parameters.get("TASK_OUT_DIR", "/workspace/results/default"),
+                "TASK_OUT_DIR": container_out_dir,
                 "PROJECT_ID": parameters.get("PROJECT_ID", "default"),
             },
             timeout=3600,
@@ -247,11 +256,37 @@ async def _execute_adhoc_analysis(
 
         # 解析执行结果
         success = exit_code == 0
+
+        # V2.5: 扫描输出目录，构建文件树（与 chat.py /adhoc/execute 一致）
+        output_files = []
+        if success and host_out_dir and os.path.isdir(host_out_dir):
+            try:
+                for root, dirs, files in os.walk(host_out_dir):
+                    for fname in files:
+                        fpath = os.path.join(root, fname)
+                        rel_path = os.path.relpath(fpath, host_out_dir)
+                        ext = os.path.splitext(fname)[1].lower()
+                        fsize = os.path.getsize(fpath)
+                        output_files.append({
+                            "path": rel_path,
+                            "name": fname,
+                            "ext": ext,
+                            "size": fsize,
+                            "preview": ext in (".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html"),
+                        })
+            except Exception as scan_err:
+                log.warning(f"[l3_executor_node] 输出文件扫描失败: {scan_err}")
+
+        # 将 output_files 附加到 output 中，供前端渲染文件树
+        output_payload = output[:5000] if success else None
+        if output_files:
+            output_payload = output[:3000] if success else None
+
         task_result = TaskResult(
             task_id=task_id,
             skill_id="adhoc_analysis",
             status="success" if success else "failed",
-            output=output[:5000] if success else None,
+            output=output_payload,
             error=output[:2000] if not success else None,
             execution_time_seconds=0.0,
         )
@@ -262,6 +297,11 @@ async def _execute_adhoc_analysis(
         result_msg = f"即席分析执行{'成功' if success else '失败'}"
         if success and task_result.output:
             result_msg += f"\n结果: {str(task_result.output)[:500]}"
+
+        # 如果有输出文件，追加文件列表到结果消息
+        if output_files:
+            file_names = [f["name"] for f in output_files[:10]]
+            result_msg += f"\n输出文件 ({len(output_files)}): {', '.join(file_names)}"
 
         log.info(f"[l3_executor_node] 即席分析 task={task_id} 执行完成: status={task_result.status}")
 
