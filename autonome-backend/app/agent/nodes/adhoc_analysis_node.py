@@ -193,9 +193,10 @@ async def _generate_strategy_pack(
         temperature=0.0,
     )
 
-    # 构造提示词
+    # 构造提示词（必须包含 user 消息，否则部分 LLM 提供商会报错 "No user query found in messages"）
     prompt = ChatPromptTemplate.from_messages([
         ("system", ADHOC_SYSTEM_PROMPT),
+        ("human", "请根据以上要求生成即席分析策略包，输出严格 JSON 格式。"),
     ])
 
     chain = prompt | llm
