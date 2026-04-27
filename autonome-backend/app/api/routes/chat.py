@@ -1603,9 +1603,15 @@ async def adhoc_execute(
 
     # 准备执行环境：按项目隔离挂载 + 时间戳命名输出目录
     # 沙箱容器挂载: uploads/project_{id} → /workspace（只挂当前项目，非整个 uploads）
+    # 注意：需要两条路径 — 后端容器内路径用于文件操作，Mac宿主机路径用于 Docker bind mount
     from datetime import datetime
     project_host_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
     os.makedirs(project_host_dir, exist_ok=True)
+
+    # Docker 守护进程运行在 Mac 宿主机上，bind mount 必须使用 Mac 宿主机路径
+    # HOST_UPLOAD_DIR 指向 Mac 宿主机的 uploads 目录（如 /opt/data1/.../uploads）
+    host_upload_base = os.environ.get("HOST_UPLOAD_DIR", settings.UPLOAD_DIR)
+    docker_host_upload_dir = os.path.join(host_upload_base, f"project_{project_id}")
 
     # 生成输出目录名: 时间戳_分析简称_短ID
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1688,8 +1694,8 @@ async def adhoc_execute(
                     cli_mode=True,
                     user_id=user.id,
                     log_callback=log_callback,
-                    # 按项目隔离挂载：只挂当前项目目录，非整个 uploads
-                    host_upload_dir=project_host_dir,
+                    # 按项目隔离挂载：使用 Mac 宿主机路径，Docker 守护进程才能解析
+                    host_upload_dir=docker_host_upload_dir,
                     # 宿主机输出目录（用于 os.makedirs）
                     host_output_dir=host_out_dir,
                 )
