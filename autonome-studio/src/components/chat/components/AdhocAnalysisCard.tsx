@@ -125,10 +125,17 @@ export function AdhocAnalysisCard({
       code_snapshot: editableCode,
     }
 
+    // 使用后端绝对地址（非 BFF 代理），并附带认证 token
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null;
+
     try {
-      const res = await fetch('/api/chat/adhoc/execute', {
+      const res = await fetch(`${apiUrl}/api/chat/adhoc/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message_id,
           payload: finalPayload,
@@ -185,9 +192,15 @@ export function AdhocAnalysisCard({
         setIsSaving(false)
         return
       }
-      const res = await fetch('/api/chat/adhoc/save-skill', {
+      // 使用后端绝对地址（非 BFF 代理），并附带认证 token
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null;
+      const res = await fetch(`${apiUrl}/api/chat/adhoc/save-skill`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           message_id,
           skill_name: skillName,

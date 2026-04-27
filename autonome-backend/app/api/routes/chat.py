@@ -688,12 +688,14 @@ async def chat_stream(
                         file_paths_str = f"  - {file_paths_str}"
 
                     # 调用 LLM 生成策略包（策略描述 + 代码 + 参数 Schema + 输入映射）
+                    # 传递 enable_think 以尊重用户在前端的深度思考模式选择
                     strategy_pack = await _generate_strategy_pack(
                         file_id=file_id,
                         instruction=raw_instruction,
                         session=session,
                         user_id=current_user.id,
                         file_paths=file_paths_str,
+                        enable_think=request.enable_think,
                     )
 
                     # 策略包存入 Redis，供用户确认执行后读取

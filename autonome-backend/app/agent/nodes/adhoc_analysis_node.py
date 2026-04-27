@@ -173,13 +173,15 @@ async def _generate_strategy_pack(
     session: Any,
     user_id: Any,
     file_paths: str = "",
+    enable_think: bool = False,
 ) -> Dict[str, Any]:
     """
     调用 LLM 生成即席分析策略包。
 
     程序说明：
-    使用 fast 模型（非 thinking），因为策略包生成是纯 JSON 输出任务，
+    默认使用 fast 模型（非 thinking），因为策略包生成是纯 JSON 输出任务，
     不需要深度推理，且 thinking 模型耗时过长（>3 分钟）。
+    仅当用户在前端开启深度思考模式（enable_think=True）时使用 thinking 模型。
 
     Args:
         file_id: 用户指定的文件 ID
@@ -187,20 +189,18 @@ async def _generate_strategy_pack(
         session: 数据库会话
         user_id: 用户 ID
         file_paths: 用户实际提供的文件路径（换行分隔），用于填充参数默认值
+        enable_think: 深度思考模式开关（由前端传递，默认关闭）
 
     Returns:
         策略包字典，包含 strategy、code、code_language、parameter_schema、input_mapping
     """
-    # 用户配置了深度思考模型时使用 thinking，否则使用 fast 模型
-    # thinking 模型耗时较长（>3 分钟），fast 模型通常在 30s 内完成
     from app.utils.llm_config import get_fast_llm_config, get_thinking_llm_config
 
-    thinking_config = get_thinking_llm_config(session, user_id)
-    fast_config = get_fast_llm_config(session, user_id)
-    # 如果 thinking 和 fast 是不同的模型（用户显式配置了深度思考），使用 thinking
-    use_thinking = (thinking_config.model_name != fast_config.model_name)
-
-    llm_config = thinking_config if use_thinking else fast_config
+    # 根据用户是否开启深度思考模式选择模型：开启 → thinking，关闭 → fast
+    if enable_think:
+        llm_config = get_thinking_llm_config(session, user_id)
+    else:
+        llm_config = get_fast_llm_config(session, user_id)
     api_key = llm_config.api_key or "not-needed"
     llm = ChatOpenAI(
         api_key=api_key,
