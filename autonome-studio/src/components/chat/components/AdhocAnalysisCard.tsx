@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye } from 'lucide-react'
 
 /**
@@ -77,7 +77,8 @@ export interface AdhocAnalysisCardProps {
  * 1. 策略说明区（顶部，靛蓝色背景）
  * 2. 参数面板（中部，网格布局，动态表单）
  * 3. 代码预览区（折叠）
- * 4. 操作区（底部，执行按钮 + 固化技能按钮）
+ * 4. 实时日志窗口（点击执行后展开）
+ * 5. 操作区（底部，执行按钮 + 固化技能按钮）
  */
 export function AdhocAnalysisCard({
   strategy,
@@ -106,17 +107,31 @@ export function AdhocAnalysisCard({
   const [showCode, setShowCode] = useState(false)
   const [editableCode, setEditableCode] = useState(code)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
+  // 实时日志流状态
+  const [logLines, setLogLines] = useState<string[]>([])
+  const [showLogWindow, setShowLogWindow] = useState(false)
+  const logContainerRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // 日志窗口自动滚动到底部
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [logLines])
 
   // 处理参数变化
   const handleParamChange = (key: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [key]: value }))
   }
 
-  // 核心：点击执行，调用独立 API 在 Docker 沙箱中运行即席分析代码
+  // 核心：点击执行，通过 SSE 流式接收 Docker 沙箱实时日志
   const handleExecute = async () => {
     if (isExecuting) return
     setIsExecuting(true)
     setExecutionResult(null)
+    setLogLines([])
+    setShowLogWindow(true)
 
     // 合并用户填写的参数和底层文件映射
     const finalPayload = {
@@ -125,9 +140,12 @@ export function AdhocAnalysisCard({
       code_snapshot: editableCode,
     }
 
-    // 使用后端绝对地址（非 BFF 代理），并附带认证 token
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+
+    // 创建 AbortController 用于取消请求
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
 
     try {
       const res = await fetch(`${apiUrl}/api/chat/adhoc/execute`, {
@@ -140,6 +158,7 @@ export function AdhocAnalysisCard({
           message_id,
           payload: finalPayload,
         }),
+        signal: abortController.signal,
       })
 
       if (!res.ok) {
@@ -147,37 +166,118 @@ export function AdhocAnalysisCard({
         throw new Error(errData.detail || `请求失败 (${res.status})`)
       }
 
-      const result: ExecutionResult = await res.json()
-      setExecutionResult(result)
-
-      // 将执行结果通过 addToolResult 回传给 Vercel AI SDK，保持消息流完整
-      addToolResult({
-        toolCallId,
-        output: {
-          action: 'execute',
-          payload: finalPayload,
-          execution_result: result,
-        },
-      })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '执行失败'
-      const failedResult: ExecutionResult = {
-        status: 'failed',
-        error: message,
-        exit_code: -1,
-        language: code_language,
+      // 读取 SSE 流
+      const reader = res.body?.getReader()
+      if (!reader) {
+        throw new Error('浏览器不支持流式读取')
       }
-      setExecutionResult(failedResult)
-      addToolResult({
-        toolCallId,
-        output: {
-          action: 'execute',
-          payload: finalPayload,
-          execution_result: failedResult,
-        },
-      })
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        // 保留最后一个可能不完整的行
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6))
+              handleSSEEvent(event)
+            } catch {
+              // 跳过解析失败的行
+            }
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setLogLines(prev => [...prev, '⏹️ 用户取消了执行'])
+      } else {
+        const message = err instanceof Error ? err.message : '执行失败'
+        setLogLines(prev => [...prev, `❌ ${message}`])
+        const failedResult: ExecutionResult = {
+          status: 'failed',
+          error: message,
+          exit_code: -1,
+          language: code_language,
+        }
+        setExecutionResult(failedResult)
+        addToolResult({
+          toolCallId,
+          output: {
+            action: 'execute',
+            payload: finalPayload,
+            execution_result: failedResult,
+          },
+        })
+      }
     } finally {
       setIsExecuting(false)
+      abortControllerRef.current = null
+    }
+  }
+
+  // 处理 SSE 事件
+  const handleSSEEvent = (event: Record<string, unknown>) => {
+    switch (event.type) {
+      case 'init':
+        setLogLines(prev => [...prev, `🚀 ${event.message || '沙箱启动中...'}`])
+        break
+      case 'log':
+        setLogLines(prev => [...prev, event.line as string])
+        break
+      case 'result': {
+        const result: ExecutionResult = {
+          status: (event.status as 'success' | 'failed') || 'failed',
+          output: event.output as string | null,
+          error: event.error as string | null,
+          exit_code: event.exit_code as number,
+          language: code_language,
+          output_files: event.output_files as OutputFile[],
+        }
+        setExecutionResult(result)
+
+        // 回传给 Vercel AI SDK
+        addToolResult({
+          toolCallId,
+          output: {
+            action: 'execute',
+            payload: { parameters: formData, inputs: input_mapping, code_snapshot: editableCode },
+            execution_result: result,
+          },
+        })
+
+        // 推送日志行
+        if (result.status === 'success') {
+          setLogLines(prev => [...prev, `✅ 分析完成 (exit_code=${result.exit_code})`])
+          if (result.output_files && result.output_files.length > 0) {
+            setLogLines(prev => [
+              ...prev,
+              `📁 输出文件 (${result.output_files!.length} 个):`,
+              ...result.output_files!.map(f => `   ${f.name} (${f.ext}, ${formatFileSize(f.size)})`),
+            ])
+          }
+        } else {
+          setLogLines(prev => [...prev, `❌ 执行失败 (exit_code=${result.exit_code})`])
+        }
+        break
+      }
+      case 'done':
+        // 流结束
+        break
+    }
+  }
+
+  // 取消执行
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
     }
   }
 
@@ -192,9 +292,8 @@ export function AdhocAnalysisCard({
         setIsSaving(false)
         return
       }
-      // 使用后端绝对地址（非 BFF 代理），并附带认证 token
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
       const res = await fetch(`${apiUrl}/api/chat/adhoc/save-skill`, {
         method: 'POST',
         headers: {
@@ -308,7 +407,61 @@ export function AdhocAnalysisCard({
         )}
       </div>
 
-      {/* 4. 结果区（执行完成后显示） */}
+      {/* 4. 实时日志窗口（点击执行后展开，始终可见直到手动关闭） */}
+      {showLogWindow && (
+        <div className="mx-4 mb-4 border border-gray-700 rounded-md overflow-hidden">
+          {/* 日志窗口标题栏 */}
+          <div className="flex items-center justify-between bg-gray-800 px-3 py-2">
+            <span className="text-xs font-medium text-gray-300 flex items-center gap-2">
+              {isExecuting ? (
+                <Loader2 size={12} className="animate-spin text-blue-400" />
+              ) : executionResult ? (
+                executionResult.status === 'success' ? (
+                  <span className="text-green-400">✅ 执行日志</span>
+                ) : (
+                  <span className="text-red-400">❌ 执行日志</span>
+                )
+              ) : (
+                <span className="text-gray-400">📋 执行日志</span>
+              )}
+            </span>
+            <button
+              onClick={() => setShowLogWindow(false)}
+              className="text-gray-500 hover:text-gray-300 text-xs"
+            >
+              关闭
+            </button>
+          </div>
+          {/* 日志内容区 */}
+          <div
+            ref={logContainerRef}
+            className="bg-gray-900 text-gray-100 p-3 text-xs font-mono max-h-64 overflow-y-auto"
+          >
+            {logLines.length === 0 && isExecuting ? (
+              <span className="text-gray-500">等待日志输出...</span>
+            ) : (
+              logLines.map((line, i) => (
+                <div key={i} className="whitespace-pre-wrap break-all">
+                  {line}
+                </div>
+              ))
+            )}
+          </div>
+          {/* 取消按钮（仅在执行中显示） */}
+          {isExecuting && (
+            <div className="bg-gray-800 px-3 py-2 flex justify-end">
+              <button
+                onClick={handleCancel}
+                className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded px-3 py-1 hover:bg-red-500/10 transition-colors"
+              >
+                ⏹️ 取消执行
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. 结果区（执行完成后显示在日志窗口下方） */}
       {executionResult && (
         <div
           className={`mx-4 mb-4 p-4 rounded-md ${
@@ -338,7 +491,7 @@ export function AdhocAnalysisCard({
           )}
           {!executionResult.output && !executionResult.error && (
             <p className="text-xs text-gray-500 dark:text-zinc-400">
-              exit_code={executionResult.exit_code}，无输出内容
+              exit_code={executionResult.exit_code}，详见上方日志窗口
             </p>
           )}
           {executionResult.output_files && executionResult.output_files.length > 0 && (
@@ -353,7 +506,7 @@ export function AdhocAnalysisCard({
                     <FileText size={12} />
                     <span className="flex-1 truncate">{file.name}</span>
                     <span className="text-zinc-400">{file.ext}</span>
-                    {file.preview && <Eye size={12} className="text-blue-500" title="可预览" />}
+                    {file.preview && <Eye size={12} className="text-blue-500" />}
                   </div>
                 ))}
               </div>
@@ -362,7 +515,7 @@ export function AdhocAnalysisCard({
         </div>
       )}
 
-      {/* 5. 操作区（底部） */}
+      {/* 6. 操作区（底部） */}
       <div className="p-4 bg-gray-50 dark:bg-[#1e1e20] flex justify-between items-center border-t border-gray-200 dark:border-zinc-800">
         <button
           onClick={handleSaveSkill}
@@ -386,9 +539,16 @@ export function AdhocAnalysisCard({
           ) : (
             <Play size={14} />
           )}
-          {isExecuting ? '沙箱启动中...' : '执行分析'}
+          {isExecuting ? '沙箱执行中...' : '执行分析'}
         </button>
       </div>
     </div>
   )
+}
+
+/** 格式化文件大小 */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }

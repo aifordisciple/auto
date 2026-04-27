@@ -61,6 +61,7 @@ def run_container(
     user_id: int = None,  # ✨ 新增：用户 ID，用于用户级包管理
     enable_network: bool = False,  # ✨ 新增：是否启用网络（用于包安装）
     billing_context: dict = None,  # ✨ 新增：计费上下文
+    log_callback: callable = None,  # ✨ 新增：实时日志回调，用于 SSE 流式推送
 ) -> tuple[str, int, dict]:  # ✨ 修改：返回 (日志, 退出码, 计费信息)
     """通过 Docker API 运行容器（基础沙箱，支持用户级包管理和计费）
 
@@ -80,6 +81,7 @@ def run_container(
             - task_type: 任务类型 (TaskType)
             - compute_record_id: 已创建的计算记录 ID（可选）
             - estimated_cost: 预估费用（可选）
+        log_callback: 实时日志回调函数，接收单行日志字符串。用于 SSE 流式推送。
 
     Returns:
         (输出日志, 退出码, 计费信息) 元组
@@ -338,10 +340,33 @@ def run_container(
         log.info(f"[run_container] 🚀 容器已启动 {container_id[:12]}，等待执行完成...")
 
         # ✨ 等待容器完成（带超时和 sleep，避免忙等待）
+        # 当提供 log_callback 时，实时读取日志并回调
         start_time = time.time()
+        last_log_size = 0
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         while True:
             info = docker_api_request("GET", f"/containers/{container_id}/json", timeout=30)
             status = info.get('State', {}).get('Status', 'unknown')
+
+            # ✨ 实时日志流：当提供 log_callback 时，增量读取容器日志
+            if log_callback:
+                try:
+                    current_log = docker_api_request(
+                        "GET",
+                        f"/containers/{container_id}/logs?stdout=true&stderr=true&tail=100",
+                        return_raw=True,
+                        timeout=10,
+                    )
+                    if current_log and len(current_log) > last_log_size:
+                        new_content = current_log[last_log_size:]
+                        last_log_size = len(current_log)
+                        for line in new_content.split('\n'):
+                            clean_line = ansi_escape.sub('', line)
+                            clean_line = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', clean_line)
+                            if clean_line.strip():
+                                log_callback(clean_line.strip())
+                except Exception:
+                    pass  # 日志读取失败不影响主流程
 
             # ✨ 超时检查
             elapsed = time.time() - start_time

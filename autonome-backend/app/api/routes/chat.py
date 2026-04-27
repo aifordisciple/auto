@@ -682,8 +682,16 @@ async def chat_stream(
                     file_id = resolved_assets[0] if resolved_assets else "unknown"
 
                     # 收集用户实际提供的文件路径，填充到参数 Schema 默认值中
+                    # 注意：context_files 中是相对项目目录的路径（如 raw_data/pca/xxx），
+                    # 实际文件在 /workspace/project_{project_id}/raw_data/pca/xxx
+                    # 必须补全项目前缀，否则 LLM 生成的代码会使用错误路径导致沙箱执行失败
                     context_file_paths = request.context_files or []
-                    file_paths_str = "\n  - ".join(context_file_paths)
+                    full_file_paths = [
+                        f"/workspace/project_{request.project_id}/{f}"
+                        if not f.startswith("/") else f
+                        for f in context_file_paths
+                    ]
+                    file_paths_str = "\n  - ".join(full_file_paths)
                     if file_paths_str:
                         file_paths_str = f"  - {file_paths_str}"
 
@@ -1501,17 +1509,16 @@ async def adhoc_execute(
     user: User = Depends(get_current_user),
 ):
     """
-    接收前端 AdhocAnalysisCard 的执行请求，在 Docker 沙箱中运行即席分析代码。
+    SSE 流式端点：接收前端 AdhocAnalysisCard 的执行请求，实时推送 Docker 沙箱日志。
 
     程序说明：
-    1. 从 Redis 读取之前存入的策略包（包含 code_language 等元数据）
-    2. 将 code_snapshot 写入临时文件
-    3. 构建命令行（含用户确认的参数）
-    4. 调用 run_container 在 Docker 沙箱中执行
-    5. 清理临时文件，返回执行结果
+    1. 从 Redis 读取策略包
+    2. 写入脚本文件、构建命令行
+    3. 通过 SSE 流式推送 Docker 容器实时日志
+    4. 执行完成后推送最终结果（含输出文件树）
     """
     import redis
-    import tempfile
+    from concurrent.futures import ThreadPoolExecutor
     from app.core.config import settings
     from app.tools.bio_tools import run_container
 
@@ -1552,119 +1559,151 @@ async def adhoc_execute(
         f"params={list(parameters.keys())}"
     )
 
-    # 写入临时脚本文件到 workspace 目录（必须可被沙箱容器访问）
-    # 注意：不能使用 /tmp，沙箱容器只挂载了 ./uploads:/workspace
-    suffix = ".py" if code_language == "python" else ".R"
-    script_path = None
-    host_out_dir = None  # 宿主机输出目录，执行后扫描返回文件树
-    try:
-        # 使用 message_id 生成唯一输出子目录，避免多用户并发覆盖
-        safe_msg_id = request.message_id.replace("/", "_").replace("..", "_")
-        container_out_subdir = f"results/default/{safe_msg_id}"
-        container_out_dir = f"/workspace/{container_out_subdir}"
-        host_out_dir = os.path.join(settings.UPLOAD_DIR, container_out_subdir)
-        os.makedirs(host_out_dir, exist_ok=True)
+    # 准备执行环境：输出目录 + 脚本文件
+    safe_msg_id = request.message_id.replace("/", "_").replace("..", "_")
+    container_out_subdir = f"results/default/{safe_msg_id}"
+    container_out_dir = f"/workspace/{container_out_subdir}"
+    host_out_dir = os.path.join(settings.UPLOAD_DIR, container_out_subdir)
+    os.makedirs(host_out_dir, exist_ok=True)
 
-        # 将脚本写入 workspace 目录（沙箱容器挂载了相同的宿主机目录，可以访问）
-        script_name = "latest_script.py" if code_language == "python" else "latest_script.R"
-        script_path = os.path.join(host_out_dir, script_name)
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(code_snapshot)
+    script_name = "latest_script.py" if code_language == "python" else "latest_script.R"
+    script_path = os.path.join(host_out_dir, script_name)
+    with open(script_path, 'w', encoding='utf-8') as f:
+        f.write(code_snapshot)
 
-        # 构建执行命令
-        if code_language == "python":
-            cmd = ["python", script_path]
-        else:
-            cmd = ["Rscript", script_path]
+    # 构建执行命令
+    if code_language == "python":
+        cmd = ["python", script_path]
+    else:
+        cmd = ["Rscript", script_path]
 
-        # 追加命令行参数（排除内部字段）
-        for key, value in parameters.items():
-            if key.startswith("_") or key in ("code_snapshot", "code_language", "skill_id"):
-                continue
-            if value is None:
-                continue
-            if isinstance(value, bool):
-                if value:
-                    cmd.append(f"--{key}")
-            else:
-                # 将参数值转为字符串
-                str_value = str(value)
-                # 替换 ${TASK_OUT_DIR} 占位符为实际容器内输出目录
-                str_value = str_value.replace("${TASK_OUT_DIR}", container_out_dir)
-                # 相对文件路径转绝对路径：沙箱工作目录是输出子目录，
-                # 而用户文件在 /workspace/ 根下，需补全前缀
-                if (
-                    not str_value.startswith("/")
-                    and not str_value.startswith("$")
-                    and ("file" in key.lower() or "input" in key.lower())
-                ):
-                    str_value = f"/workspace/{str_value}"
+    # 追加命令行参数
+    for key, value in parameters.items():
+        if key.startswith("_") or key in ("code_snapshot", "code_language", "skill_id"):
+            continue
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            if value:
                 cmd.append(f"--{key}")
-                cmd.append(str_value)
+        else:
+            str_value = str(value)
+            str_value = str_value.replace("${TASK_OUT_DIR}", container_out_dir)
+            if (
+                not str_value.startswith("/")
+                and not str_value.startswith("$")
+                and ("file" in key.lower() or "input" in key.lower())
+            ):
+                str_value = f"/workspace/{str_value}"
+            cmd.append(f"--{key}")
+            cmd.append(str_value)
 
-        log.info(f"[adhoc_execute] 执行命令: {' '.join(cmd)}")
+    log.info(f"[adhoc_execute] 执行命令: {' '.join(cmd)}")
 
-        # Docker 沙箱执行（run_container 是同步阻塞调用，包装为异步）
-        output, exit_code, _ = await asyncio.to_thread(
-            run_container,
-            image='autonome-tool-env',
-            command=cmd,
-            language=code_language,
-            environment={
-                "TASK_OUT_DIR": container_out_dir,
-            },
-            timeout=3600,
-            cli_mode=True,
-            user_id=user.id,
-        )
+    # SSE 事件生成器：桥接同步 Docker 轮询与异步 SSE 流
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
 
-        success = exit_code == 0
-        log.info(
-            f"[adhoc_execute] 执行完成: exit_code={exit_code}, "
-            f"success={success}, output_len={len(output)}"
-        )
-
-        # 扫描输出目录，构建文件树返回给前端
-        output_files = []
-        if success and host_out_dir and os.path.isdir(host_out_dir):
+        def log_callback(line: str):
+            """同步回调：将日志行推入异步队列"""
             try:
-                for root, dirs, files in os.walk(host_out_dir):
-                    for fname in files:
-                        fpath = os.path.join(root, fname)
-                        rel_path = os.path.relpath(fpath, host_out_dir)
-                        ext = os.path.splitext(fname)[1].lower()
-                        fsize = os.path.getsize(fpath)
-                        output_files.append({
-                            "path": rel_path,
-                            "name": fname,
-                            "ext": ext,
-                            "size": fsize,
-                            "preview": ext in (".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html"),
-                        })
-            except Exception as scan_err:
-                log.warning(f"[adhoc_execute] 输出文件扫描失败: {scan_err}")
+                loop.call_soon_threadsafe(queue.put_nowait, ("log", line))
+            except Exception:
+                pass  # 队列满时丢弃日志，不影响主流程
 
-        # 清理 Redis 中的策略包（执行完成后不再需要）
+        def run_docker():
+            """在独立线程中执行 Docker 容器，通过回调推送日志"""
+            try:
+                output, exit_code, _ = run_container(
+                    image='autonome-tool-env',
+                    command=cmd,
+                    language=code_language,
+                    environment={"TASK_OUT_DIR": container_out_dir},
+                    timeout=3600,
+                    cli_mode=True,
+                    user_id=user.id,
+                    log_callback=log_callback,
+                )
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    ("done", {"output": output, "exit_code": exit_code}),
+                )
+            except Exception as e:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    ("error", str(e)),
+                )
+
+        # 发送初始化事件
+        yield f"data: {json.dumps({'type': 'init', 'message': '沙箱启动中...', 'language': code_language})}\n\n"
+
+        # 在独立线程中启动 Docker 执行
+        executor = ThreadPoolExecutor(max_workers=1)
+        executor.submit(run_docker)
+
         try:
-            r.delete(strategy_key)
-        except Exception:
-            pass
+            while True:
+                msg_type, data = await asyncio.wait_for(queue.get(), timeout=3600)
+                if msg_type == "log":
+                    yield f"data: {json.dumps({'type': 'log', 'line': data})}\n\n"
+                elif msg_type == "done":
+                    docker_output = data["output"]
+                    exit_code = data["exit_code"]
+                    success = exit_code == 0
 
-        return {
-            "status": "success" if success else "failed",
-            "output": output[:5000] if success else None,
-            "error": output[:2000] if not success else None,
-            "exit_code": exit_code,
-            "language": code_language,
-            "output_files": output_files,
-        }
+                    log.info(
+                        f"[adhoc_execute] 执行完成: exit_code={exit_code}, "
+                        f"success={success}"
+                    )
 
-    except Exception as e:
-        log.error(f"[adhoc_execute] 即席分析执行异常: {e}")
-        raise HTTPException(status_code=500, detail=f"即席分析执行失败: {str(e)}")
-    finally:
-        # 脚本文件保留在输出目录中作为执行记录，无需清理
-        pass
+                    # 扫描输出目录，构建文件树
+                    output_files = []
+                    if host_out_dir and os.path.isdir(host_out_dir):
+                        try:
+                            for root, dirs, files in os.walk(host_out_dir):
+                                for fname in files:
+                                    fpath = os.path.join(root, fname)
+                                    rel_path = os.path.relpath(fpath, host_out_dir)
+                                    ext = os.path.splitext(fname)[1].lower()
+                                    fsize = os.path.getsize(fpath)
+                                    output_files.append({
+                                        "path": rel_path,
+                                        "name": fname,
+                                        "ext": ext,
+                                        "size": fsize,
+                                        "preview": ext in (".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html"),
+                                    })
+                        except Exception as scan_err:
+                            log.warning(f"[adhoc_execute] 输出文件扫描失败: {scan_err}")
+
+                    # 清理 Redis 中的策略包
+                    try:
+                        r.delete(strategy_key)
+                    except Exception:
+                        pass
+
+                    # 推送最终结果
+                    yield f"data: {json.dumps({'type': 'result', 'status': 'success' if success else 'failed', 'output': docker_output[:5000] if success else None, 'error': docker_output[:2000] if not success else None, 'exit_code': exit_code, 'output_files': output_files})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    break
+                elif msg_type == "error":
+                    log.error(f"[adhoc_execute] 执行异常: {data}")
+                    yield f"data: {json.dumps({'type': 'result', 'status': 'failed', 'error': str(data), 'exit_code': -1, 'output_files': []})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    break
+        finally:
+            executor.shutdown(wait=False)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
+        },
+    )
 
 
 class AdhocSaveSkillRequest(BaseModel):
