@@ -658,9 +658,9 @@ async def toggle_project_share(
 async def view_project_file(
     project_id: str,
     file_path: str,
+    request: Request,
     token: Optional[str] = None,
     access_token_cookie: Optional[str] = Cookie(None, alias="access_token"),
-    request: Request,
     session: Session = Depends(get_session),
 ):
     """
@@ -678,8 +678,8 @@ async def view_project_file(
     effective_token = token  # query parameter token
 
     # 回退到 Authorization header
-    if not effective_token and request:
-        auth_header = request.headers.get("authorization", "") if hasattr(request, "headers") else ""
+    if not effective_token:
+        auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             effective_token = auth_header[7:]
 
