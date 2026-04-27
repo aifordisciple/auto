@@ -660,7 +660,7 @@ async def view_project_file(
     file_path: str,
     token: Optional[str] = None,
     access_token_cookie: Optional[str] = Cookie(None, alias="access_token"),
-    request: Request = None,
+    request: Request,
     session: Session = Depends(get_session),
 ):
     """

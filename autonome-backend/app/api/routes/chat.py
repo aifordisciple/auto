@@ -1761,8 +1761,8 @@ async def adhoc_execute(
                     except Exception:
                         pass
 
-                    # 推送最终结果
-                    yield f"data: {json.dumps({'type': 'result', 'status': 'success' if success else 'failed', 'output': docker_output[:5000] if success else None, 'error': docker_output[:2000] if not success else None, 'exit_code': exit_code, 'output_files': output_files})}\n\n"
+                    # 推送最终结果（包含 project_id 用于前端文件预览）
+                    yield f"data: {json.dumps({'type': 'result', 'status': 'success' if success else 'failed', 'output': docker_output[:5000] if success else None, 'error': docker_output[:2000] if not success else None, 'exit_code': exit_code, 'output_files': output_files, 'project_id': project_id, 'output_dir_name': output_dir_name})}\n\n"
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
                 elif msg_type == "error":

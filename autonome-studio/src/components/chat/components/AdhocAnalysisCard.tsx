@@ -107,6 +107,13 @@ export function AdhocAnalysisCard({
   const [showCode, setShowCode] = useState(false)
   const [editableCode, setEditableCode] = useState(code)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
+  // 输出文件预览所需：project_id 和 output_dir_name 从 SSE result 事件中获取
+  const [outputProjectId, setOutputProjectId] = useState<string | null>(null)
+  const [outputDirName, setOutputDirName] = useState<string | null>(null)
+  // 输出文件点击预览状态
+  const [previewFileUrl, setPreviewFileUrl] = useState<string | null>(null)
+  const [previewFileName, setPreviewFileName] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   // 实时日志流状态
   const [logLines, setLogLines] = useState<string[]>([])
   const [showLogWindow, setShowLogWindow] = useState(false)
@@ -243,6 +250,10 @@ export function AdhocAnalysisCard({
         }
         setExecutionResult(result)
 
+        // 保存 project_id 和 output_dir_name 用于输出文件预览
+        if (event.project_id) setOutputProjectId(event.project_id as string)
+        if (event.output_dir_name) setOutputDirName(event.output_dir_name as string)
+
         // 回传给 Vercel AI SDK
         addToolResult({
           toolCallId,
@@ -279,6 +290,41 @@ export function AdhocAnalysisCard({
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
+  }
+
+  // 点击输出文件：通过 /view 端点获取文件 blob 并预览或下载
+  const handleOutputFileClick = async (file: OutputFile) => {
+    if (!outputProjectId || !outputDirName) return
+    setPreviewLoading(true)
+    setPreviewFileName(file.name)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      // 文件路径：results/{output_dir_name}/{file.path}
+      const fileViewPath = `results/${outputDirName}/${file.path}`
+      const res = await fetch(`${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`, {
+        headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+      })
+      if (!res.ok) throw new Error(`获取文件失败 (${res.status})`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      setPreviewFileUrl(blobUrl)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '加载失败'
+      console.error('输出文件预览失败:', message)
+      setPreviewFileUrl(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  // 关闭文件预览
+  const handleClosePreview = () => {
+    if (previewFileUrl) {
+      URL.revokeObjectURL(previewFileUrl)
+    }
+    setPreviewFileUrl(null)
+    setPreviewFileName(null)
   }
 
   // 固化技能到资产库：调用后端 API 将策略包写入文件系统
@@ -496,20 +542,72 @@ export function AdhocAnalysisCard({
           )}
           {executionResult.output_files && executionResult.output_files.length > 0 && (
             <div className="mt-3">
-              <h5 className="text-xs font-semibold text-gray-600 dark:text-zinc-400 mb-2">输出文件</h5>
+              <h5 className="text-xs font-semibold text-gray-600 dark:text-zinc-400 mb-2">
+                输出文件（点击预览/下载）
+              </h5>
               <div className="space-y-1">
                 {executionResult.output_files.map((file, i) => (
-                  <div
+                  <button
                     key={i}
-                    className="flex items-center gap-2 text-xs text-gray-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 rounded px-2 py-1"
+                    onClick={() => handleOutputFileClick(file)}
+                    disabled={previewLoading}
+                    className="w-full flex items-center gap-2 text-xs text-gray-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 hover:bg-gray-100 dark:hover:bg-zinc-700 rounded px-2 py-1.5 transition-colors cursor-pointer disabled:opacity-50 border-0"
+                    title={file.path}
                   >
-                    <FileText size={12} />
-                    <span className="flex-1 truncate">{file.name}</span>
-                    <span className="text-zinc-400">{file.ext}</span>
-                    {file.preview && <Eye size={12} className="text-blue-500" />}
-                  </div>
+                    {file.ext.match(/\.(png|jpg|jpeg|svg|gif|bmp|webp)$/i) ? (
+                      <Eye size={12} className="text-green-500" />
+                    ) : file.ext.match(/\.(csv|tsv|txt|pdf|html?)$/i) ? (
+                      <Eye size={12} className="text-blue-500" />
+                    ) : (
+                      <FileText size={12} className="text-zinc-400" />
+                    )}
+                    <span className="flex-1 truncate text-left">{file.name}</span>
+                    <span className="text-zinc-400 flex-shrink-0">{file.ext}</span>
+                    <span className="text-zinc-400 flex-shrink-0">{formatFileSize(file.size)}</span>
+                  </button>
                 ))}
               </div>
+              {/* 内联文件预览 */}
+              {previewLoading && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+                  <Loader2 size={12} className="animate-spin" />
+                  加载中...
+                </div>
+              )}
+              {previewFileUrl && previewFileName && (
+                <div className="mt-3 border border-indigo-200 dark:border-indigo-500/20 rounded-md overflow-hidden">
+                  <div className="flex items-center justify-between bg-gray-100 dark:bg-zinc-800 px-3 py-1.5">
+                    <span className="text-xs font-medium text-gray-700 dark:text-zinc-300 truncate">
+                      {previewFileName}
+                    </span>
+                    <button
+                      onClick={handleClosePreview}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs"
+                    >
+                      关闭
+                    </button>
+                  </div>
+                  {previewFileName.match(/\.(png|jpg|jpeg|svg|gif|bmp|webp)$/i) ? (
+                    <div className="bg-white dark:bg-[#1a1a1c] flex justify-center p-2">
+                      <img
+                        src={previewFileUrl}
+                        alt={previewFileName}
+                        className="max-w-full max-h-80 object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-3 flex justify-center">
+                      <a
+                        href={previewFileUrl}
+                        download={previewFileName}
+                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        点击下载 {previewFileName}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
