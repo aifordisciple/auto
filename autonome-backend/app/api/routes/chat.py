@@ -681,12 +681,19 @@ async def chat_stream(
                     resolved_assets = dag_node.get("resolved_assets", [])
                     file_id = resolved_assets[0] if resolved_assets else "unknown"
 
+                    # 收集用户实际提供的文件路径，填充到参数 Schema 默认值中
+                    context_file_paths = request.context_files or []
+                    file_paths_str = "\n  - ".join(context_file_paths)
+                    if file_paths_str:
+                        file_paths_str = f"  - {file_paths_str}"
+
                     # 调用 LLM 生成策略包（策略描述 + 代码 + 参数 Schema + 输入映射）
                     strategy_pack = await _generate_strategy_pack(
                         file_id=file_id,
                         instruction=raw_instruction,
                         session=session,
                         user_id=current_user.id,
+                        file_paths=file_paths_str,
                     )
 
                     # 策略包存入 Redis，供用户确认执行后读取

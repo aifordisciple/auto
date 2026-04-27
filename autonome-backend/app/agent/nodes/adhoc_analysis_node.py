@@ -22,12 +22,12 @@ from json_repair import repair_json
 
 from app.agent.router.schemas import AgentState, ProbingRequest
 from app.core.logger import log
-from app.utils.llm_config import get_thinking_llm_config
 
 
 # 即席分析策略包生成的系统提示词
 ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
-用户希望对文件 {file_id} 进行以下分析：{instruction}
+用户希望对以下文件进行分析：{file_paths}
+分析需求：{instruction}
 
 你的任务是生成一份"分析策略包"，必须输出严格 JSON 格式，包含以下字段：
 
@@ -35,16 +35,19 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
 2. **code**: 完整的、带参数系统的 Python 或 R 代码
 3. **code_language**: "python" 或 "r"
 4. **parameter_schema**: 符合 JSON Schema 规范的参数定义，用于前端渲染表单。必须包含 default 值。
-5. **input_mapping**: 将用户指定的文件 ID 映射到代码的输入参数名
+   **关键要求**：文件输入参数（如 expression_file、group_file 等）的 default 值必须使用上面列出的实际文件路径！
+5. **input_mapping**: 将用户提供的文件路径映射到代码的输入参数名
 
 代码要求：
 - Python 必须使用 argparse，R 必须使用 optparse 或 commandArgs
 - 必须为所有参数设定符合生信经验的默认值（如 p-value 默认 0.05，聚类默认开启）
 - 输出目录使用 TASK_OUT_DIR 环境变量
 - 代码必须完整可执行，不能有省略或占位符
+- 文件输入参数的默认值必须使用用户实际提供的文件路径
 
 参数 Schema 要求：
 - 每个参数必须有 type、title、default
+- file 类型参数的 default 必须是用户实际提供的文件路径，不能是占位路径
 - 可选参数使用 enum 提供选项列表
 - 数值参数可提供 minimum、maximum、step
 
@@ -102,11 +105,17 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
     user_id = configurable.get("user_id")
 
     try:
+        # 将 resolved_assets 拼接为 file_paths 字符串，填入参数默认值
+        assets_paths = "\n  - ".join(resolved_assets) if resolved_assets else ""
+        if assets_paths:
+            assets_paths = f"  - {assets_paths}"
+
         strategy_pack = await _generate_strategy_pack(
             file_id=file_id,
             instruction=raw_instruction,
             session=session,
             user_id=user_id,
+            file_paths=assets_paths,
         )
     except Exception as e:
         log.error(f"[adhoc_analysis_node] 策略包生成失败，降级为 Skill Forge: {e}")
@@ -163,28 +172,35 @@ async def _generate_strategy_pack(
     instruction: str,
     session: Any,
     user_id: Any,
+    file_paths: str = "",
 ) -> Dict[str, Any]:
     """
     调用 LLM 生成即席分析策略包。
 
     程序说明：
-    使用 thinking 模型（深度推理），因为策略包生成需要：
-    - 理解用户的分析意图
-    - 选择合适的分析方法和 R/Python 包
-    - 生成带参数系统的完整代码
-    - 设计合理的参数 Schema
+    使用 fast 模型（非 thinking），因为策略包生成是纯 JSON 输出任务，
+    不需要深度推理，且 thinking 模型耗时过长（>3 分钟）。
 
     Args:
         file_id: 用户指定的文件 ID
         instruction: 用户的分析需求描述
         session: 数据库会话
         user_id: 用户 ID
+        file_paths: 用户实际提供的文件路径（换行分隔），用于填充参数默认值
 
     Returns:
         策略包字典，包含 strategy、code、code_language、parameter_schema、input_mapping
     """
-    # 使用 thinking 模型（深度推理）
-    llm_config = get_thinking_llm_config(session, user_id)
+    # 用户配置了深度思考模型时使用 thinking，否则使用 fast 模型
+    # thinking 模型耗时较长（>3 分钟），fast 模型通常在 30s 内完成
+    from app.utils.llm_config import get_fast_llm_config, get_thinking_llm_config
+
+    thinking_config = get_thinking_llm_config(session, user_id)
+    fast_config = get_fast_llm_config(session, user_id)
+    # 如果 thinking 和 fast 是不同的模型（用户显式配置了深度思考），使用 thinking
+    use_thinking = (thinking_config.model_name != fast_config.model_name)
+
+    llm_config = thinking_config if use_thinking else fast_config
     api_key = llm_config.api_key or "not-needed"
     llm = ChatOpenAI(
         api_key=api_key,
@@ -201,7 +217,7 @@ async def _generate_strategy_pack(
 
     chain = prompt | llm
     response = await chain.ainvoke({
-        "file_id": file_id,
+        "file_paths": file_paths or file_id,
         "instruction": instruction,
     })
 
