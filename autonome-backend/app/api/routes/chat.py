@@ -1587,8 +1587,20 @@ async def adhoc_execute(
                 if value:
                     cmd.append(f"--{key}")
             else:
+                # 将参数值转为字符串
+                str_value = str(value)
+                # 替换 ${TASK_OUT_DIR} 占位符为实际容器内输出目录
+                str_value = str_value.replace("${TASK_OUT_DIR}", container_out_dir)
+                # 相对文件路径转绝对路径：沙箱工作目录是输出子目录，
+                # 而用户文件在 /workspace/ 根下，需补全前缀
+                if (
+                    not str_value.startswith("/")
+                    and not str_value.startswith("$")
+                    and ("file" in key.lower() or "input" in key.lower())
+                ):
+                    str_value = f"/workspace/{str_value}"
                 cmd.append(f"--{key}")
-                cmd.append(str(value))
+                cmd.append(str_value)
 
         log.info(f"[adhoc_execute] 执行命令: {' '.join(cmd)}")
 

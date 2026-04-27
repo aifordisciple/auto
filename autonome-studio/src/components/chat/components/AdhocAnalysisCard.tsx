@@ -332,7 +332,14 @@ export function AdhocAnalysisCard({
             </pre>
           )}
           {executionResult.error && (
-            <p className="text-sm text-red-700 dark:text-red-400 mt-1">{executionResult.error}</p>
+            <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto max-h-48 mt-2">
+              <code>{executionResult.error}</code>
+            </pre>
+          )}
+          {!executionResult.output && !executionResult.error && (
+            <p className="text-xs text-gray-500 dark:text-zinc-400">
+              exit_code={executionResult.exit_code}，无输出内容
+            </p>
           )}
           {executionResult.output_files && executionResult.output_files.length > 0 && (
             <div className="mt-3">
