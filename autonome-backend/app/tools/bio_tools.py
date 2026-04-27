@@ -352,8 +352,33 @@ def run_container(
         container_id = resp['Id']
 
         # 启动容器
-        docker_api_request("POST", f"/containers/{container_id}/start", timeout=30)
-        log.info(f"[run_container] 🚀 容器已启动 {container_id[:12]}，等待执行完成...")
+        start_resp = docker_api_request("POST", f"/containers/{container_id}/start", timeout=30)
+        # 检查启动是否成功：如果返回了 HTTP 错误状态，记录并返回错误
+        if isinstance(start_resp, dict) and start_resp.get("_http_status", 0) >= 400:
+            error_detail = start_resp.get("body", start_resp.get("message", str(start_resp)))
+            log.error(
+                f"[run_container] ❌ 容器启动失败 {container_id[:12]}: "
+                f"HTTP {start_resp.get('_http_status')} - {error_detail[:300]}"
+            )
+            # 清理失败的容器
+            docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=30)
+            return f"❌ 容器启动失败: {error_detail[:500]}", 1, billing_info
+
+        # 验证容器确实已启动（防止静默失败）
+        verify = docker_api_request("GET", f"/containers/{container_id}/json", timeout=30)
+        verify_status = verify.get('State', {}).get('Status', 'unknown') if isinstance(verify, dict) else 'unknown'
+        if verify_status not in ('running', 'created'):
+            log.error(
+                f"[run_container] ❌ 容器状态异常 {container_id[:12]}: "
+                f"status={verify_status}, state={verify.get('State', {})}"
+            )
+            docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=30)
+            return f"❌ 容器状态异常: {verify_status}", 1, billing_info
+
+        log.info(
+            f"[run_container] 🚀 容器已启动 {container_id[:12]}，"
+            f"状态={verify_status}，等待执行完成..."
+        )
 
         # ✨ 等待容器完成（带超时和 sleep，避免忙等待）
         # 当提供 log_callback 时，实时读取日志并回调

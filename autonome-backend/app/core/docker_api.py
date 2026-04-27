@@ -66,11 +66,31 @@ def docker_api_request(
 
     # 解析响应（分离 Headers 和 Body）
     if b"\r\n\r\n" in response:
-        headers, raw_body = response.split(b"\r\n\r\n", 1)
+        headers_raw, raw_body = response.split(b"\r\n\r\n", 1)
     else:
+        headers_raw = b""
         raw_body = response
 
+    # 解析 HTTP 状态行，提取状态码用于错误日志
+    headers_str = headers_raw.decode('utf-8', errors='ignore')
+    status_line = headers_str.split('\r\n')[0] if headers_str else ''
+    status_code = 0
+    if status_line.startswith('HTTP/'):
+        parts = status_line.split(' ')
+        if len(parts) >= 2:
+            try:
+                status_code = int(parts[1])
+            except ValueError:
+                pass
+
     body_str = raw_body.decode('utf-8', errors='ignore').strip()
+
+    # 记录非成功 HTTP 状态码
+    if status_code >= 400:
+        log.warning(
+            f"[docker_api] {method} {path} → HTTP {status_code}, "
+            f"body_len={len(body_str)}, body_head={body_str[:200]}"
+        )
 
     if not body_str:
         return "" if return_raw else {}
@@ -94,5 +114,9 @@ def docker_api_request(
 
         return json.loads(body_str)
     except Exception as e:
-        log.warning(f"JSON 解析回退, 原始数据长度: {len(body_str)}")
-        return {"body": body_str}
+        log.warning(
+            f"[docker_api] JSON 解析失败, {method} {path}, "
+            f"HTTP {status_code}, body_len={len(body_str)}, "
+            f"body_head={body_str[:300]}"
+        )
+        return {"body": body_str, "_http_status": status_code}
