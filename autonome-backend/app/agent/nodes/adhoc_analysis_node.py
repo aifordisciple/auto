@@ -120,6 +120,25 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
     # 将策略包存入 TaskNode.adhoc_metadata
     nodes[idx]["adhoc_metadata"] = strategy_pack
 
+    # 策略包同时存入 Redis，供前端 /api/chat/adhoc/execute 端点读取
+    # key 格式: adhoc:{message_id}，TTL 10 分钟
+    # message_id 与 ask_user_node 发送的 render_adhoc_card ToolCall 中的 message_id 一致
+    import redis as redis_client
+    from app.core.config import settings as app_settings
+
+    try:
+        r = redis_client.Redis(
+            host=app_settings.REDIS_HOST,
+            port=app_settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        message_id = f"adhoc_graph_{idx}"
+        r.setex(f"adhoc:{message_id}", 600, json.dumps(strategy_pack, ensure_ascii=False))
+        log.info(f"[adhoc_analysis_node] 策略包已存入 Redis: key=adhoc:{message_id}")
+    except Exception as redis_err:
+        log.warning(f"[adhoc_analysis_node] Redis 存储失败（非致命）: {redis_err}")
+
     # 生成 ProbingRequest 触发前端渲染即席分析卡片
     probing_request = ProbingRequest(
         is_missing=True,

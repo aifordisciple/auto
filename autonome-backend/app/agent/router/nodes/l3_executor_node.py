@@ -234,8 +234,8 @@ async def _execute_adhoc_analysis(
         host_out_dir = os.path.join(app_settings.UPLOAD_DIR, container_out_subdir)
         os.makedirs(host_out_dir, exist_ok=True)
 
-        # 在 Docker 沙箱中执行
-        output, exit_code = run_container(
+        # 在 Docker 沙箱中执行（run_container 返回 (str, int, dict) 三元组）
+        output, exit_code, _ = run_container(
             image='autonome-tool-env',
             command=cmd,
             language=code_language,
