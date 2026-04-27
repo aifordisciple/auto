@@ -1615,6 +1615,7 @@ async def adhoc_execute(
         def run_docker():
             """在独立线程中执行 Docker 容器，通过回调推送日志"""
             try:
+                log.info(f"[adhoc_execute] Docker 执行开始, cmd: {' '.join(cmd)}")
                 output, exit_code, _ = run_container(
                     image='autonome-tool-env',
                     command=cmd,
@@ -1624,6 +1625,10 @@ async def adhoc_execute(
                     cli_mode=True,
                     user_id=user.id,
                     log_callback=log_callback,
+                )
+                log.info(
+                    f"[adhoc_execute] Docker 执行结束: exit_code={exit_code}, "
+                    f"output_len={len(output)}, output_head={output[:300]}"
                 )
                 loop.call_soon_threadsafe(
                     queue.put_nowait,

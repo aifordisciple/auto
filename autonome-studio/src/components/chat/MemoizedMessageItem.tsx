@@ -534,7 +534,9 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                     const toolInput = part.input as Record<string, unknown> | undefined;
 
                     // ✨ render_adhoc_card 工具：渲染 AdhocAnalysisCard 即席分析策略卡片
-                    if (toolName === 'render_adhoc_card' && toolState !== 'output-available' && toolState !== 'output-error') {
+                    // 注意：卡片在 input-available 和 output-available 状态下都要保持可见，
+                    // 因为卡片内部管理执行状态（日志窗口、结果展示），addToolResult 后不应卸载
+                    if (toolName === 'render_adhoc_card' && toolState !== 'output-error') {
                       const strategy = (toolInput?.strategy || '') as string;
                       const code = (toolInput?.code || '') as string;
                       const code_language = (toolInput?.code_language || 'python') as 'python' | 'r';
@@ -584,17 +586,9 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                       );
                     }
 
-                    // ✨ render_adhoc_card 已完成（output-available）：卡片已含结果区，保持渲染状态一致
-                    // addToolResult 回调后 AI SDK 会自动追加新消息包含执行结果
-                    if (toolState === 'output-available' && toolName === 'render_adhoc_card') {
-                      return (
-                        <div key={toolCallId} className="flex items-center gap-1.5 text-xs text-emerald-500 py-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>分析已提交执行</span>
-                        </div>
-                      );
-                    }
-
+                    // ✨ render_adhoc_card 已完成：卡片自身管理执行生命周期，保持渲染
+                    // addToolResult 回调后 AI SDK 的 toolState 变为 output-available，
+                    // 但卡片应继续展示日志窗口和执行结果，不替换为文本提示
                     // ✨ 工具调用已完成（output-available）：显示绿色勾号"参数已补全"
                     if (toolState === 'output-available') {
                       return (
