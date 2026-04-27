@@ -307,8 +307,9 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
     onInterpret(filePaths, interpretMeta.code, interpretMeta.userMessage);
   };
 
-  // 隐藏空的 assistant 消息（但在流式生成中或思考中保留，以显示思考框）
-  if (msg.role === 'assistant' && !displayContent && !(isLast && isTyping) && !isThinking) {
+  // 隐藏空的 assistant 消息（但在流式生成中、思考中、或有 toolInvocationParts 时保留）
+  // toolInvocationParts 包含 Active Probing 表单 / 即席分析卡片等，即使无文本内容也需渲染
+  if (msg.role === 'assistant' && !displayContent && !(isLast && isTyping) && !isThinking && !msg.toolInvocationParts?.length) {
     return null;
   }
 
