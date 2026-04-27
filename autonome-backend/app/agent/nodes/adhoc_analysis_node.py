@@ -64,7 +64,7 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
       "color_palette": {{ "type": "string", "title": "配色方案", "enum": ["npg", "jco", "lancet"], "default": "npg" }}
     }}
   }},
-  "input_mapping": {{ "input_file_param": "input", "file_id": "{file_id}" }}
+  "input_mapping": {{ "input_file_param": "input", "file_id": "{{file_id}}" }}
 }}
 ```
 
