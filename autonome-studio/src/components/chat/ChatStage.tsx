@@ -229,11 +229,24 @@ export function ChatStage() {
 
       // ✨ Active Probing：提取 toolInvocation 类型的 parts
       // Vercel AI SDK v5 中工具调用以 parts 形式存储，type 为 "tool-xxx" 或 "dynamic-tool"
-      // 这里提取所有与工具调用相关的 parts，供 MemoizedMessageItem 渲染 ParameterProbingCard
-      const toolInvocationParts = msg.parts?.filter(
+      // 同时处理 data-tool_call 自定义事件（后端 Active Probing / 即席分析发送的工具调用）
+      // data-tool_call 的属性嵌套在 part.data 中，需解包到顶层供 MemoizedMessageItem 使用
+      const rawToolParts = msg.parts?.filter(
         (p): p is typeof p & { type: string; toolCallId?: string; toolName?: string } =>
-          (p.type.startsWith('tool-') || p.type === 'dynamic-tool')
+          (p.type.startsWith('tool-') || p.type === 'dynamic-tool' || p.type === 'data-tool_call')
       ) || [];
+      for (const part of rawToolParts) {
+        if (part.type === 'data-tool_call' && (part as any).data) {
+          const data = (part as any).data;
+          (part as any).toolCallId = data.toolCallId || '';
+          (part as any).input = data.args || {};
+          (part as any).state = 'input-available';
+          // 改为 dynamic-tool，让 MemoizedMessageItem 通过 toolName 属性读取工具名
+          (part as any).type = 'dynamic-tool';
+          (part as any).toolName = data.toolName || '';
+        }
+      }
+      const toolInvocationParts = rawToolParts;
 
       // ✨ 意图标签：优先从 mirroredMessages 合并
       // 流式期间：只有当最后一条 assistant 是新消息时，才回填 pendingIntentLabel
