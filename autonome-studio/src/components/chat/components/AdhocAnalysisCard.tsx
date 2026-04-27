@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Play, Star, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye } from 'lucide-react'
 
 /**
  * JSON Schema 属性定义（与 ParameterProbingCard 一致）
@@ -18,6 +18,17 @@ interface SchemaProperty {
 }
 
 /**
+ * 输出文件信息
+ */
+interface OutputFile {
+  path: string
+  name: string
+  ext: string
+  size: number
+  preview: boolean
+}
+
+/**
  * 执行结果载荷
  */
 interface ExecutionResult {
@@ -26,6 +37,7 @@ interface ExecutionResult {
   error?: string | null
   exit_code: number
   language: string
+  output_files?: OutputFile[]
 }
 
 /**
@@ -89,7 +101,10 @@ export function AdhocAnalysisCard({
   })
 
   const [isExecuting, setIsExecuting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveResult, setSaveResult] = useState<string | null>(null)
   const [showCode, setShowCode] = useState(false)
+  const [editableCode, setEditableCode] = useState(code)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
 
   // 处理参数变化
@@ -107,7 +122,7 @@ export function AdhocAnalysisCard({
     const finalPayload = {
       parameters: formData,
       inputs: input_mapping,
-      code_snapshot: code,
+      code_snapshot: editableCode,
     }
 
     try {
@@ -159,10 +174,38 @@ export function AdhocAnalysisCard({
     }
   }
 
-  // 固化技能到资产库（Phase 2 实现，当前为占位提示）
-  const handleSaveSkill = () => {
-    // Phase 2: 弹出技能编辑表单，预填代码和 Schema
-    alert('技能固化功能将在后续版本实现')
+  // 固化技能到资产库：调用后端 API 将策略包写入文件系统
+  const handleSaveSkill = async () => {
+    if (isSaving) return
+    setIsSaving(true)
+    setSaveResult(null)
+    try {
+      const skillName = prompt('请输入技能名称：', strategy.slice(0, 30))
+      if (!skillName) {
+        setIsSaving(false)
+        return
+      }
+      const res = await fetch('/api/chat/adhoc/save-skill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id,
+          skill_name: skillName,
+          description: strategy,
+        }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(errData.detail || '保存失败')
+      }
+      const data = await res.json()
+      setSaveResult(`技能已保存: ${data.skill_id}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '保存失败'
+      setSaveResult(`保存失败: ${message}`)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -243,9 +286,12 @@ export function AdhocAnalysisCard({
           {showCode ? '隐藏底层代码' : '查看底层代码'}
         </button>
         {showCode && (
-          <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 max-h-64">
-            <code>{code}</code>
-          </pre>
+          <textarea
+            value={editableCode}
+            onChange={(e) => setEditableCode(e.target.value)}
+            className="w-full text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 font-mono resize-y min-h-[120px] max-h-96"
+            spellCheck={false}
+          />
         )}
       </div>
 
@@ -275,6 +321,24 @@ export function AdhocAnalysisCard({
           {executionResult.error && (
             <p className="text-sm text-red-700 dark:text-red-400 mt-1">{executionResult.error}</p>
           )}
+          {executionResult.output_files && executionResult.output_files.length > 0 && (
+            <div className="mt-3">
+              <h5 className="text-xs font-semibold text-gray-600 dark:text-zinc-400 mb-2">输出文件</h5>
+              <div className="space-y-1">
+                {executionResult.output_files.map((file, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 text-xs text-gray-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 rounded px-2 py-1"
+                  >
+                    <FileText size={12} />
+                    <span className="flex-1 truncate">{file.name}</span>
+                    <span className="text-zinc-400">{file.ext}</span>
+                    {file.preview && <Eye size={12} className="text-blue-500" title="可预览" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -282,10 +346,15 @@ export function AdhocAnalysisCard({
       <div className="p-4 bg-gray-50 dark:bg-[#1e1e20] flex justify-between items-center border-t border-gray-200 dark:border-zinc-800">
         <button
           onClick={handleSaveSkill}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-zinc-600 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+          disabled={isSaving}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-zinc-600 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
         >
-          <Star size={14} />
-          固化为团队技能
+          {isSaving ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Star size={14} />
+          )}
+          {saveResult || (isSaving ? '保存中...' : '固化为团队技能')}
         </button>
         <button
           onClick={handleExecute}

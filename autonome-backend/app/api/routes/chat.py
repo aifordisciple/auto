@@ -657,6 +657,12 @@ async def chat_stream(
         else:
             # ✨ 即席交互式分析拦截：生成策略包并发送生成式 UI 卡片
             # 设计文档: docs/modules/意图升级.md — 意图 13: 即席交互式分析
+            #
+            # 这是 ADHOC 的主执行路径（SSE 流式场景）。
+            # chat.py 直接生成策略包 → 存入 Redis → 发送 render_adhoc_card ToolCall → 挂起。
+            # 图节点 adhoc_analysis_node 是备用路径（队列驱动 / 非流式场景），
+            # 两者共享 _generate_strategy_pack() 和 ProbingRequest 协议。
+            #
             # 当 L1+L2 判定为 ADHOC 且文件已指定时，不直接进入 LLM 流式，
             # 而是调用 adhoc_analysis_node 生成策略包，通过 render_adhoc_card
             # ToolCall 向前端推送交互式分析策略卡片，挂起等待用户确认参数后执行。
@@ -1540,7 +1546,15 @@ async def adhoc_execute(
     # 写入临时脚本文件
     suffix = ".py" if code_language == "python" else ".R"
     script_path = None
+    host_out_dir = None  # 宿主机输出目录，执行后扫描返回文件树
     try:
+        # 使用 message_id 生成唯一输出子目录，避免多用户并发覆盖
+        safe_msg_id = request.message_id.replace("/", "_").replace("..", "_")
+        container_out_subdir = f"results/default/{safe_msg_id}"
+        container_out_dir = f"/workspace/{container_out_subdir}"
+        host_out_dir = os.path.join(settings.UPLOAD_DIR, container_out_subdir)
+        os.makedirs(host_out_dir, exist_ok=True)
+
         with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, delete=False) as f:
             f.write(code_snapshot)
             script_path = f.name
@@ -1573,7 +1587,7 @@ async def adhoc_execute(
             command=cmd,
             language=code_language,
             environment={
-                "TASK_OUT_DIR": "/workspace/results/default",
+                "TASK_OUT_DIR": container_out_dir,
             },
             timeout=3600,
             cli_mode=True,
@@ -1581,6 +1595,26 @@ async def adhoc_execute(
         )
 
         success = exit_code == 0
+
+        # 扫描输出目录，构建文件树返回给前端
+        output_files = []
+        if success and host_out_dir and os.path.isdir(host_out_dir):
+            try:
+                for root, dirs, files in os.walk(host_out_dir):
+                    for fname in files:
+                        fpath = os.path.join(root, fname)
+                        rel_path = os.path.relpath(fpath, host_out_dir)
+                        ext = os.path.splitext(fname)[1].lower()
+                        fsize = os.path.getsize(fpath)
+                        output_files.append({
+                            "path": rel_path,
+                            "name": fname,
+                            "ext": ext,
+                            "size": fsize,
+                            "preview": ext in (".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html"),
+                        })
+            except Exception as scan_err:
+                log.warning(f"[adhoc_execute] 输出文件扫描失败: {scan_err}")
 
         # 清理 Redis 中的策略包（执行完成后不再需要）
         try:
@@ -1594,6 +1628,7 @@ async def adhoc_execute(
             "error": output[:2000] if not success else None,
             "exit_code": exit_code,
             "language": code_language,
+            "output_files": output_files,
         }
 
     except Exception as e:
@@ -1606,6 +1641,88 @@ async def adhoc_execute(
                 os.unlink(script_path)
             except OSError:
                 pass
+
+
+class AdhocSaveSkillRequest(BaseModel):
+    """即席分析固化技能请求"""
+    message_id: str = Field(..., description="关联的 render_adhoc_card tool_call 的 message_id")
+    skill_name: str = Field(..., description="用户指定的技能名称")
+    description: str = Field(default="", description="技能描述")
+    visibility: str = Field(default="private", description="可见性: private | team | public")
+
+
+@router.post("/adhoc/save-skill")
+async def adhoc_save_skill(
+    request: AdhocSaveSkillRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    将即席分析策略包固化为平台技能。
+
+    程序说明：
+    1. 从 Redis 读取策略包
+    2. 调用 write_script_skill 创建技能目录和 SKILL.md
+    3. 返回新技能 ID
+    """
+    import redis
+    import hashlib
+
+    # 从 Redis 读取策略包
+    try:
+        r = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        strategy_key = f"adhoc:{request.message_id}"
+        strategy_json = r.get(strategy_key)
+        if not strategy_json:
+            raise HTTPException(status_code=404, detail="策略包已过期，请重新发起即席分析")
+        strategy_pack = json.loads(strategy_json)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"[adhoc_save_skill] Redis 读取失败: {e}")
+        raise HTTPException(status_code=500, detail=f"读取策略包失败: {str(e)}")
+
+    code = strategy_pack.get("code", "")
+    code_language = strategy_pack.get("code_language", "python")
+    parameter_schema = strategy_pack.get("parameter_schema", {})
+
+    # 生成 skill_id
+    skill_id = f"adhoc_{hashlib.md5(code.encode()).hexdigest()[:12]}"
+
+    # 确定 executor_type
+    from app.models.skill_bundle import ExecutorType
+    executor_type = ExecutorType.PYTHON_ENV if code_language == "python" else ExecutorType.R_ENV
+
+    # 调用 skill_bundle_writer 写入文件系统
+    from app.services.skill_bundle_writer import write_script_skill
+    try:
+        result = write_script_skill(
+            skill_id=skill_id,
+            name=request.skill_name,
+            description=request.description or strategy_pack.get("strategy", ""),
+            parameters_schema=parameter_schema,
+            script_code=code,
+            executor_type=executor_type,
+            skills_dir="/app/skills",
+            category="adhoc",
+            category_name="即席分析",
+            tags=["adhoc", "generated"],
+        )
+        log.info(f"[adhoc_save_skill] 技能已固化: skill_id={skill_id}, files={result.get('files_created', [])}")
+    except Exception as e:
+        log.error(f"[adhoc_save_skill] 写入技能失败: {e}")
+        raise HTTPException(status_code=500, detail=f"写入技能失败: {str(e)}")
+
+    return {
+        "status": "ok",
+        "skill_id": skill_id,
+        "skill_name": request.skill_name,
+    }
 
 
 # ==========================================

@@ -137,6 +137,7 @@ async def ask_user_node(state: AgentState, config: RunnableConfig) -> Dict[str, 
                 "parameter_schema": probing.adhoc_card_data.get("parameter_schema", {}),
                 "input_mapping": probing.adhoc_card_data.get("input_mapping", {}),
                 "message": probing.message_to_user,
+                "message_id": f"adhoc_graph_{current_idx}",
             },
             "id": f"call_adhoc_{current_idx}",
         }
