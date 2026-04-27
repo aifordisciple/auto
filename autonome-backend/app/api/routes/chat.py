@@ -1552,7 +1552,8 @@ async def adhoc_execute(
         f"params={list(parameters.keys())}"
     )
 
-    # 写入临时脚本文件
+    # 写入临时脚本文件到 workspace 目录（必须可被沙箱容器访问）
+    # 注意：不能使用 /tmp，沙箱容器只挂载了 ./uploads:/workspace
     suffix = ".py" if code_language == "python" else ".R"
     script_path = None
     host_out_dir = None  # 宿主机输出目录，执行后扫描返回文件树
@@ -1564,9 +1565,11 @@ async def adhoc_execute(
         host_out_dir = os.path.join(settings.UPLOAD_DIR, container_out_subdir)
         os.makedirs(host_out_dir, exist_ok=True)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, delete=False) as f:
+        # 将脚本写入 workspace 目录（沙箱容器挂载了相同的宿主机目录，可以访问）
+        script_name = "latest_script.py" if code_language == "python" else "latest_script.R"
+        script_path = os.path.join(host_out_dir, script_name)
+        with open(script_path, 'w', encoding='utf-8') as f:
             f.write(code_snapshot)
-            script_path = f.name
 
         # 构建执行命令
         if code_language == "python":
@@ -1604,6 +1607,10 @@ async def adhoc_execute(
         )
 
         success = exit_code == 0
+        log.info(
+            f"[adhoc_execute] 执行完成: exit_code={exit_code}, "
+            f"success={success}, output_len={len(output)}"
+        )
 
         # 扫描输出目录，构建文件树返回给前端
         output_files = []
@@ -1644,12 +1651,8 @@ async def adhoc_execute(
         log.error(f"[adhoc_execute] 即席分析执行异常: {e}")
         raise HTTPException(status_code=500, detail=f"即席分析执行失败: {str(e)}")
     finally:
-        # 清理临时文件
-        if script_path:
-            try:
-                os.unlink(script_path)
-            except OSError:
-                pass
+        # 脚本文件保留在输出目录中作为执行记录，无需清理
+        pass
 
 
 class AdhocSaveSkillRequest(BaseModel):
