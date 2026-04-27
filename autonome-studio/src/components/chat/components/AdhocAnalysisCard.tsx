@@ -18,6 +18,17 @@ interface SchemaProperty {
 }
 
 /**
+ * 执行结果载荷
+ */
+interface ExecutionResult {
+  status: 'success' | 'failed'
+  output?: string | null
+  error?: string | null
+  exit_code: number
+  language: string
+}
+
+/**
  * 即席分析卡片 Props
  */
 export interface AdhocAnalysisCardProps {
@@ -35,6 +46,8 @@ export interface AdhocAnalysisCardProps {
   }
   /** 输入文件映射 */
   input_mapping: Record<string, string>
+  /** 后端存储策略包的 message_id，执行时回传用于 Redis 查找 */
+  message_id: string
   /** Vercel AI SDK addToolResult 回调 */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   addToolResult: any
@@ -60,6 +73,7 @@ export function AdhocAnalysisCard({
   code_language,
   parameter_schema,
   input_mapping,
+  message_id,
   addToolResult,
   toolCallId,
 }: AdhocAnalysisCardProps) {
@@ -76,32 +90,73 @@ export function AdhocAnalysisCard({
 
   const [isExecuting, setIsExecuting] = useState(false)
   const [showCode, setShowCode] = useState(false)
+  const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
 
   // 处理参数变化
   const handleParamChange = (key: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [key]: value }))
   }
 
-  // 核心：点击执行，将参数通过 Vercel AI SDK 送回后端
-  const handleExecute = () => {
+  // 核心：点击执行，调用独立 API 在 Docker 沙箱中运行即席分析代码
+  const handleExecute = async () => {
     if (isExecuting) return
     setIsExecuting(true)
+    setExecutionResult(null)
 
     // 合并用户填写的参数和底层文件映射
     const finalPayload = {
       parameters: formData,
       inputs: input_mapping,
-      code_snapshot: code, // 将代码快照一并传回，防止后端丢失上下文
+      code_snapshot: code,
     }
 
-    // 调用 Vercel AI SDK 的回调，触发后端的流式响应继续进行
-    addToolResult({
-      toolCallId,
-      output: {
-        action: 'execute',
-        payload: finalPayload,
-      },
-    })
+    try {
+      const res = await fetch('/api/chat/adhoc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id,
+          payload: finalPayload,
+        }),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(errData.detail || `请求失败 (${res.status})`)
+      }
+
+      const result: ExecutionResult = await res.json()
+      setExecutionResult(result)
+
+      // 将执行结果通过 addToolResult 回传给 Vercel AI SDK，保持消息流完整
+      addToolResult({
+        toolCallId,
+        output: {
+          action: 'execute',
+          payload: finalPayload,
+          execution_result: result,
+        },
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '执行失败'
+      const failedResult: ExecutionResult = {
+        status: 'failed',
+        error: message,
+        exit_code: -1,
+        language: code_language,
+      }
+      setExecutionResult(failedResult)
+      addToolResult({
+        toolCallId,
+        output: {
+          action: 'execute',
+          payload: finalPayload,
+          execution_result: failedResult,
+        },
+      })
+    } finally {
+      setIsExecuting(false)
+    }
   }
 
   // 固化技能到资产库（Phase 2 实现，当前为占位提示）
@@ -194,7 +249,36 @@ export function AdhocAnalysisCard({
         )}
       </div>
 
-      {/* 4. 操作区（底部） */}
+      {/* 4. 结果区（执行完成后显示） */}
+      {executionResult && (
+        <div
+          className={`mx-4 mb-4 p-4 rounded-md ${
+            executionResult.status === 'success'
+              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-500/20'
+              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/20'
+          }`}
+        >
+          <h4
+            className={`font-semibold mb-2 text-sm ${
+              executionResult.status === 'success'
+                ? 'text-green-800 dark:text-green-300'
+                : 'text-red-800 dark:text-red-300'
+            }`}
+          >
+            {executionResult.status === 'success' ? '✅ 分析完成' : '❌ 执行失败'}
+          </h4>
+          {executionResult.output && (
+            <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto max-h-48">
+              <code>{executionResult.output}</code>
+            </pre>
+          )}
+          {executionResult.error && (
+            <p className="text-sm text-red-700 dark:text-red-400 mt-1">{executionResult.error}</p>
+          )}
+        </div>
+      )}
+
+      {/* 5. 操作区（底部） */}
       <div className="p-4 bg-gray-50 dark:bg-[#1e1e20] flex justify-between items-center border-t border-gray-200 dark:border-zinc-800">
         <button
           onClick={handleSaveSkill}

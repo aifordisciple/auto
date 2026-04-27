@@ -655,6 +655,79 @@ async def chat_stream(
             yield encoder.finish()
             return
         else:
+            # ✨ 即席交互式分析拦截：生成策略包并发送生成式 UI 卡片
+            # 设计文档: docs/modules/意图升级.md — 意图 13: 即席交互式分析
+            # 当 L1+L2 判定为 ADHOC 且文件已指定时，不直接进入 LLM 流式，
+            # 而是调用 adhoc_analysis_node 生成策略包，通过 render_adhoc_card
+            # ToolCall 向前端推送交互式分析策略卡片，挂起等待用户确认参数后执行。
+            is_adhoc_intent = (
+                intent_data.get("nodes")
+                and len(intent_data["nodes"]) > 0
+                and intent_data["nodes"][0].get("intent") == "INTENT_ADHOC_INTERACTIVE_ANALYSIS"
+            )
+            if is_adhoc_intent:
+                log.info("[Chat] 检测到即席交互式分析意图，生成策略包并发送策略卡片")
+                try:
+                    from app.agent.nodes.adhoc_analysis_node import _generate_strategy_pack
+
+                    dag_node = intent_data["nodes"][0]
+                    raw_instruction = dag_node.get("raw_instruction", request.message)
+                    resolved_assets = dag_node.get("resolved_assets", [])
+                    file_id = resolved_assets[0] if resolved_assets else "unknown"
+
+                    # 调用 LLM 生成策略包（策略描述 + 代码 + 参数 Schema + 输入映射）
+                    strategy_pack = await _generate_strategy_pack(
+                        file_id=file_id,
+                        instruction=raw_instruction,
+                        session=session,
+                        user_id=current_user.id,
+                    )
+
+                    # 策略包存入 Redis，供用户确认执行后读取
+                    # key 格式: adhoc:{message_id}，TTL 10 分钟
+                    import redis as redis_client
+                    from app.core.config import settings as app_settings
+                    r = redis_client.Redis(
+                        host=app_settings.REDIS_HOST,
+                        port=app_settings.REDIS_PORT,
+                        db=0,
+                        decode_responses=True,
+                    )
+                    r.setex(
+                        f"adhoc:{user_msg.id}",
+                        600,
+                        json.dumps(strategy_pack, ensure_ascii=False),
+                    )
+                    log.info(f"[Chat] 即席分析策略包已存入 Redis: key=adhoc:{user_msg.id}")
+
+                    # 发送 render_adhoc_card ToolCall（Vercel AI SDK 兼容格式）
+                    # message_id 传递给前端，执行时前端回传用于 Redis 查找策略包
+                    tool_call_event = {
+                        "type": "data-tool-call",
+                        "toolCallId": f"call_adhoc_{user_msg.id}",
+                        "toolName": "render_adhoc_card",
+                        "args": {
+                            "strategy": strategy_pack.get("strategy", ""),
+                            "code": strategy_pack.get("code", ""),
+                            "code_language": strategy_pack.get("code_language", "python"),
+                            "parameter_schema": strategy_pack.get("parameter_schema", {}),
+                            "input_mapping": strategy_pack.get("input_mapping", {}),
+                            "message": "即席分析策略已生成，请在卡片上确认参数后执行",
+                            "message_id": user_msg.id,
+                        },
+                    }
+                    yield encoder.from_custom_event("tool_call", tool_call_event)
+                    yield encoder.finish()
+                    return
+                except Exception as adhoc_err:
+                    log.error(f"[Chat] 即席分析策略包生成失败，降级为 Skill Forge: {adhoc_err}")
+                    # 降级：修改意图为 SKILL_FORGE，使用代码生成模式
+                    intent_data["nodes"][0]["intent"] = "INTENT_SKILL_FORGE"
+                    first_intent = NewIntentType.SKILL_FORGE
+                    system_prompt = SYSTEM_PROMPT_CODE
+                    lc_messages[0] = {"role": "system", "content": system_prompt}
+                    # 不 return，继续走 LLM 流式（代码生成模式）
+
             # 检查 API Key
             if not is_local_model and not api_key:
                 start = ensure_text_started()
@@ -1393,6 +1466,146 @@ async def probing_submit(
     except Exception as e:
         log.error(f"[probing_submit] Redis 写入失败: {e}")
         raise HTTPException(status_code=500, detail=f"参数提交失败: {str(e)}")
+
+
+# ==========================================
+# 即席交互式分析执行端点
+# ==========================================
+
+
+class AdhocExecuteRequest(BaseModel):
+    """即席分析执行请求 —— 用户在前端策略卡片点击"执行"后提交"""
+    message_id: str = Field(..., description="关联的 render_adhoc_card tool_call 的 message_id")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="执行参数载荷")
+
+
+@router.post("/adhoc/execute")
+async def adhoc_execute(
+    request: AdhocExecuteRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    接收前端 AdhocAnalysisCard 的执行请求，在 Docker 沙箱中运行即席分析代码。
+
+    程序说明：
+    1. 从 Redis 读取之前存入的策略包（包含 code_language 等元数据）
+    2. 将 code_snapshot 写入临时文件
+    3. 构建命令行（含用户确认的参数）
+    4. 调用 run_container 在 Docker 沙箱中执行
+    5. 清理临时文件，返回执行结果
+    """
+    import redis
+    import tempfile
+    from app.core.config import settings
+    from app.tools.bio_tools import run_container
+
+    # 从 Redis 读取策略包
+    try:
+        r = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        strategy_key = f"adhoc:{request.message_id}"
+        strategy_json = r.get(strategy_key)
+        if not strategy_json:
+            raise HTTPException(
+                status_code=404,
+                detail="策略包已过期或不存在（有效期 10 分钟），请重新发起即席分析请求",
+            )
+        strategy_pack = json.loads(strategy_json)
+        log.info(f"[adhoc_execute] 从 Redis 读取策略包: key={strategy_key}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"[adhoc_execute] Redis 读取失败: {e}")
+        raise HTTPException(status_code=500, detail=f"读取策略包失败: {str(e)}")
+
+    # 提取执行参数
+    payload = request.payload or {}
+    parameters = payload.get("parameters", {})
+    code_snapshot = payload.get("code_snapshot", "")
+    code_language = strategy_pack.get("code_language", "python")
+
+    if not code_snapshot:
+        raise HTTPException(status_code=400, detail="缺少代码快照，无法执行")
+
+    log.info(
+        f"[adhoc_execute] 开始执行: language={code_language}, "
+        f"params={list(parameters.keys())}"
+    )
+
+    # 写入临时脚本文件
+    suffix = ".py" if code_language == "python" else ".R"
+    script_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, delete=False) as f:
+            f.write(code_snapshot)
+            script_path = f.name
+
+        # 构建执行命令
+        if code_language == "python":
+            cmd = ["python", script_path]
+        else:
+            cmd = ["Rscript", script_path]
+
+        # 追加命令行参数（排除内部字段）
+        for key, value in parameters.items():
+            if key.startswith("_") or key in ("code_snapshot", "code_language", "skill_id"):
+                continue
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                if value:
+                    cmd.append(f"--{key}")
+            else:
+                cmd.append(f"--{key}")
+                cmd.append(str(value))
+
+        log.info(f"[adhoc_execute] 执行命令: {' '.join(cmd)}")
+
+        # Docker 沙箱执行（run_container 是同步阻塞调用，包装为异步）
+        output, exit_code, _ = await asyncio.to_thread(
+            run_container,
+            image='autonome-tool-env',
+            command=cmd,
+            language=code_language,
+            environment={
+                "TASK_OUT_DIR": "/workspace/results/default",
+            },
+            timeout=3600,
+            cli_mode=True,
+            user_id=user.id,
+        )
+
+        success = exit_code == 0
+
+        # 清理 Redis 中的策略包（执行完成后不再需要）
+        try:
+            r.delete(strategy_key)
+        except Exception:
+            pass
+
+        return {
+            "status": "success" if success else "failed",
+            "output": output[:5000] if success else None,
+            "error": output[:2000] if not success else None,
+            "exit_code": exit_code,
+            "language": code_language,
+        }
+
+    except Exception as e:
+        log.error(f"[adhoc_execute] 即席分析执行异常: {e}")
+        raise HTTPException(status_code=500, detail=f"即席分析执行失败: {str(e)}")
+    finally:
+        # 清理临时文件
+        if script_path:
+            try:
+                os.unlink(script_path)
+            except OSError:
+                pass
 
 
 # ==========================================

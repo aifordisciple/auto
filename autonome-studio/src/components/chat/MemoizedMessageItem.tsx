@@ -543,6 +543,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                         required?: string[];
                       };
                       const input_mapping = (toolInput?.input_mapping || {}) as Record<string, string>;
+                      const message_id = (toolInput?.message_id || '') as string;
 
                       return (
                         <AdhocAnalysisCard
@@ -552,6 +553,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                           code_language={code_language}
                           parameter_schema={parameter_schema as any}
                           input_mapping={input_mapping}
+                          message_id={message_id}
                           addToolResult={addToolResult}
                           toolCallId={toolCallId}
                         />
@@ -578,6 +580,17 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                             });
                           }}
                         />
+                      );
+                    }
+
+                    // ✨ render_adhoc_card 已完成（output-available）：卡片已含结果区，保持渲染状态一致
+                    // addToolResult 回调后 AI SDK 会自动追加新消息包含执行结果
+                    if (toolState === 'output-available' && toolName === 'render_adhoc_card') {
+                      return (
+                        <div key={toolCallId} className="flex items-center gap-1.5 text-xs text-emerald-500 py-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>分析已提交执行</span>
+                        </div>
                       );
                     }
 
