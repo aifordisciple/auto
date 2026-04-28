@@ -50,6 +50,8 @@ export interface Message {
   }>;
   /** ✨ 意图识别标签：后端 SSE intent 事件中的意图类型（如 INTENT_DATA_PROBE） */
   intentLabel?: string;
+  /** ✨ 即席分析策略生成中标记：渲染骨架屏，策略包就绪后由真实卡片替换 */
+  isAdhocGenerating?: boolean;
 }
 
 export interface Bookmark {
@@ -274,6 +276,7 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
       const attachmentsMap = new Map<string, MessageAttachments>();
       const toolPartsMap = new Map<string, Message['toolInvocationParts']>();
       const intentLabelMap = new Map<string, string>();
+      const adhocGenMap = new Map<string, boolean>();
       for (const msg of state.mirroredMessages) {
         if (msg.thinkingContent) {
           thinkingMap.set(msg.id, msg.thinkingContent);
@@ -288,19 +291,24 @@ export const useChatStore: UseBoundStore<StoreApi<ChatState>> = create<ChatState
         if (msg.intentLabel) {
           intentLabelMap.set(msg.id, msg.intentLabel);
         }
+        if (msg.isAdhocGenerating) {
+          adhocGenMap.set(msg.id, true);
+        }
       }
-      // 合并：新消息优先，但保留已有的 thinkingContent、attachments、toolInvocationParts 和 intentLabel
+      // 合并：新消息优先，但保留已有的 thinkingContent、attachments、toolInvocationParts、intentLabel 和 isAdhocGenerating
       const merged = messages.map(msg => {
         const existingThinking = thinkingMap.get(msg.id);
         const existingAttachments = attachmentsMap.get(msg.id);
         const existingToolParts = toolPartsMap.get(msg.id);
         const existingIntentLabel = intentLabelMap.get(msg.id);
+        const existingAdhocGen = adhocGenMap.get(msg.id);
         return {
           ...msg,
           thinkingContent: msg.thinkingContent || existingThinking,
           attachments: msg.attachments || existingAttachments,
           toolInvocationParts: msg.toolInvocationParts ?? existingToolParts,
           intentLabel: msg.intentLabel || existingIntentLabel,
+          isAdhocGenerating: msg.isAdhocGenerating ?? existingAdhocGen,
         };
       });
       // ✨ 回填暂存的意图标签：如果 pendingIntentLabel 存在且最后一条 assistant 消息没有 intentLabel

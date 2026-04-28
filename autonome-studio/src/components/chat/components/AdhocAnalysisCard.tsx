@@ -742,7 +742,9 @@ export function AdhocAnalysisCard({
                 : 'text-red-800 dark:text-red-300'
             }`}
           >
-            {executionResult.status === 'success' ? '✅ 分析完成' : '❌ 执行失败'}
+            {executionResult.status === 'success'
+              ? `✅ 分析完成 — 共生成 ${executionResult?.output_files?.length || 0} 个文件`
+              : '❌ 执行失败'}
           </h4>
           {executionResult.output && (
             <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto max-h-48">
@@ -750,9 +752,60 @@ export function AdhocAnalysisCard({
             </pre>
           )}
           {executionResult.error && (
-            <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto max-h-48 mt-2">
-              <code>{executionResult.error}</code>
-            </pre>
+            <div className="mt-2 space-y-2">
+              {/* 解析错误消息中的 [诊断] 和 [建议] 结构化信息 */}
+              {(() => {
+                const errorText = executionResult.error || ''
+                // 按行分割，找出不同部分
+                const lines = errorText.split('\n')
+                const errorTitle = lines[0] || ''
+                const diagnostics: string[] = []
+                const suggestions: string[] = []
+                const other: string[] = []
+                for (const line of lines.slice(1)) {
+                  if (line.startsWith('[诊断]')) {
+                    diagnostics.push(line.replace('[诊断] ', ''))
+                  } else if (line.startsWith('[建议]')) {
+                    suggestions.push(line.replace('[建议] ', ''))
+                  } else if (line.trim()) {
+                    other.push(line)
+                  }
+                }
+                return (
+                  <>
+                    {/* 错误标题 */}
+                    <pre className="text-xs bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 p-3 rounded-md overflow-x-auto font-sans whitespace-pre-wrap">
+                      {errorTitle}
+                    </pre>
+                    {/* 诊断信息 */}
+                    {diagnostics.length > 0 && (
+                      <div className="text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 p-3 rounded-md">
+                        <span className="font-semibold">诊断：</span>
+                        {diagnostics.map((d, i) => <p key={i} className="mt-1">{d}</p>)}
+                      </div>
+                    )}
+                    {/* 建议操作 */}
+                    {suggestions.length > 0 && (
+                      <div className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3 rounded-md">
+                        <span className="font-semibold">建议：</span>
+                        {suggestions.map((s, i) => <p key={i} className="mt-1">{s}</p>)}
+                      </div>
+                    )}
+                    {/* 其他错误详情（可折叠） */}
+                    {other.length > 0 && (
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300">
+                          展开原始错误详情
+                        </summary>
+                        <pre className="bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mt-1 font-mono">
+                          <code>{other.join('\n')}</code>
+                        </pre>
+                      </details>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
           )}
           {!executionResult.output && !executionResult.error && (
             <p className="text-xs text-gray-500 dark:text-zinc-400">

@@ -248,6 +248,12 @@ export function ChatStage() {
       }
       const toolInvocationParts = rawToolParts;
 
+      // ✨ 即席分析骨架屏：检测 data-adhoc_status parts
+      const isAdhocGenerating = msg.parts?.some(
+        (p: { type: string; data?: { status?: string } }) =>
+          p.type === 'data-adhoc_status' && p.data?.status === 'generating_strategy'
+      ) || false;
+
       // ✨ 意图标签：优先从 mirroredMessages 合并
       // 流式期间：只有当最后一条 assistant 是新消息时，才回填 pendingIntentLabel
       // 避免把当前轮的 intentLabel 错误地显示到上一轮的 assistant 消息上
@@ -265,6 +271,8 @@ export function ChatStage() {
           || (isLastUserMsg && pendingAttachments ? pendingAttachments : undefined),
         // ✨ Active Probing：工具调用 parts，用于渲染参数探查表单
         toolInvocationParts: toolInvocationParts.length > 0 ? toolInvocationParts : undefined,
+        // ✨ 即席分析骨架屏标记
+        isAdhocGenerating,
         // ✨ 意图识别标签：从 mirroredMessages 合并，流式期间使用 pendingIntentLabel
         intentLabel: resolvedIntentLabel,
       };

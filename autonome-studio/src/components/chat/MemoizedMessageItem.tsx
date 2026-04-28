@@ -10,6 +10,7 @@ import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { ParameterProbingCard, type ParameterProbingCardProps } from "./ParameterProbingCard";
 import { AdhocAnalysisCard } from "./components/AdhocAnalysisCard";
+import { AdhocSkeletonCard } from "./components/AdhocSkeletonCard";
 import { IntentTag } from "./IntentTag";
 import { BASE_URL, getToken } from "@/lib/api";
 import { filterThinkingContent } from "@/lib/contentFilter";
@@ -517,6 +518,11 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                 // 简化版：返回普通 Markdown 渲染
                 return <MarkdownBlock content={displayContent} projectId={currentProjectId} />;
               })()}
+
+              {/* ✨ 即席分析骨架屏：策略包生成中（10-30s），有 data-adhoc_status 事件但尚无真实卡片 */}
+              {msg.isAdhocGenerating && !msg.toolInvocationParts?.some(p => p.toolName === 'render_adhoc_card') && (
+                <AdhocSkeletonCard />
+              )}
 
               {/* ✨ Active Probing：渲染工具调用（ParameterProbingCard 参数探查表单）
                   Vercel AI SDK v5 中，工具调用以 parts 形式存储在 UIMessage 上。

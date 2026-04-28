@@ -693,6 +693,13 @@ async def chat_stream(
                     if file_paths_str:
                         file_paths_str = f"  - {file_paths_str}"
 
+                    # 发送骨架屏事件，让前端在策略生成期间显示加载动画
+                    # 用户等待 LLM 生成策略包需要 10-30s，期间展示脉冲骨架卡片
+                    yield encoder.data_event(
+                        {"status": "generating_strategy", "message": "正在分析您的要求并生成分析策略..."},
+                        event_name="adhoc_status",
+                    )
+
                     # 调用 LLM 生成策略包（策略描述 + 代码 + 参数 Schema + 输入映射）
                     # 传递 enable_think 以尊重用户在前端的深度思考模式选择
                     strategy_pack = await _generate_strategy_pack(

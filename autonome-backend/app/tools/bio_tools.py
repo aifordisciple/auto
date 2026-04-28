@@ -347,33 +347,67 @@ def run_container(
         resp = docker_api_request("POST", "/containers/create", create_data, timeout=30)
 
         if 'Id' not in resp:
-            return f"❌ 创建容器失败: {resp}", 1, billing_info
+            # 区分常见创建失败原因
+            create_error = str(resp)
+            if 'No such image' in create_error or 'image' in create_error.lower():
+                return (
+                    "❌ 沙箱镜像不存在，请联系管理员更新 Docker 镜像。\n"
+                    f"[诊断] 镜像拉取失败: {create_error[:300]}"
+                ), 1, billing_info
+            return f"❌ 创建容器失败: {create_error[:500]}", 1, billing_info
 
         container_id = resp['Id']
 
         # 启动容器
         start_resp = docker_api_request("POST", f"/containers/{container_id}/start", timeout=30)
         # 检查启动是否成功：如果返回了 HTTP 错误状态，记录并返回错误
+        # 区分：挂载失败、内存不足、权限不足等不同错误类型
         if isinstance(start_resp, dict) and start_resp.get("_http_status", 0) >= 400:
             error_detail = start_resp.get("body", start_resp.get("message", str(start_resp)))
+            error_lower = str(error_detail).lower()
+            http_status = start_resp.get("_http_status", 0)
             log.error(
                 f"[run_container] ❌ 容器启动失败 {container_id[:12]}: "
-                f"HTTP {start_resp.get('_http_status')} - {error_detail[:300]}"
+                f"HTTP {http_status} - {str(error_detail)[:300]}"
             )
             # 清理失败的容器
             docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=30)
-            return f"❌ 容器启动失败: {error_detail[:500]}", 1, billing_info
+            # 诊断建议
+            if 'mount' in error_lower or 'bind' in error_lower or 'volume' in error_lower:
+                suggestion = "请检查文件挂载路径是否正确，确认宿主目录存在且 Docker 有访问权限。"
+            elif 'memory' in error_lower or 'oom' in error_lower or 'resources' in error_lower:
+                suggestion = "服务器内存不足，请稍后重试或联系管理员扩容。"
+            elif 'permission' in error_lower or 'denied' in error_lower or 'unauthorized' in error_lower:
+                suggestion = "Docker 权限不足，请联系管理员检查容器执行权限。"
+            elif 'network' in error_lower or 'timeout' in error_lower:
+                suggestion = "Docker 网络异常，请检查网络连接后重试。"
+            else:
+                suggestion = "请稍后重试，如持续失败请联系管理员。"
+            return (
+                f"❌ 容器启动失败 (HTTP {http_status})\n"
+                f"[诊断] {error_detail[:300]}\n"
+                f"[建议] {suggestion}"
+            ), 1, billing_info
 
         # 验证容器确实已启动（防止静默失败）
         verify = docker_api_request("GET", f"/containers/{container_id}/json", timeout=30)
         verify_status = verify.get('State', {}).get('Status', 'unknown') if isinstance(verify, dict) else 'unknown'
         if verify_status not in ('running', 'created'):
+            state_info = verify.get('State', {}) if isinstance(verify, dict) else {}
+            error_msg = state_info.get('Error', '')
+            exit_code = state_info.get('ExitCode', '')
             log.error(
                 f"[run_container] ❌ 容器状态异常 {container_id[:12]}: "
-                f"status={verify_status}, state={verify.get('State', {})}"
+                f"status={verify_status}, error={error_msg}, exit_code={exit_code}"
             )
             docker_api_request("DELETE", f"/containers/{container_id}?force=true", timeout=30)
-            return f"❌ 容器状态异常: {verify_status}", 1, billing_info
+            if error_msg:
+                return (
+                    f"❌ 容器启动即退出 (exit_code={exit_code})\n"
+                    f"[诊断] {error_msg[:300]}\n"
+                    f"[建议] 请检查代码依赖是否正确，尝试减少数据量或调整参数。"
+                ), 1, billing_info
+            return f"❌ 容器状态异常: {verify_status}，请重试或联系管理员。", 1, billing_info
 
         log.info(
             f"[run_container] 🚀 容器已启动 {container_id[:12]}，"
