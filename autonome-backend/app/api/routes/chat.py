@@ -1572,13 +1572,18 @@ async def _generate_result_interpretation(
     instruction: str,
     session,
     user_id,
+    code: str = "",
+    code_language: str = "python",
 ) -> str | None:
     """
-    执行成功后，调用 LLM 对分析结果做自然语言解读。
+    执行成功后，调用 LLM 对分析结果做多维度科学解读。
 
     程序说明：
-    将脚本输出文本和输出文件列表提供给 LLM，生成面向生物学家用户的
-    通俗易懂的结果解读，帮助非技术用户理解分析结果的含义。
+    将脚本输出文本、输出文件列表、分析策略和分析代码提供给 LLM，
+    生成面向生物学家的综合解读报告，包含：
+    1. 科学解读（中文）
+    2. 英文图注（Figure Legends）
+    3. 材料与方法（Materials & Methods）
 
     Args:
         docker_output: 脚本执行的标准输出（截断至 3000 字符）
@@ -1586,13 +1591,17 @@ async def _generate_result_interpretation(
         instruction: 分析策略描述
         session: 数据库会话
         user_id: 用户 ID
+        code: 分析代码全文（用于生成材料方法）
+        code_language: 代码语言 (python/r)
 
     Returns:
-        自然语言解读文本，失败时返回 None
+        JSON 字符串，包含 scientific_interpretation, figure_legends, materials_methods
+        失败时返回 None
     """
     if not docker_output.strip() and not output_files:
         return None
 
+    import json as json_mod
     from app.utils.llm_config import get_fast_llm_config
     from langchain_openai import ChatOpenAI
 
@@ -1605,30 +1614,95 @@ async def _generate_result_interpretation(
             temperature=0.0,
         )
 
-        files_summary = "\n".join(
-            f"  - {f['name']} ({f['ext']}, {f.get('size', 0) / 1024:.1f}KB)"
-            for f in output_files[:10]
-        )
+        # 输出文件摘要：区分图形文件和中间数据文件
+        figure_files = [f for f in output_files if f['ext'] in ('.png', '.pdf', '.jpg', '.jpeg', '.svg', '.tiff', '.tif')]
+        data_files = [f for f in output_files if f['ext'] in ('.csv', '.tsv', '.txt', '.xlsx', '.rds', '.rda', '.h5ad')]
 
-        prompt = f"""你是一个生物信息学结果解读专家。请用通俗易懂的中文解读以下分析结果。
+        figure_summary = "\n".join(
+            f"  - {f['name']} ({f['ext']})"
+            for f in figure_files[:10]
+        ) if figure_files else "（无图形输出）"
+
+        data_summary = "\n".join(
+            f"  - {f['name']} ({f['ext']}, {f.get('size', 0) / 1024:.1f}KB)"
+            for f in data_files[:10]
+        ) if data_files else "（无中间数据输出）"
+
+        # 代码摘要（截断至 4000 字符，去除过长的代码）
+        code_snippet = code[:4000] if code else "（代码未提供）"
+
+        prompt = f"""你是一个生物信息学高级研究员。请对以下分析结果进行全面的科学解读。
 
 分析目的：{instruction}
+
+分析代码（用于理解分析方法）：
+```{code_language}
+{code_snippet}
+```
 
 脚本输出摘要：
 {docker_output[:1500]}
 
-输出文件：
-{files_summary}
+图形输出文件：
+{figure_summary}
 
-请用 2-4 句简洁的话解读：
-1. 分析完成了什么
-2. 关键结果是什么（如果有数值或统计结果，请解读其生物学意义）
-3. 输出文件分别包含什么内容
+中间数据文件：
+{data_summary}
 
-请使用通俗易懂的语言，面向可能没有编程背景的生物学家用户。"""
+请生成以下三个部分的内容，严格按 JSON 格式输出：
+
+1. **scientific_interpretation**（中文科学解读，2-3 句）：
+   - 分析完成了什么生物学问题
+   - 关键发现的生物学意义
+   - 使用通俗易懂的语言，面向可能没有编程背景的生物学家
+
+2. **figure_legends**（英文图注数组，每个图形一条）：
+   - 为每个输出图形文件生成标准的 Nature/Cell 期刊风格的英文图注（Figure Legend）
+   - 格式：Figure X: [简要描述图形展示的内容和生物学意义]
+   - 例如："Figure 1: Volcano plot showing differentially expressed genes between treatment and control groups. Red points indicate significantly upregulated genes (log2FC > 1, adjusted p-value < 0.05), blue points indicate significantly downregulated genes."
+   - 如果图形超过 5 个，只为核心图形（前 5 个）生成图注
+
+3. **materials_methods**（英文材料与方法，100-200 词）：
+   - 用英文描述数据分析方法，包含：
+     * 使用的软件/工具和关键 R/Python 包及版本（根据代码中使用的库推断）
+     * 统计检验方法和阈值
+     * 数据预处理和标准化方法
+     * 关键分析参数（如 p-value 阈值、聚类方法等）
+   - 使用学术论文材料方法部分的正式写作风格
+   - 无代码，只有描述性文字
+
+JSON 输出格式：
+```json
+{{
+  "scientific_interpretation": "中文科学解读文本",
+  "figure_legends": [
+    {{"figure": "fig1_xxx.png", "legend": "英文图注"}},
+    ...
+  ],
+  "materials_methods": "英文材料方法文本"
+}}
+```
+
+请严格按上述 JSON 格式输出，不要输出任何其他内容。"""
 
         response = await llm.ainvoke(prompt)
-        interpretation = response.content.strip()
+        raw = response.content.strip()
+        # 移除 markdown 标记
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        import json as json_mod
+        from json_repair import repair_json
+        repaired = repair_json(raw)
+        result = json_mod.loads(repaired)
+
+        # 即使 LLM 直接返回了文本，也包装成结构化格式
+        if isinstance(result, str):
+            result = {"scientific_interpretation": result, "figure_legends": [], "materials_methods": ""}
+
+        interpretation = json_mod.dumps(result, ensure_ascii=False)
         log.info(f"[adhoc_execute] 结果解读生成成功: {len(interpretation)} 字符")
         return interpretation
 
@@ -2095,6 +2169,8 @@ async def adhoc_execute(
                                 instruction=strategy_pack.get("strategy", ""),
                                 session=session,
                                 user_id=user.id,
+                                code=code_snapshot,
+                                code_language=code_language,
                             )
                             if interpretation:
                                 yield f"data: {json.dumps({'type': 'interpretation', 'text': interpretation})}\n\n"

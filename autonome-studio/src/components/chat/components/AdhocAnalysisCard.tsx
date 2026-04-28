@@ -191,6 +191,8 @@ export function AdhocAnalysisCard({
   const [interpretation, setInterpretation] = useState<string | null>(null)
   // 智能错误诊断
   const [diagnosis, setDiagnosis] = useState<{ diagnosis: string; fixed_code: string | null; fix_description: string } | null>(null)
+  // AI 错误诊断进行中标记（result 事件到达后立即置 true，diagnosis/done 事件到达后置 false）
+  const [isDiagnosing, setIsDiagnosing] = useState(false)
   // LLM Agent 代码修复状态
   const [isFixingCode, setIsFixingCode] = useState(false)
   const [fixCodeResult, setFixCodeResult] = useState<{
@@ -305,6 +307,7 @@ export function AdhocAnalysisCard({
     setProgressData(null)
     setInterpretation(null)
     setDiagnosis(null)
+    setIsDiagnosing(false)
     setSystemLogsCollapsed(true)
     setActiveLogTab('analysis')
     setShowLogWindow(true)
@@ -445,6 +448,11 @@ export function AdhocAnalysisCard({
         }
         setExecutionResult(result)
 
+        // 失败时立即显示 AI 诊断中状态，不等 diagnosis 事件到达
+        if (result.status === 'failed') {
+          setIsDiagnosing(true)
+        }
+
         // 保存 project_id 和 output_dir_name 用于输出文件预览
         if (event.project_id) setOutputProjectId(event.project_id as string)
         if (event.output_dir_name) setOutputDirName(event.output_dir_name as string)
@@ -480,6 +488,7 @@ export function AdhocAnalysisCard({
         break
       case 'diagnosis':
         // 智能错误诊断（含一键修复建议）
+        setIsDiagnosing(false)
         setDiagnosis({
           diagnosis: event.diagnosis as string,
           fixed_code: event.fixed_code as string | null,
@@ -487,7 +496,8 @@ export function AdhocAnalysisCard({
         })
         break
       case 'done':
-        // 流结束
+        // 流结束，清理诊断等待状态（防止 diagnosis 事件未到达时的永久 loading）
+        setIsDiagnosing(false)
         break
     }
   }
@@ -1274,22 +1284,87 @@ export function AdhocAnalysisCard({
             </div>
           )}
 
-          {/* LLM 结果解读（成功时） */}
+          {/* LLM 多维科学解读（成功时） */}
           {executionResult.status === 'success' && interpretation && (
-            <div className="mb-3 p-3 rounded-md bg-white/60 dark:bg-white/5 border border-gray-200 dark:border-zinc-700">
-              <div className="flex items-start gap-2">
-                <span className="text-sm mt-0.5">📝</span>
-                <div>
-                  <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-zinc-500 font-medium">AI 解读</span>
-                  <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed mt-0.5">
-                    {interpretation}
-                  </p>
-                </div>
-              </div>
+            <div className="mb-3 space-y-3">
+              {(() => {
+                // 尝试解析结构化 JSON 解读，失败则显示纯文本
+                let parsed: { scientific_interpretation?: string; figure_legends?: Array<{ figure: string; legend: string }>; materials_methods?: string } | null = null
+                try {
+                  parsed = JSON.parse(interpretation)
+                } catch {
+                  parsed = null
+                }
+
+                if (!parsed || !parsed.scientific_interpretation) {
+                  // 回退：纯文本显示
+                  return (
+                    <div className="p-3 rounded-md bg-white/60 dark:bg-white/5 border border-gray-200 dark:border-zinc-700">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-zinc-500 font-medium">AI 解读</span>
+                      <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed mt-0.5">
+                        {interpretation}
+                      </p>
+                    </div>
+                  )
+                }
+
+                return (
+                  <>
+                    {/* 科学解读 */}
+                    <div className="p-3 rounded-md bg-white/60 dark:bg-white/5 border border-green-200 dark:border-green-500/20">
+                      <span className="text-[10px] uppercase tracking-wide text-green-600 dark:text-green-400 font-medium">🔬 科学解读</span>
+                      <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed mt-1">
+                        {parsed.scientific_interpretation}
+                      </p>
+                    </div>
+
+                    {/* 英文图注 */}
+                    {parsed.figure_legends && parsed.figure_legends.length > 0 && (
+                      <div className="p-3 rounded-md bg-white/60 dark:bg-white/5 border border-blue-200 dark:border-blue-500/20">
+                        <span className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium">📊 English Figure Legends</span>
+                        <div className="mt-1.5 space-y-2">
+                          {parsed.figure_legends.map((fl, i) => (
+                            <div key={i} className="text-xs">
+                              <span className="font-semibold text-gray-800 dark:text-zinc-200">
+                                {fl.figure}:
+                              </span>
+                              <span className="text-gray-600 dark:text-zinc-400 ml-1">
+                                {fl.legend}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 材料与方法 */}
+                    {parsed.materials_methods && (
+                      <details className="p-3 rounded-md bg-white/60 dark:bg-white/5 border border-purple-200 dark:border-purple-500/20">
+                        <summary className="text-[10px] uppercase tracking-wide text-purple-600 dark:text-purple-400 font-medium cursor-pointer">
+                          🧪 Materials & Methods
+                        </summary>
+                        <p className="text-xs text-gray-600 dark:text-zinc-400 leading-relaxed mt-1.5 font-serif">
+                          {parsed.materials_methods}
+                        </p>
+                      </details>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           )}
 
           {/* 智能错误诊断（失败时） */}
+          {executionResult.status === 'failed' && isDiagnosing && !diagnosis && (
+            <div className="mb-3 p-3 rounded-md bg-white/60 dark:bg-white/5 border border-indigo-200 dark:border-indigo-500/30">
+              <div className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin text-indigo-500" />
+                <span className="text-xs text-indigo-700 dark:text-indigo-300">
+                  🔧 AI 正在诊断错误原因，马上就好...
+                </span>
+              </div>
+            </div>
+          )}
           {executionResult.status === 'failed' && diagnosis && (
             <div className="mb-3 p-3 rounded-md bg-white/60 dark:bg-white/5 border border-amber-200 dark:border-amber-700/30">
               <div className="flex items-start gap-2">
