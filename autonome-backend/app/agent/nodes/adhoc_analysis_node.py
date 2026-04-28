@@ -500,10 +500,61 @@ async def _generate_strategy_pack_streaming(
                 }
                 if fix_result.get("success") and fix_result.get("fixed_code"):
                     log.info("[adhoc_analysis_node] LLM Agent 自动修复成功，已附加到策略包")
+                    # 自动修复成功后，更新 code 供后续代码审核 Agent 使用
+                    strategy_pack["code"] = fix_result["fixed_code"]
                 else:
                     log.warning("[adhoc_analysis_node] LLM Agent 自动修复未完全解决问题")
         except Exception as val_err:
             log.warning(f"[adhoc_analysis_node] 代码校验/修复失败（非致命）: {val_err}")
+
+        # 代码审核 Agent — 独立审核阶段，对代码进行全面质量审查
+        try:
+            from app.services.code_validator import review_generated_code
+
+            current_code = strategy_pack.get("code", "")
+            current_language = strategy_pack.get("code_language", "python")
+
+            yield {
+                "type": "stage",
+                "stage": "reviewing",
+                "message": "正在启动代码审核 Agent 进行全面审查...",
+            }
+
+            review_result = await review_generated_code(
+                code=current_code,
+                language=current_language,
+                instruction=instruction,
+                file_profiles_text=file_profiles_text,
+                session=session,
+                user_id=user_id,
+            )
+
+            strategy_pack["_code_review"] = {
+                "review_report": review_result.get("review_report", ""),
+                "overall_verdict": review_result.get("overall_verdict", "minor_issues"),
+                "issues_found": review_result.get("issues_found", []),
+                "fixed_code": review_result.get("fixed_code"),
+                "changes_description": review_result.get("changes_description", ""),
+                "success": review_result.get("success", True),
+                "re_validation": review_result.get("re_validation"),
+            }
+
+            # 如果审核 Agent 提供了修复后的代码，自动应用
+            if review_result.get("fixed_code") and review_result.get("overall_verdict") == "major_issues":
+                strategy_pack["code"] = review_result["fixed_code"]
+                strategy_pack["_code_review"]["code_applied"] = True
+                log.info(
+                    f"[adhoc_analysis_node] 代码审核 Agent 修复已应用: "
+                    f"verdict={review_result.get('overall_verdict')}"
+                )
+            else:
+                log.info(
+                    f"[adhoc_analysis_node] 代码审核 Agent 完成: "
+                    f"verdict={review_result.get('overall_verdict')}, "
+                    f"issues={len(review_result.get('issues_found', []))}"
+                )
+        except Exception as review_err:
+            log.warning(f"[adhoc_analysis_node] 代码审核 Agent 失败（非致命）: {review_err}")
 
         yield {"type": "complete", "data": strategy_pack}
     except Exception as parse_err:
@@ -547,8 +598,49 @@ async def _generate_strategy_pack_streaming(
                         "success": fix_result.get("success"),
                         "re_validation": fix_result.get("re_validation"),
                     }
+                    if fix_result.get("success") and fix_result.get("fixed_code"):
+                        strategy_pack["code"] = fix_result["fixed_code"]
             except Exception as val_err:
                 log.warning(f"[adhoc_analysis_node] 代码校验失败（非致命）: {val_err}")
+
+            # 重试路径也运行代码审核 Agent
+            try:
+                from app.services.code_validator import review_generated_code
+
+                current_code = strategy_pack.get("code", "")
+                current_language = strategy_pack.get("code_language", "python")
+
+                yield {
+                    "type": "stage",
+                    "stage": "reviewing",
+                    "message": "正在启动代码审核 Agent 进行全面审查...",
+                }
+
+                review_result = await review_generated_code(
+                    code=current_code,
+                    language=current_language,
+                    instruction=instruction,
+                    file_profiles_text=file_profiles_text,
+                    session=session,
+                    user_id=user_id,
+                )
+
+                strategy_pack["_code_review"] = {
+                    "review_report": review_result.get("review_report", ""),
+                    "overall_verdict": review_result.get("overall_verdict", "minor_issues"),
+                    "issues_found": review_result.get("issues_found", []),
+                    "fixed_code": review_result.get("fixed_code"),
+                    "changes_description": review_result.get("changes_description", ""),
+                    "success": review_result.get("success", True),
+                    "re_validation": review_result.get("re_validation"),
+                }
+
+                if review_result.get("fixed_code") and review_result.get("overall_verdict") == "major_issues":
+                    strategy_pack["code"] = review_result["fixed_code"]
+                    strategy_pack["_code_review"]["code_applied"] = True
+            except Exception as review_err:
+                log.warning(f"[adhoc_analysis_node] 代码审核 Agent 失败（非致命，重试路径）: {review_err}")
+
             yield {"type": "complete", "data": strategy_pack}
         except Exception:
             yield {

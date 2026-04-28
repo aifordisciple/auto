@@ -102,6 +102,22 @@ export interface AdhocAnalysisCardProps {
       issues: Array<{ severity: string; message: string; suggestion: string }>
     }
   }
+  /** 代码审核 Agent 结果（由后端 review_generated_code 生成） */
+  _code_review?: {
+    review_report: string
+    overall_verdict: 'pass' | 'minor_issues' | 'major_issues'
+    issues_found: Array<{ severity: string; category: string; description: string; suggestion: string }>
+    fixed_code: string | null
+    changes_description: string
+    success: boolean
+    code_applied?: boolean
+    re_validation?: {
+      is_valid: boolean
+      status_text: string
+      status_icon: 'error' | 'warning' | 'success'
+      issues: Array<{ severity: string; message: string; suggestion: string }>
+    }
+  }
 }
 
 /**
@@ -128,6 +144,7 @@ export function AdhocAnalysisCard({
   toolCallId,
   _validation,
   _auto_fix,
+  _code_review,
 }: AdhocAnalysisCardProps) {
   // 从 Schema 默认值初始化表单状态
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
@@ -1005,6 +1022,52 @@ export function AdhocAnalysisCard({
                           className="ml-2 text-indigo-600 dark:text-indigo-400 hover:underline"
                         >
                           查看/应用修复代码
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* 代码审核 Agent 结果 */}
+                {_code_review && (
+                  <div className={`text-[10px] px-2 py-1.5 rounded flex items-start gap-1.5 mb-2 ${
+                    _code_review.overall_verdict === 'pass'
+                      ? 'bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800'
+                      : _code_review.overall_verdict === 'minor_issues'
+                      ? 'bg-yellow-50 dark:bg-yellow-900/10 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800'
+                      : 'bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'
+                  }`}>
+                    <span className="flex-shrink-0 mt-0.5">
+                      {_code_review.overall_verdict === 'pass' ? '✅' : _code_review.overall_verdict === 'minor_issues' ? '🔍' : '🛑'}
+                    </span>
+                    <div className="flex-1">
+                      <span className="font-medium">AI 代码审核: </span>
+                      <span>{_code_review.review_report}</span>
+                      {_code_review.changes_description && (
+                        <span className="ml-2 opacity-75">→ {_code_review.changes_description}</span>
+                      )}
+                      {_code_review.code_applied && (
+                        <span className="ml-2 text-green-600 dark:text-green-400 font-medium">✓ 修复已应用</span>
+                      )}
+                      {/* 审核问题详情 */}
+                      {_code_review.issues_found && _code_review.issues_found.length > 0 && (
+                        <div className="mt-1.5 space-y-0.5">
+                          {_code_review.issues_found.map((issue, idx) => (
+                            <div key={idx} className={`text-[9px] pl-2 border-l-2 ${
+                              issue.severity === 'error' ? 'border-red-400' : issue.severity === 'warning' ? 'border-yellow-400' : 'border-blue-400'
+                            }`}>
+                              <span className="opacity-60">[{issue.category}]</span>{' '}
+                              {issue.description}
+                              {issue.suggestion && <span className="ml-1 opacity-60">— {issue.suggestion}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {_code_review.fixed_code && (
+                        <button
+                          onClick={() => setEditableCode(_code_review.fixed_code!)}
+                          className="mt-1 text-indigo-600 dark:text-indigo-400 hover:underline block"
+                        >
+                          查看/应用审核修复代码
                         </button>
                       )}
                     </div>

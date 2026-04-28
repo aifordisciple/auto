@@ -387,3 +387,240 @@ async def auto_fix_generated_code(
             "changes_description": f"自动修复失败: {str(e)}",
             "success": False,
         }
+
+
+async def review_generated_code(
+    code: str,
+    language: str,
+    instruction: str,
+    file_profiles_text: str = "",
+    session: Any = None,
+    user_id: Any = None,
+) -> dict:
+    """
+    代码审核 Agent — 独立的代码审查和修复 Agent。
+
+    程序说明：
+    与 auto_fix_generated_code 不同，本函数启动一个完整的代码审核 Agent，
+    从多个维度深入审查代码质量，不仅修复语法问题，还检查：
+    1. 代码逻辑正确性（是否真正实现了用户需求）
+    2. CNS 级作图规范（前序需求中强制要求的 ggplot2/ggsci/双格式输出等）
+    3. 参数解析完整性（argparse/optparse 参数是否与 parameter_schema 一致）
+    4. 错误处理和边界情况
+    5. 库导入完整性
+    6. 生物信息学最佳实践
+
+    审核 Agent 会先输出审核报告，再输出修复后的完整代码。
+
+    Args:
+        code: 原始生成的代码
+        language: 代码语言 (python, r)
+        instruction: 用户原始分析需求
+        file_profiles_text: 输入文件探查结果文本（用于校验列名引用是否正确）
+        session: 数据库会话
+        user_id: 用户 ID
+
+    Returns:
+        {
+            "review_report": str,       # 审核报告摘要
+            "issues_found": list,        # 发现的问题列表
+            "fixed_code": str | None,    # 修复后的代码
+            "changes_description": str,  # 修改说明
+            "success": bool,             # 审核是否通过
+            "re_validation": dict | None # 重新校验结果
+        }
+    """
+    from app.utils.llm_config import get_fast_llm_config
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_openai import ChatOpenAI
+
+    # 构建上下文注入文本
+    profiles_context = ""
+    if file_profiles_text:
+        profiles_context = f"\n输入文件探查结果（代码中的列名必须与此一致）：\n{file_profiles_text[:2000]}\n"
+
+    # 语言特定的额外审核规则
+    if language in ("r", "R"):
+        cns_rules = """
+**CNS 作图规范审核（R 语言，极其重要）：**
+- 是否使用了 ggsci 包的学术期刊配色（scale_fill_npg/jco/lancet 等）？
+- 是否使用了学术主题（theme_bw/theme_minimal/theme_classic）而非默认灰色背景？
+- 每个图形是否同时输出了 PDF（cairo_pdf 设备）和 PNG（dpi≥300）两种格式？
+- 热图是否使用了 ComplexHeatmap 包？
+- 是否保存了中间数据文件（CSV/TSV）？
+- 是否使用了 set.seed() 确保可重复性？"""
+    else:
+        cns_rules = """
+**Python 作图审核（Python 作图应优先使用 R，若确实使用 Python）：**
+- 是否使用了 matplotlib/seaborn 的学术风格（seaborn.set_style('whitegrid') 等）？
+- 图形是否同时保存了 PDF 和 PNG（dpi≥300）？
+- 是否保存了中间数据文件（CSV/TSV）？"""
+
+    review_prompt = f"""你是一个生物信息学高级代码审核专家。请对以下即席分析代码进行全面的代码审核。
+
+用户分析需求：{instruction}
+代码语言：{language}
+{profiles_context}
+当前代码：
+```{language}
+{code}
+```
+
+请从以下维度逐项审核代码：
+
+**1. 正确性审核（CRITICAL）：**
+- 代码逻辑是否正确实现了用户的分析需求？
+- 数据读取路径是否正确（是否使用了正确的文件路径变量）？
+- 分析步骤是否完整（数据加载 → 预处理 → 核心分析 → 结果输出）？
+- 列名和数据字段引用是否正确（如有文件探查结果，必须严格使用探查出的列名）？
+
+**2. 参数处理审核（CRITICAL）：**
+- Python: argparse 定义是否与 parameter_schema 中的参数数量和名称一致？
+- R: optparse/commandArgs 定义是否完整？
+- 所有命令行参数是否都正确参与代码逻辑？
+- 默认值是否符合生信经验？
+
+**3. 输出路径审核（CRITICAL）：**
+- 是否使用 TASK_OUT_DIR 环境变量？
+- 所有输出文件（图形、数据表）是否写入 TASK_OUT_DIR？
+- 没有硬编码路径（如 /tmp, /output, ~/ 等）？
+
+**4. 作图质量审核：**
+{cns_rules}
+
+**5. 错误处理和健壮性：**
+- 文件读取是否有错误处理（文件不存在等）？
+- 关键计算步骤是否有适当的检查（如空值、NA 值处理）？
+- 列名查找失败是否有友好错误提示？
+
+**6. 库导入审核：**
+- 所有使用的库是否都已导入/加载？
+- 导入的库是否都在代码中实际使用了（无冗余导入）？
+
+**7. 生物信息学最佳实践：**
+- 统计检验方法是否正确（如 p 值校正方法、检验类型选择等）？
+- 数据标准化/归一化方法是否合理？
+- 聚类方法参数是否合理？
+
+请按以下 JSON 格式输出审核结果：
+```json
+{{
+  "review_report": "审核报告摘要（中文，2-4句概述审核结论）",
+  "overall_verdict": "pass" | "minor_issues" | "major_issues",
+  "issues_found": [
+    {{
+      "severity": "error" | "warning" | "info",
+      "category": "正确性/参数处理/输出路径/作图质量/错误处理/库导入/最佳实践",
+      "description": "问题描述（中文）",
+      "suggestion": "修复建议"
+    }}
+  ],
+  "fixed_code": "修复后的完整代码（若无修改则为 null）",
+  "changes_description": "修改内容说明（中文，1-2句）"
+}}
+```
+
+注意事项：
+- 如果代码质量高、无明显问题，overall_verdict 设为 "pass"，issues_found 为空数组，fixed_code 为 null
+- 如果有小问题（如配色建议、注释缺失），overall_verdict 设为 "minor_issues"
+- 如果有严重问题（如语法错误、逻辑缺陷、参数不匹配），overall_verdict 设为 "major_issues" 并给出 fixed_code
+- 修复代码时保持原有结构和逻辑不变，只修复发现的问题
+- 修复后确保代码完整可执行"""
+
+    try:
+        llm_config = get_fast_llm_config(session, user_id)
+        llm = ChatOpenAI(
+            api_key=llm_config.api_key or "not-needed",
+            base_url=llm_config.base_url,
+            model=llm_config.model_name,
+            temperature=0.0,
+        )
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", review_prompt),
+            ("human", "请对以上代码进行全面审核，输出严格 JSON 格式的审核结果。"),
+        ])
+
+        chain = prompt | llm
+        response = await chain.ainvoke({})
+        raw = response.content.strip()
+
+        # 清理 markdown 标记
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        import json as json_mod
+        from json_repair import repair_json
+        repaired = repair_json(raw)
+        result = json_mod.loads(repaired)
+
+        # 校验审核结果完整性
+        if result.get("overall_verdict") == "pass":
+            log.info("[CodeReviewer] 代码审核通过，无需修改")
+            return {
+                "review_report": result.get("review_report", "代码审核通过"),
+                "overall_verdict": "pass",
+                "issues_found": result.get("issues_found", []),
+                "fixed_code": None,
+                "changes_description": "代码审核通过，无需修改",
+                "success": True,
+                "re_validation": None,
+            }
+
+        # 有修改建议时，重新校验修复后的代码
+        fixed_code = result.get("fixed_code")
+        if fixed_code:
+            re_validation = validate_generated_code(fixed_code, language)
+            re_val_data = {
+                "is_valid": re_validation.is_valid,
+                "status_text": re_validation.status_text,
+                "status_icon": re_validation.status_icon,
+                "issues": [
+                    {"severity": i.severity, "message": i.message, "suggestion": i.suggestion}
+                    for i in re_validation.issues
+                ],
+            }
+
+            issue_count = len(result.get("issues_found", []))
+            error_count = len([i for i in result.get("issues_found", []) if i.get("severity") == "error"])
+
+            log.info(
+                f"[CodeReviewer] 代码审核完成: verdict={result.get('overall_verdict')}, "
+                f"issues={issue_count}, errors={error_count}, "
+                f"re-validate={re_validation.is_valid}"
+            )
+
+            return {
+                "review_report": result.get("review_report", ""),
+                "overall_verdict": result.get("overall_verdict", "minor_issues"),
+                "issues_found": result.get("issues_found", []),
+                "fixed_code": fixed_code,
+                "changes_description": result.get("changes_description", f"修复了 {issue_count} 个问题"),
+                "success": re_validation.is_valid,
+                "re_validation": re_val_data,
+            }
+        else:
+            # 有审核问题但无修复代码（仅建议）
+            return {
+                "review_report": result.get("review_report", ""),
+                "overall_verdict": result.get("overall_verdict", "minor_issues"),
+                "issues_found": result.get("issues_found", []),
+                "fixed_code": None,
+                "changes_description": result.get("changes_description", "发现代码问题但无法自动修复"),
+                "success": True,
+                "re_validation": None,
+            }
+
+    except Exception as e:
+        log.error(f"[CodeReviewer] 代码审核 Agent 失败: {e}")
+        return {
+            "review_report": f"代码审核失败: {str(e)}",
+            "overall_verdict": "major_issues",
+            "issues_found": [],
+            "fixed_code": None,
+            "changes_description": "审核 Agent 异常，代码可能未经审核",
+            "success": False,
+            "re_validation": None,
+        }

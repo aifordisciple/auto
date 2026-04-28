@@ -7,14 +7,15 @@ import { Check, Loader2, FileText, Code, Settings, Sparkles, ShieldCheck } from 
  * AdhocSkeletonCard — 即席分析策略生成进度卡片。
  *
  * 当后端流式生成策略包时，通过 adhoc_status 事件推送阶段变更，
- * 前端消费这些事件实现 5 阶段渐进式进度指示，替代原来的脉冲骨架屏。
+ * 前端消费这些事件实现 6 阶段渐进式进度指示，替代原来的脉冲骨架屏。
  *
- * 5 个阶段：
+ * 6 个阶段：
  * 1. understanding — 理解需求
  * 2. planning — 设计策略
  * 3. coding — 生成代码
  * 4. params — 构建参数
- * 5. validating — 校验策略包
+ * 5. validating — 校验策略
+ * 6. reviewing — 代码审核 Agent 审查
  */
 
 interface StageInfo {
@@ -33,10 +34,11 @@ const STAGE_CONFIG: Record<string, { icon: typeof Sparkles; label: string }> = {
   planning: { icon: FileText, label: '设计策略' },
   coding: { icon: Code, label: '生成代码' },
   params: { icon: Settings, label: '构建参数' },
-  validating: { icon: ShieldCheck, label: '校验策略' },
+  validating: { icon: ShieldCheck, label: '语法校验' },
+  reviewing: { icon: ShieldCheck, label: '代码审核' },
 };
 
-const STAGE_ORDER = ['understanding', 'planning', 'coding', 'params', 'validating'];
+const STAGE_ORDER = ['understanding', 'planning', 'coding', 'params', 'validating', 'reviewing'];
 
 export function AdhocSkeletonCard({ stages = [] }: AdhocSkeletonCardProps) {
   // 当前活跃阶段（最新的已完成或进行中）
