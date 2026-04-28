@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy } from 'lucide-react'
 
 /**
  * JSON Schema 属性定义（与 ParameterProbingCard 一致）
@@ -107,6 +107,11 @@ export function AdhocAnalysisCard({
   const [isExecuting, setIsExecuting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
+  // 固化技能模态框状态
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [saveSkillName, setSaveSkillName] = useState('')
+  const [saveCategory, setSaveCategory] = useState('即席分析')
+  const [saveVisibility, setSaveVisibility] = useState('private')
   const [showCode, setShowCode] = useState(false)
   const [editableCode, setEditableCode] = useState(code)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
@@ -120,6 +125,8 @@ export function AdhocAnalysisCard({
   // 实时日志流状态
   const [logLines, setLogLines] = useState<string[]>([])
   const [showLogWindow, setShowLogWindow] = useState(false)
+  const [logCollapsed, setLogCollapsed] = useState(false)
+  const [logCopied, setLogCopied] = useState(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -192,6 +199,7 @@ export function AdhocAnalysisCard({
     setExecutionResult(null)
     setLogLines([])
     setShowLogWindow(true)
+    setLogCollapsed(false)
 
     // 合并用户填写的参数和底层文件映射
     const finalPayload = {
@@ -381,16 +389,21 @@ export function AdhocAnalysisCard({
   }
 
   // 固化技能到资产库：调用后端 API 将策略包写入文件系统
-  const handleSaveSkill = async () => {
-    if (isSaving) return
+  // 打开保存模态框
+  const handleSaveSkill = () => {
+    setSaveSkillName(strategy.slice(0, 30))
+    setSaveCategory('即席分析')
+    setSaveVisibility('private')
+    setShowSaveModal(true)
+  }
+
+  // 确认保存
+  const handleConfirmSave = async () => {
+    if (isSaving || !saveSkillName.trim()) return
     setIsSaving(true)
     setSaveResult(null)
+    setShowSaveModal(false)
     try {
-      const skillName = prompt('请输入技能名称：', strategy.slice(0, 30))
-      if (!skillName) {
-        setIsSaving(false)
-        return
-      }
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
       const res = await fetch(`${apiUrl}/api/chat/adhoc/save-skill`, {
@@ -401,8 +414,10 @@ export function AdhocAnalysisCard({
         },
         body: JSON.stringify({
           message_id,
-          skill_name: skillName,
+          skill_name: saveSkillName,
           description: strategy,
+          visibility: saveVisibility,
+          category_name: saveCategory,
         }),
       })
       if (!res.ok) {
@@ -411,6 +426,8 @@ export function AdhocAnalysisCard({
       }
       const data = await res.json()
       setSaveResult(`技能已保存: ${data.skill_id}`)
+      // 3 秒后自动清除保存结果
+      setTimeout(() => setSaveResult(null), 3000)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '保存失败'
       setSaveResult(`保存失败: ${message}`)
@@ -619,11 +636,14 @@ export function AdhocAnalysisCard({
         )}
       </div>
 
-      {/* 5. 实时日志窗口（点击执行后展开，始终可见直到手动关闭） */}
+      {/* 5. 实时日志窗口 */}
       {showLogWindow && (
         <div className="mx-4 mb-4 border border-gray-700 rounded-md overflow-hidden">
           {/* 日志窗口标题栏 */}
-          <div className="flex items-center justify-between bg-gray-800 px-3 py-2">
+          <button
+            onClick={() => setLogCollapsed(!logCollapsed)}
+            className="w-full flex items-center justify-between bg-gray-800 px-3 py-2 hover:bg-gray-750 transition-colors cursor-pointer border-0"
+          >
             <span className="text-xs font-medium text-gray-300 flex items-center gap-2">
               {isExecuting ? (
                 <Loader2 size={12} className="animate-spin text-blue-400" />
@@ -636,39 +656,72 @@ export function AdhocAnalysisCard({
               ) : (
                 <span className="text-gray-400">📋 执行日志</span>
               )}
+              {logLines.length > 0 && (
+                <span className="text-[10px] text-gray-500 bg-gray-700 rounded-full px-1.5 py-0.5">
+                  {logLines.length} 行
+                </span>
+              )}
             </span>
-            <button
-              onClick={() => setShowLogWindow(false)}
-              className="text-gray-500 hover:text-gray-300 text-xs"
-            >
-              关闭
-            </button>
-          </div>
-          {/* 日志内容区 */}
-          <div
-            ref={logContainerRef}
-            className="bg-gray-900 text-gray-100 p-3 text-xs font-mono max-h-64 overflow-y-auto"
-          >
-            {logLines.length === 0 && isExecuting ? (
-              <span className="text-gray-500">等待日志输出...</span>
-            ) : (
-              logLines.map((line, i) => (
-                <div key={i} className="whitespace-pre-wrap break-all">
-                  {line}
-                </div>
-              ))
-            )}
-          </div>
-          {/* 取消按钮（仅在执行中显示） */}
-          {isExecuting && (
-            <div className="bg-gray-800 px-3 py-2 flex justify-end">
+            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {/* 复制日志按钮 */}
+              {logLines.length > 0 && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(logLines.join('\n'))
+                    setLogCopied(true)
+                    setTimeout(() => setLogCopied(false), 2000)
+                  }}
+                  className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition-colors"
+                  title="复制日志"
+                >
+                  {logCopied ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
+                </button>
+              )}
+              {/* 折叠/展开 + 关闭 */}
+              <span className="text-gray-500 text-xs">
+                {logCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              </span>
               <button
-                onClick={handleCancel}
-                className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded px-3 py-1 hover:bg-red-500/10 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowLogWindow(false)
+                }}
+                className="text-gray-500 hover:text-gray-300 text-xs ml-1"
+                title="关闭日志窗口"
               >
-                ⏹️ 取消执行
+                ✕
               </button>
             </div>
+          </button>
+          {/* 日志内容区（可折叠） */}
+          {!logCollapsed && (
+            <>
+              <div
+                ref={logContainerRef}
+                className="bg-gray-900 text-gray-100 p-3 text-xs font-mono max-h-64 overflow-y-auto"
+              >
+                {logLines.length === 0 && isExecuting ? (
+                  <span className="text-gray-500">等待日志输出...</span>
+                ) : (
+                  logLines.map((line, i) => (
+                    <div key={i} className="whitespace-pre-wrap break-all">
+                      {line}
+                    </div>
+                  ))
+                )}
+              </div>
+              {/* 取消按钮（仅在执行中显示） */}
+              {isExecuting && (
+                <div className="bg-gray-800 px-3 py-2 flex justify-end">
+                  <button
+                    onClick={handleCancel}
+                    className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded px-3 py-1 hover:bg-red-500/10 transition-colors"
+                  >
+                    ⏹️ 取消执行
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -784,14 +837,22 @@ export function AdhocAnalysisCard({
         <button
           onClick={handleSaveSkill}
           disabled={isSaving}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-zinc-600 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm border rounded-md transition-colors disabled:opacity-50 ${
+            saveResult?.startsWith('技能已保存')
+              ? 'text-green-600 dark:text-green-400 border-green-300 dark:border-green-600 bg-green-50 dark:bg-green-900/20'
+              : saveResult?.startsWith('保存失败')
+              ? 'text-red-600 dark:text-red-400 border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20'
+              : 'text-gray-600 dark:text-zinc-400 border-gray-300 dark:border-zinc-600 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800'
+          }`}
         >
           {isSaving ? (
             <Loader2 size={14} className="animate-spin" />
+          ) : saveResult?.startsWith('技能已保存') ? (
+            <Check size={14} className="text-green-500" />
           ) : (
             <Star size={14} />
           )}
-          {saveResult || (isSaving ? '保存中...' : '固化为团队技能')}
+          {isSaving ? '保存中...' : saveResult?.startsWith('技能已保存') ? '✅ 已保存' : saveResult?.startsWith('保存失败') ? '❌ 保存失败' : '固化为团队技能'}
         </button>
         <div className="flex items-center gap-3">
           {/* 失败原因摘要（仅在失败后显示） */}
@@ -821,9 +882,118 @@ export function AdhocAnalysisCard({
           </button>
         </div>
       </div>
+
+      {/* 8. 固化技能模态框 */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* 遮罩层 */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowSaveModal(false)}
+          />
+          {/* 模态框内容 */}
+          <div className="relative bg-white dark:bg-[#1e1e20] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl w-full max-w-md mx-4 p-6 z-10">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+              固化为平台技能
+            </h3>
+            {/* 技能名称 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1.5">
+                技能名称 <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={saveSkillName}
+                onChange={(e) => setSaveSkillName(e.target.value)}
+                placeholder="输入技能名称"
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && saveSkillName.trim()) handleConfirmSave()
+                }}
+              />
+            </div>
+            {/* 分类选择 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1.5">
+                分类
+              </label>
+              <select
+                value={saveCategory}
+                onChange={(e) => setSaveCategory(e.target.value)}
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+              >
+                {SKILL_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+            {/* 可见性选择 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1.5">
+                可见性
+              </label>
+              <div className="flex gap-2">
+                {[
+                  { value: 'private', label: '私有', desc: '仅自己可见' },
+                  { value: 'team', label: '团队', desc: '团队成员可见' },
+                  { value: 'public', label: '公开', desc: '所有人可见' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setSaveVisibility(opt.value)}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                      saveVisibility === opt.value
+                        ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-400 dark:border-indigo-500 text-indigo-700 dark:text-indigo-300'
+                        : 'border-zinc-300 dark:border-zinc-600 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    <div>{opt.label}</div>
+                    <div className="text-[10px] opacity-60">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* 操作按钮 */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 text-sm text-gray-600 dark:text-zinc-400 border border-gray-300 dark:border-zinc-600 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmSave}
+                disabled={!saveSkillName.trim() || isSaving}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 disabled:cursor-not-allowed rounded-md transition-colors flex items-center gap-1.5"
+              >
+                {isSaving ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Star size={14} />
+                )}
+                确认保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
+/** 生信技能分类选项 */
+const SKILL_CATEGORIES = [
+  '即席分析',
+  '数据可视化',
+  '差异分析',
+  '功能富集',
+  '序列分析',
+  '机器学习',
+  '统计检验',
+  '质量控制',
+  '通用',
+]
 
 /** 格式化文件大小 */
 function formatFileSize(bytes: number): string {

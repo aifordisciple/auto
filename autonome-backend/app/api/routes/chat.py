@@ -1790,6 +1790,7 @@ class AdhocSaveSkillRequest(BaseModel):
     skill_name: str = Field(..., description="用户指定的技能名称")
     description: str = Field(default="", description="技能描述")
     visibility: str = Field(default="private", description="可见性: private | team | public")
+    category_name: str = Field(default="即席分析", description="分类名称")
 
 
 @router.post("/adhoc/save-skill")
@@ -1851,7 +1852,7 @@ async def adhoc_save_skill(
             executor_type=executor_type,
             skills_dir="/app/skills",
             category="adhoc",
-            category_name="即席分析",
+            category_name=request.category_name,
             tags=["adhoc", "generated"],
         )
         log.info(f"[adhoc_save_skill] 技能已固化: skill_id={skill_id}, files={result.get('files_created', [])}")
