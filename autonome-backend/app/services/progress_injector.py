@@ -3,38 +3,38 @@
 
 程序说明：
 在执行前，向生成的 Python/R 脚本中注入进度报告辅助函数。
-脚本在关键步骤调用这些函数，输出 __AUTONOME_PROGRESS__ 标记行。
+脚本在关键步骤调用这些函数，输出 AUTONOME_PROGRESS 标记行。
 SSE 端点解析这些标记行，推送结构化进度事件给前端，
 前端据此渲染进度条和步骤描述，替代原始 Docker 日志的可读性问题。
 
 进度标记格式：
-__AUTONOME_PROGRESS__:<step>:<total>:<message>__
+AUTONOME_PROGRESS:<step>:<total>:<message>
 
 辅助函数：
-Python: __autonome_progress__(step, total, message)
-R:      __autonome_progress__(step, total, message)
+Python: autonome_progress(step, total, message)
+R:      autonome_progress(step, total, message)
 """
 from app.core.logger import log
 
 # Python 进度辅助函数（注入到脚本开头）
 PYTHON_PROGRESS_HELPER = '''
 import sys as __sys
-def __autonome_progress__(step, total, message):
-    """报告分析进度，格式: __AUTONOME_PROGRESS__:step:total:message__"""
-    __sys.stdout.write(f"__AUTONOME_PROGRESS__:{step}:{total}:{message}__\\n")
+def autonome_progress(step, total, message):
+    """报告分析进度，格式: AUTONOME_PROGRESS:step:total:message"""
+    __sys.stdout.write(f"AUTONOME_PROGRESS:{step}:{total}:{message}\\n")
     __sys.stdout.flush()
 '''
 
 # R 进度辅助函数（注入到脚本开头）
 R_PROGRESS_HELPER = '''
-__autonome_progress__ <- function(step, total, message) {
-  cat(sprintf("__AUTONOME_PROGRESS__:%d:%d:%s__\\n", step, total, message))
+autonome_progress <- function(step, total, message) {
+  cat(sprintf("AUTONOME_PROGRESS:%d:%d:%s\\n", step, total, message))
 }
 '''
 
 # 进度标记解析正则
 import re
-PROGRESS_PATTERN = re.compile(r'__AUTONOME_PROGRESS__:(\d+):(\d+):([^_].*?)__')
+PROGRESS_PATTERN = re.compile(r'AUTONOME_PROGRESS:(\d+):(\d+):(.*)')
 
 
 def inject_progress_helper(code: str, language: str) -> str:
@@ -148,7 +148,7 @@ def enhance_llm_prompt_for_progress() -> str:
     """
     返回用于增强 ADHOC_SYSTEM_PROMPT 的进度标记说明文本。
 
-    告知 LLM 在生成的分析代码中调用 __autonome_progress__ 函数，
+    告知 LLM 在生成的分析代码中调用 autonome_progress 函数，
     将分析流程分解为若干步骤并报告进度。
 
     Returns:
@@ -157,19 +157,19 @@ def enhance_llm_prompt_for_progress() -> str:
     return """
 进度报告要求（新增）：
 - 在代码的关键步骤调用进度报告函数：
-  * Python: __autonome_progress__(step, total, message)
-  * R:      __autonome_progress__(step, total, message)
+  * Python: autonome_progress(step, total, message)
+  * R:      autonome_progress(step, total, message)
 - 将分析流程分解为 3-6 个关键步骤，如：
   * step 1: "加载数据"
   * step 2: "数据预处理"
   * step 3: "执行分析"
   * step 4: "生成图表"
   * step 5: "保存结果"
-- 每个步骤调用一次 __autonome_progress__，step 从 1 递增
+- 每个步骤调用一次 autonome_progress，step 从 1 递增
 - 进度消息使用中文，简洁描述当前步骤（不超过 15 字）
 - 示例（Python）：
-  __autonome_progress__(1, 4, "加载表达矩阵")
+  autonome_progress(1, 4, "加载表达矩阵")
   df = pd.read_csv(args.input, sep='\\t')
-  __autonome_progress__(2, 4, "数据标准化")
+  autonome_progress(2, 4, "数据标准化")
   ...
 """
