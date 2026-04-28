@@ -147,6 +147,10 @@ export function AdhocAnalysisCard({
   const [activeLogTab, setActiveLogTab] = useState<'analysis' | 'system' | 'all'>('analysis')
   // 进度状态
   const [progressData, setProgressData] = useState<{ step: number; total: number; message: string; percent: number } | null>(null)
+  // LLM 结果解读
+  const [interpretation, setInterpretation] = useState<string | null>(null)
+  // 智能错误诊断
+  const [diagnosis, setDiagnosis] = useState<{ diagnosis: string; fixed_code: string | null; fix_description: string } | null>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   // 执行计时器状态
@@ -251,6 +255,8 @@ export function AdhocAnalysisCard({
     setSystemLogs([])
     setAnalysisLogs([])
     setProgressData(null)
+    setInterpretation(null)
+    setDiagnosis(null)
     setSystemLogsCollapsed(true)
     setActiveLogTab('analysis')
     setShowLogWindow(true)
@@ -420,6 +426,18 @@ export function AdhocAnalysisCard({
         }
         break
       }
+      case 'interpretation':
+        // LLM 结果解读
+        setInterpretation(event.text as string)
+        break
+      case 'diagnosis':
+        // 智能错误诊断（含一键修复建议）
+        setDiagnosis({
+          diagnosis: event.diagnosis as string,
+          fixed_code: event.fixed_code as string | null,
+          fix_description: event.fix_description as string,
+        })
+        break
       case 'done':
         // 流结束
         break
@@ -1029,6 +1047,55 @@ export function AdhocAnalysisCard({
               ? `✅ 分析完成 — 共生成 ${executionResult?.output_files?.length || 0} 个文件`
               : '❌ 执行失败'}
           </h4>
+
+          {/* LLM 结果解读（成功时） */}
+          {executionResult.status === 'success' && interpretation && (
+            <div className="mb-3 p-3 rounded-md bg-white/60 dark:bg-white/5 border border-gray-200 dark:border-zinc-700">
+              <div className="flex items-start gap-2">
+                <span className="text-sm mt-0.5">📝</span>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-zinc-500 font-medium">AI 解读</span>
+                  <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed mt-0.5">
+                    {interpretation}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 智能错误诊断（失败时） */}
+          {executionResult.status === 'failed' && diagnosis && (
+            <div className="mb-3 p-3 rounded-md bg-white/60 dark:bg-white/5 border border-amber-200 dark:border-amber-700/30">
+              <div className="flex items-start gap-2">
+                <span className="text-sm mt-0.5">🔧</span>
+                <div className="flex-1">
+                  <span className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 font-medium">AI 诊断</span>
+                  <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed mt-0.5">
+                    {diagnosis.diagnosis}
+                  </p>
+                  {diagnosis.fix_description && (
+                    <p className="text-[10px] text-gray-500 dark:text-zinc-400 mt-1">
+                      💡 {diagnosis.fix_description}
+                    </p>
+                  )}
+                  {diagnosis.fixed_code && (
+                    <button
+                      onClick={() => {
+                        setEditableCode(diagnosis.fixed_code!)
+                        setShowCode(true)
+                        setDiagnosis(null)
+                        // 滚动到代码区
+                      }}
+                      className="mt-2 text-xs px-3 py-1.5 bg-amber-500 text-white rounded hover:bg-amber-600 transition-colors flex items-center gap-1"
+                    >
+                      🔧 一键应用修复
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {executionResult.output && (
             <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto max-h-48">
               <code>{executionResult.output}</code>

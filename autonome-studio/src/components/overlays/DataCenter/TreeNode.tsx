@@ -49,6 +49,10 @@ export interface TreeNodeProps {
   toggleSelection: (path: string) => void;
   /** 右键菜单处理 */
   onContextMenu: (e: React.MouseEvent | { preventDefault: () => void; stopPropagation: () => void }, node: FileNode & { _action?: string }) => void;
+  /** 高亮目标路径（数据中心联动） */
+  highlightedPath?: string | null;
+  /** 高亮节点 ref（用于 scrollIntoView） */
+  highlightedNodeRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -64,12 +68,15 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
   isBatchMode,
   selectedPaths,
   toggleSelection,
-  onContextMenu
+  onContextMenu,
+  highlightedPath,
+  highlightedNodeRef,
 }) => {
   const isFolder = node.type === 'folder';
   const isExpanded = expandedFolders.has(node.path);
   const isProtectedRoot = isFolder && (node.path === 'raw_data' || node.path === 'results' || node.path === 'references');
   const isReadOnly = node.path.startsWith('references');
+  const isHighlighted = highlightedPath && node.path === highlightedPath;
 
   // ✨ 是否允许被批量选中
   const isSelectable = !isProtectedRoot && !isReadOnly;
@@ -83,7 +90,8 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
   return (
     <div className="flex flex-col">
       <div
-        className={`flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/80 rounded-lg cursor-pointer group transition-all ${!isFolder ? 'ml-6' : ''} ${selectedPaths?.has(node.path) ? 'bg-red-500/10 border border-red-500/20' : 'border border-transparent'}`}
+        ref={isHighlighted ? highlightedNodeRef : undefined}
+        className={`flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-800/80 rounded-lg cursor-pointer group transition-all ${!isFolder ? 'ml-6' : ''} ${selectedPaths?.has(node.path) ? 'bg-red-500/10 border border-red-500/20' : 'border border-transparent'} ${isHighlighted ? 'ring-2 ring-indigo-400 bg-indigo-50/10 dark:bg-indigo-500/10 animate-pulse' : ''}`}
         onClick={() => {
           if (isBatchMode && isSelectable) {
             toggleSelection(node.path);
@@ -198,6 +206,8 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
               selectedPaths={selectedPaths}
               toggleSelection={toggleSelection}
               onContextMenu={onContextMenu}
+              highlightedPath={highlightedPath}
+              highlightedNodeRef={highlightedNodeRef}
             />
           ))}
         </div>

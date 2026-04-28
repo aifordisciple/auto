@@ -1528,6 +1528,161 @@ async def probing_submit(
 # ==========================================
 
 
+async def _generate_result_interpretation(
+    docker_output: str,
+    output_files: list,
+    instruction: str,
+    session,
+    user_id,
+) -> str | None:
+    """
+    执行成功后，调用 LLM 对分析结果做自然语言解读。
+
+    程序说明：
+    将脚本输出文本和输出文件列表提供给 LLM，生成面向生物学家用户的
+    通俗易懂的结果解读，帮助非技术用户理解分析结果的含义。
+
+    Args:
+        docker_output: 脚本执行的标准输出（截断至 3000 字符）
+        output_files: 输出文件列表 [{path, name, ext, size}]
+        instruction: 分析策略描述
+        session: 数据库会话
+        user_id: 用户 ID
+
+    Returns:
+        自然语言解读文本，失败时返回 None
+    """
+    if not docker_output.strip() and not output_files:
+        return None
+
+    from app.utils.llm_config import get_fast_llm_config
+    from langchain_openai import ChatOpenAI
+
+    try:
+        llm_config = get_fast_llm_config(session, user_id)
+        llm = ChatOpenAI(
+            api_key=llm_config.api_key or "not-needed",
+            base_url=llm_config.base_url,
+            model=llm_config.model_name,
+            temperature=0.0,
+        )
+
+        files_summary = "\n".join(
+            f"  - {f['name']} ({f['ext']}, {f.get('size', 0) / 1024:.1f}KB)"
+            for f in output_files[:10]
+        )
+
+        prompt = f"""你是一个生物信息学结果解读专家。请用通俗易懂的中文解读以下分析结果。
+
+分析目的：{instruction}
+
+脚本输出摘要：
+{docker_output[:1500]}
+
+输出文件：
+{files_summary}
+
+请用 2-4 句简洁的话解读：
+1. 分析完成了什么
+2. 关键结果是什么（如果有数值或统计结果，请解读其生物学意义）
+3. 输出文件分别包含什么内容
+
+请使用通俗易懂的语言，面向可能没有编程背景的生物学家用户。"""
+
+        response = await llm.ainvoke(prompt)
+        interpretation = response.content.strip()
+        log.info(f"[adhoc_execute] 结果解读生成成功: {len(interpretation)} 字符")
+        return interpretation
+
+    except Exception as e:
+        log.warning(f"[adhoc_execute] 结果解读 LLM 调用失败: {e}")
+        return None
+
+
+async def _generate_error_diagnosis(
+    error_output: str,
+    code: str,
+    language: str,
+    session,
+    user_id,
+) -> dict | None:
+    """
+    执行失败时，调用 LLM 分析错误日志并给出修复建议。
+
+    程序说明：
+    将错误输出和执行的代码提供给 LLM，分析错误原因并生成具体的代码修改建议。
+    前端据此展示 AI 诊断并支持一键应用修复。
+
+    Args:
+        error_output: 错误输出文本（截断至 3000 字符）
+        code: 执行的代码
+        language: 代码语言 (python/r)
+        session: 数据库会话
+        user_id: 用户 ID
+
+    Returns:
+        {"diagnosis": str, "fixed_code": str | None, "fix_description": str} 或 None
+    """
+    if not error_output.strip():
+        return None
+
+    from app.utils.llm_config import get_fast_llm_config
+    from langchain_openai import ChatOpenAI
+
+    try:
+        llm_config = get_fast_llm_config(session, user_id)
+        llm = ChatOpenAI(
+            api_key=llm_config.api_key or "not-needed",
+            base_url=llm_config.base_url,
+            model=llm_config.model_name,
+            temperature=0.0,
+        )
+
+        prompt = f"""你是一个代码调试专家。用户的 {language} 代码执行失败了，请分析错误原因并给出修复建议。
+
+执行代码：
+```{language}
+{code[:3000]}
+```
+
+错误输出：
+{error_output[:2500]}
+
+请分析并提供：
+1. 错误原因的诊断（1-2 句话，中文，面向非技术用户）
+2. 如果可以修复，提供修复后的完整代码（保持原有功能不变，仅修复错误部分）
+3. 修复改动的简要说明（1 句话，说明改了什么）
+
+请严格按以下 JSON 格式回复：
+```json
+{{
+  "diagnosis": "错误原因的中文描述",
+  "fixed_code": "修复后的完整 {language} 代码，如果无法修复则为 null",
+  "fix_description": "改了什么，如果无法修复则说明需要人工检查的原因"
+}}
+```"""
+
+        response = await llm.ainvoke(prompt)
+        raw = response.content.strip()
+        # 移除 markdown 标记
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        import json as json_mod
+        from json_repair import repair_json
+        repaired = repair_json(raw)
+        result = json_mod.loads(repaired)
+
+        log.info(f"[adhoc_execute] 错误诊断生成成功")
+        return result
+
+    except Exception as e:
+        log.warning(f"[adhoc_execute] 错误诊断 LLM 调用失败: {e}")
+        return None
+
+
 def _derive_short_name(strategy_text: str, max_len: int = 20) -> str:
     """
     从即席分析策略描述中提取简短英文标识，用于输出目录命名。
@@ -1811,6 +1966,35 @@ async def adhoc_execute(
 
                     # 推送最终结果（包含 project_id 用于前端文件预览）
                     yield f"data: {json.dumps({'type': 'result', 'status': 'success' if success else 'failed', 'output': docker_output[:5000] if success else None, 'error': docker_output[:2000] if not success else None, 'exit_code': exit_code, 'output_files': output_files, 'project_id': project_id, 'output_dir_name': output_dir_name})}\n\n"
+
+                    # 结果解读：成功时 LLM 自然语言解读，失败时智能错误诊断
+                    if success and output_files:
+                        try:
+                            interpretation = await _generate_result_interpretation(
+                                docker_output=docker_output[:3000],
+                                output_files=output_files,
+                                instruction=strategy_pack.get("strategy", ""),
+                                session=session,
+                                user_id=user.id,
+                            )
+                            if interpretation:
+                                yield f"data: {json.dumps({'type': 'interpretation', 'text': interpretation})}\n\n"
+                        except Exception as interp_err:
+                            log.warning(f"[adhoc_execute] 结果解读生成失败（非致命）: {interp_err}")
+                    elif not success:
+                        try:
+                            diagnosis = await _generate_error_diagnosis(
+                                error_output=docker_output[:3000],
+                                code=code_snapshot,
+                                language=code_language,
+                                session=session,
+                                user_id=user.id,
+                            )
+                            if diagnosis:
+                                yield f"data: {json.dumps({'type': 'diagnosis', **diagnosis})}\n\n"
+                        except Exception as diag_err:
+                            log.warning(f"[adhoc_execute] 错误诊断生成失败（非致命）: {diag_err}")
+
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
                 elif msg_type == "error":

@@ -36,12 +36,48 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react').then(mod => mo
 import type { TabType, FileNode } from "./DataCenter/index";
 
 export function DataCenter() {
-  const { isDataCenterOpen, closeAllOverlays } = useUIStore();
+  const { isDataCenterOpen, closeAllOverlays, dataCenterHighlightPath, setDataCenterHighlightPath } = useUIStore();
   const { currentProjectId, projectFiles, fetchProjectFiles, setPendingChatAttachments } = useWorkspaceStore();
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['raw_data', 'results', 'references']));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  // 高亮节点 ref，用于即席分析结果联动 — 打开时自动滚动到输出目录
+  const highlightedNodeRef = useRef<HTMLDivElement>(null);
+  // 本地高亮路径状态：消费 store 中的 dataCenterHighlightPath 后保持在此处
+  const [localHighlightPath, setLocalHighlightPath] = useState<string | null>(null);
+
+  // 即席分析结果联动：当 DataCenter 打开且有高亮路径时，自动展开父级目录并滚动到目标
+  useEffect(() => {
+    if (isDataCenterOpen && dataCenterHighlightPath) {
+      const targetPath = dataCenterHighlightPath;
+      // 先设置本地高亮路径（用于渲染高亮样式）
+      setLocalHighlightPath(targetPath);
+      // 延迟执行以确保文件树已渲染
+      const timer = setTimeout(() => {
+        // 将高亮路径的各级父目录加入展开集合
+        const parts = targetPath.split('/').filter(Boolean);
+        const parents: string[] = [];
+        for (let i = 0; i < parts.length; i++) {
+          parents.push(parts.slice(0, i + 1).join('/'));
+        }
+        setExpandedFolders(prev => {
+          const next = new Set(prev);
+          parents.forEach(p => next.add(p));
+          return next;
+        });
+        // 滚动到高亮节点
+        if (highlightedNodeRef.current) {
+          highlightedNodeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        // 清除 store 中的高亮路径（单次消费）
+        setDataCenterHighlightPath(null);
+        // 3 秒后清除本地高亮样式
+        setTimeout(() => setLocalHighlightPath(null), 3000);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isDataCenterOpen, dataCenterHighlightPath, setDataCenterHighlightPath]);
 
   // ✨ Tab 状态
   const [activeTab, setActiveTab] = useState<TabType>('files');
@@ -765,6 +801,8 @@ export function DataCenter() {
                         onPreview={handlePreviewNode}
                         isBatchMode={isBatchMode} selectedPaths={selectedPaths} toggleSelection={toggleSelection}
                         onContextMenu={handleContextMenu}
+                        highlightedPath={localHighlightPath}
+                        highlightedNodeRef={highlightedNodeRef}
                       />
                     ))}
                   </div>
