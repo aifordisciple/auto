@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy } from 'lucide-react'
+import { TablePreview } from './TablePreview'
 
 /**
  * JSON Schema 属性定义（与 ParameterProbingCard 一致）
@@ -122,6 +123,10 @@ export function AdhocAnalysisCard({
   const [previewFileUrl, setPreviewFileUrl] = useState<string | null>(null)
   const [previewFileName, setPreviewFileName] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewTextContent, setPreviewTextContent] = useState<string | null>(null)
+  const [previewType, setPreviewType] = useState<'image' | 'csv' | 'text' | 'pdf' | 'other' | null>(null)
+  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
   // 实时日志流状态
   const [logLines, setLogLines] = useState<string[]>([])
   const [showLogWindow, setShowLogWindow] = useState(false)
@@ -353,27 +358,75 @@ export function AdhocAnalysisCard({
     }
   }
 
-  // 点击输出文件：通过 /view 端点获取文件 blob 并预览或下载
+  // 判断文件是否过大（>10MB 仅下载）
+  const isLargeFile = (file: OutputFile) => file.size > 10 * 1024 * 1024
+
+  // 点击输出文件：通过 /view 端点获取文件内容并预览
   const handleOutputFileClick = async (file: OutputFile) => {
     if (!outputProjectId || !outputDirName) return
+
+    // 大文件仅下载
+    if (isLargeFile(file)) {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      const fileViewPath = `results/${outputDirName}/${file.path}`
+      const downloadUrl = `${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`
+      // 直接触发下载
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = file.name
+      if (token) a.setAttribute('data-token', token)
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      return
+    }
+
     setPreviewLoading(true)
     setPreviewFileName(file.name)
+    setPreviewFilePath(file.path)
+    setPreviewFileUrl(null)
+    setPreviewTextContent(null)
+
+    const ext = (file.ext || '').toLowerCase()
+    const isImage = Boolean(ext.match(/\.(png|jpg|jpeg|svg|gif|bmp|webp)$/i))
+    const isCsv = Boolean(ext.match(/\.(csv|tsv)$/i))
+    const isText = Boolean(ext.match(/\.(txt|log|md|r|py|sh|json|xml|yml|yaml|toml|cfg|ini|R|Rmd)$/i))
+    const isPdf = ext === '.pdf'
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
-      // 文件路径：results/{output_dir_name}/{file.path}
       const fileViewPath = `results/${outputDirName}/${file.path}`
-      const res = await fetch(`${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`, {
-        headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-      })
-      if (!res.ok) throw new Error(`获取文件失败 (${res.status})`)
-      const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      setPreviewFileUrl(blobUrl)
+
+      if (isImage) {
+        const res = await fetch(`${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`, {
+          headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        })
+        if (!res.ok) throw new Error(`获取文件失败 (${res.status})`)
+        const blob = await res.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        setPreviewFileUrl(blobUrl)
+        setPreviewType('image')
+      } else if (isCsv || isText) {
+        const res = await fetch(`${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`, {
+          headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        })
+        if (!res.ok) throw new Error(`获取文件失败 (${res.status})`)
+        const text = await res.text()
+        setPreviewTextContent(text)
+        setPreviewType(isCsv ? 'csv' : 'text')
+      } else if (isPdf) {
+        // PDF 使用 iframe 内联预览
+        setPreviewType('pdf')
+      } else {
+        setPreviewType('other')
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '加载失败'
       console.error('输出文件预览失败:', message)
       setPreviewFileUrl(null)
+      setPreviewTextContent(null)
     } finally {
       setPreviewLoading(false)
     }
@@ -386,6 +439,10 @@ export function AdhocAnalysisCard({
     }
     setPreviewFileUrl(null)
     setPreviewFileName(null)
+    setPreviewFilePath(null)
+    setPreviewTextContent(null)
+    setPreviewType(null)
+    setLightboxOpen(false)
   }
 
   // 固化技能到资产库：调用后端 API 将策略包写入文件系统
@@ -846,7 +903,8 @@ export function AdhocAnalysisCard({
                   加载中...
                 </div>
               )}
-              {previewFileUrl && previewFileName && (
+              {/* 通用预览容器：当 previewType 存在时按类型渲染 */}
+              {previewType && previewFileName && !previewLoading && (
                 <div className="mt-3 border border-indigo-200 dark:border-indigo-500/20 rounded-md overflow-hidden">
                   <div className="flex items-center justify-between bg-gray-100 dark:bg-zinc-800 px-3 py-1.5">
                     <span className="text-xs font-medium text-gray-700 dark:text-zinc-300 truncate">
@@ -859,25 +917,75 @@ export function AdhocAnalysisCard({
                       关闭
                     </button>
                   </div>
-                  {previewFileName.match(/\.(png|jpg|jpeg|svg|gif|bmp|webp)$/i) ? (
-                    <div className="bg-white dark:bg-[#1a1a1c] flex justify-center p-2">
+                  {/* 图片预览 + 点击放大提示 */}
+                  {previewType === 'image' && previewFileUrl && (
+                    <div className="bg-white dark:bg-[#1a1a1c] flex justify-center p-2 relative group">
                       <img
                         src={previewFileUrl}
                         alt={previewFileName}
-                        className="max-w-full max-h-80 object-contain"
+                        className="max-w-full max-h-80 object-contain cursor-zoom-in hover:opacity-90 transition-opacity"
+                        onClick={() => setLightboxOpen(true)}
                       />
-                    </div>
-                  ) : (
-                    <div className="p-3 flex justify-center">
-                      <a
-                        href={previewFileUrl}
-                        download={previewFileName}
-                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-                      >
-                        点击下载 {previewFileName}
-                      </a>
+                      <span className="absolute bottom-2 right-2 text-[10px] text-white bg-black/60 rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        点击放大
+                      </span>
                     </div>
                   )}
+                  {/* CSV/TSV 表格预览 */}
+                  {previewType === 'csv' && previewTextContent && (
+                    <div className="bg-white dark:bg-[#1a1a1c]" style={{ maxHeight: 420 }}>
+                      <TablePreview data={previewTextContent} containerHeight={400} />
+                    </div>
+                  )}
+                  {/* 文本文件代码预览 */}
+                  {previewType === 'text' && previewTextContent && (
+                    <div className="bg-gray-900 text-gray-100 p-3 text-xs font-mono max-h-80 overflow-auto">
+                      <pre className="whitespace-pre-wrap break-all"><code>{previewTextContent}</code></pre>
+                    </div>
+                  )}
+                  {/* PDF iframe 内联预览 */}
+                  {previewType === 'pdf' && outputProjectId && outputDirName && previewFilePath && (
+                    <div className="bg-white dark:bg-[#1a1a1c]">
+                      <iframe
+                        src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/projects/${outputProjectId}/files/results/${outputDirName}/${previewFilePath}/view`}
+                        className="w-full h-80 border-0"
+                        title={previewFileName}
+                      />
+                    </div>
+                  )}
+                  {/* 其他文件：仅下载 */}
+                  {previewType === 'other' && (
+                    <div className="p-4 flex flex-col items-center gap-2 bg-white dark:bg-[#1a1a1c]">
+                      <FileText size={24} className="text-zinc-400" />
+                      <p className="text-xs text-zinc-500">此文件类型不支持在线预览</p>
+                      <p className="text-xs text-zinc-500">点击文件名下方的下载按钮即可下载</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Lightbox 图片放大遮罩 */}
+              {lightboxOpen && previewType === 'image' && previewFileUrl && (
+                <div
+                  className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center cursor-zoom-out"
+                  onClick={() => setLightboxOpen(false)}
+                >
+                  <button
+                    onClick={() => setLightboxOpen(false)}
+                    className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl transition-colors"
+                    aria-label="关闭放大视图"
+                  >
+                    ✕
+                  </button>
+                  <span className="absolute top-4 left-4 text-xs text-white/50">
+                    {previewFileName}
+                  </span>
+                  <img
+                    src={previewFileUrl}
+                    alt={previewFileName || ''}
+                    className="max-w-[90vw] max-h-[90vh] object-contain select-none"
+                    onClick={(e) => e.stopPropagation()}
+                    draggable={false}
+                  />
                 </div>
               )}
             </div>
