@@ -52,6 +52,8 @@ export interface Message {
   intentLabel?: string;
   /** ✨ 即席分析策略生成中标记：渲染骨架屏，策略包就绪后由真实卡片替换 */
   isAdhocGenerating?: boolean;
+  /** ✨ Vercel AI SDK parts 数组（含 data-adhoc_status 等流式事件，供骨架屏阶段渲染） */
+  parts?: Array<{ type: string; data?: Record<string, unknown>; [key: string]: unknown }>;
 }
 
 export interface Bookmark {

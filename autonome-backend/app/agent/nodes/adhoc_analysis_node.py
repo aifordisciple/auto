@@ -79,6 +79,8 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
 - 参数 title 应使用中文，简洁易懂
 
 进度报告要求：
+- __autonome_progress__ 函数已由系统预先注入到执行环境中，你只需要直接调用它，绝对不要在代码中重复定义
+- 不要生成 def __autonome_progress__ 或 __autonome_progress__ <- function 等函数定义语句
 - 在代码的关键步骤调用进度报告函数：
   * Python: __autonome_progress__(step, total, message)
   * R:      __autonome_progress__(step, total, message)

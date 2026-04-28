@@ -285,9 +285,10 @@ export function DataCenter() {
     if (!currentProjectId) return;
     try {
       const token = getToken();
-      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const headers: Record<string, string> = {};
+      // 仅当 token 非空时发送 Authorization header，否则依赖 Cookie 认证
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, { headers });
 
       if (!res.ok) throw new Error("获取文件失败");
 
@@ -399,9 +400,10 @@ export function DataCenter() {
 
     try {
       const token = getToken();
-      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const headers: Record<string, string> = {};
+      // 仅当 token 非空时发送 Authorization header，否则依赖 Cookie 认证
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/files/${filePath}/view`, { headers });
 
       if (!res.ok) throw new Error("获取文件失败");
 

@@ -275,6 +275,8 @@ export function ChatStage() {
         isAdhocGenerating,
         // ✨ 意图识别标签：从 mirroredMessages 合并，流式期间使用 pendingIntentLabel
         intentLabel: resolvedIntentLabel,
+        // ✨ 传递 UIMessage.parts 以支持即席分析骨架屏阶段渲染
+        parts: msg.parts,
       };
     });
   }, [aiMessages, mirroredMessages, pendingIntentLabel]);

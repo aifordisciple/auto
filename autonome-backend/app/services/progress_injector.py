@@ -28,8 +28,7 @@ def __autonome_progress__(step, total, message):
 # R 进度辅助函数（注入到脚本开头）
 R_PROGRESS_HELPER = '''
 __autonome_progress__ <- function(step, total, message) {
-  cat(sprintf("__AUTONOME_PROGRESS__:%d:%d:%s__\n", step, total, message))
-  flush.console()
+  cat(sprintf("__AUTONOME_PROGRESS__:%d:%d:%s__\\n", step, total, message))
 }
 '''
 
