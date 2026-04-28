@@ -130,10 +130,14 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
     nodes[idx]["adhoc_metadata"] = strategy_pack
 
     # 策略包同时存入 Redis，供前端 /api/chat/adhoc/execute 端点读取
-    # key 格式: adhoc:{message_id}，TTL 10 分钟
-    # message_id 与 ask_user_node 发送的 render_adhoc_card ToolCall 中的 message_id 一致
+    # key 格式: adhoc:{message_id}，TTL 1 小时
+    # 使用 UUID 生成唯一 message_id，保证 Chat 路径和 Graph 路径格式一致
+    import uuid
     import redis as redis_client
     from app.core.config import settings as app_settings
+
+    message_id = str(uuid.uuid4())
+    strategy_pack["message_id"] = message_id
 
     try:
         r = redis_client.Redis(
@@ -142,7 +146,6 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
             db=0,
             decode_responses=True,
         )
-        message_id = f"adhoc_graph_{idx}"
         r.setex(f"adhoc:{message_id}", 3600, json.dumps(strategy_pack, ensure_ascii=False))
         log.info(f"[adhoc_analysis_node] 策略包已存入 Redis: key=adhoc:{message_id}")
     except Exception as redis_err:

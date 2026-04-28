@@ -137,9 +137,9 @@ async def ask_user_node(state: AgentState, config: RunnableConfig) -> Dict[str, 
                 "parameter_schema": probing.adhoc_card_data.get("parameter_schema", {}),
                 "input_mapping": probing.adhoc_card_data.get("input_mapping", {}),
                 "message": probing.message_to_user,
-                "message_id": f"adhoc_graph_{current_idx}",
+                "message_id": probing.adhoc_card_data.get("message_id", ""),
             },
-            "id": f"call_adhoc_{current_idx}",
+            "id": f"call_adhoc_{probing.adhoc_card_data.get('message_id', current_idx)}",
         }
         log.info(f"[ask_user_node] 发送即席分析策略卡片: render_type=adhoc_card")
     else:
