@@ -730,10 +730,13 @@ export function AdhocAnalysisCard({
       {/* 5. 实时日志窗口 */}
       {showLogWindow && (
         <div className="mx-4 mb-4 border border-gray-700 rounded-md overflow-hidden">
-          {/* 日志窗口标题栏 */}
-          <button
+          {/* 日志窗口标题栏（使用 div 避免嵌套 button 的 hydration 错误） */}
+          <div
             onClick={() => setLogCollapsed(!logCollapsed)}
-            className="w-full flex items-center justify-between bg-gray-800 px-3 py-2 hover:bg-gray-750 transition-colors cursor-pointer border-0"
+            onKeyDown={(e) => { if (e.key === 'Enter') setLogCollapsed(!logCollapsed) }}
+            role="button"
+            tabIndex={0}
+            className="w-full flex items-center justify-between bg-gray-800 px-3 py-2 hover:bg-gray-750 transition-colors cursor-pointer"
           >
             <span className="text-xs font-medium text-gray-300 flex items-center gap-2">
               {isExecuting ? (
@@ -761,7 +764,7 @@ export function AdhocAnalysisCard({
               {logLines.length > 0 && (
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(logLines.join('\n'))
+                    copyToClipboard(logLines.join('\n'))
                     setLogCopied(true)
                     setTimeout(() => setLogCopied(false), 2000)
                   }}
@@ -786,7 +789,7 @@ export function AdhocAnalysisCard({
                 ✕
               </button>
             </div>
-          </button>
+          </div>
           {/* 日志内容区（可折叠） */}
           {!logCollapsed && (
             <>
@@ -1216,6 +1219,28 @@ const SKILL_CATEGORIES = [
   '质量控制',
   '通用',
 ]
+
+/** 安全复制到剪贴板，兼容非 HTTPS 环境 */
+function copyToClipboard(text: string) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
+  } else {
+    fallbackCopy(text)
+  }
+}
+
+function fallbackCopy(text: string) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  ta.style.top = '-9999px'
+  document.body.appendChild(ta)
+  ta.focus()
+  ta.select()
+  try { document.execCommand('copy') } catch { /* 忽略 */ }
+  document.body.removeChild(ta)
+}
 
 /** 格式化文件大小 */
 function formatFileSize(bytes: number): string {
