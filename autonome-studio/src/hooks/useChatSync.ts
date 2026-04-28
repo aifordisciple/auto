@@ -54,14 +54,29 @@ function extractTextFromParts(msg: UIMessage): string {
 /**
  * 将 UIMessage[] 转换为 store 的 Message[] 格式
  * 保持下游组件（MemoizedMessageItem、VirtualizedMessageList）无需改动
+ *
+ * ✨ 增强：从 annotations 中提取 attachments 数据（用于页面刷新/切换对话后恢复附件标签）
  */
 function convertToStoreMessages(aiMessages: UIMessage[]): Message[] {
-  return aiMessages.map(msg => ({
-    id: msg.id,
-    role: msg.role as 'user' | 'assistant' | 'system',
-    content: extractTextFromParts(msg),
-    timestamp: Date.now(),
-  }));
+  return aiMessages.map(msg => {
+    // ✨ 从 annotations 中提取附件信息（ChatStage 加载历史消息时注入）
+    let attachments: MessageAttachments | undefined;
+    if (msg.annotations) {
+      for (const a of msg.annotations) {
+        if (a.type === 'data-attachments' && a.data) {
+          attachments = a.data as MessageAttachments;
+          break;
+        }
+      }
+    }
+    return {
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content: extractTextFromParts(msg),
+      timestamp: Date.now(),
+      attachments,
+    };
+  });
 }
 
 /**

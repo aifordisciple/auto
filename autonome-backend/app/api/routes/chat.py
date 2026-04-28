@@ -756,22 +756,44 @@ async def chat_stream(
 
                     # 发送 render_adhoc_card ToolCall（通过 data-tool_call 自定义事件流向 Vercel AI SDK）
                     # message_id 传递给前端，执行时前端回传用于 Redis 查找策略包
+                    tool_call_args = {
+                        "strategy": strategy_pack.get("strategy", ""),
+                        "code": strategy_pack.get("code", ""),
+                        "code_language": strategy_pack.get("code_language", "python"),
+                        "parameter_schema": strategy_pack.get("parameter_schema", {}),
+                        "input_mapping": strategy_pack.get("input_mapping", {}),
+                        "message": "即席分析策略已生成，请在卡片上确认参数后执行",
+                        "message_id": user_msg.id,
+                        "_validation": strategy_pack.get("_validation"),
+                    }
                     tool_call_event = {
                         "type": "data-tool-call",
                         "toolCallId": f"call_adhoc_{user_msg.id}",
                         "toolName": "render_adhoc_card",
-                        "args": {
-                            "strategy": strategy_pack.get("strategy", ""),
-                            "code": strategy_pack.get("code", ""),
-                            "code_language": strategy_pack.get("code_language", "python"),
-                            "parameter_schema": strategy_pack.get("parameter_schema", {}),
-                            "input_mapping": strategy_pack.get("input_mapping", {}),
-                            "message": "即席分析策略已生成，请在卡片上确认参数后执行",
-                            "message_id": user_msg.id,
-                            "_validation": strategy_pack.get("_validation"),
-                        },
+                        "args": tool_call_args,
                     }
                     yield encoder.from_custom_event("tool_call", tool_call_event)
+
+                    # ✨ 持久化 AI 消息：保存策略卡片 tool_calls 到 DB，页面刷新后可重建策略卡片
+                    # 格式与 ChatStage.tsx setAiMessages 映射逻辑对齐：
+                    #   m.tool_calls → [{ id: "call_xxx", name: "...", args: {...} }]
+                    # 前端加载历史时据此重建 Vercel AI SDK tool-invocation parts
+                    tool_calls_record = [{
+                        "id": f"call_adhoc_{user_msg.id}",
+                        "name": "render_adhoc_card",
+                        "args": tool_call_args,
+                    }]
+                    with Session(engine) as final_db_session:
+                        ai_msg = ChatMessage(
+                            session_id=session_id_for_ai,
+                            role=RoleEnum.assistant,
+                            content="",  # 策略卡片由 tool_calls 渲染，无需文本内容
+                            tool_calls=tool_calls_record,
+                        )
+                        final_db_session.add(ai_msg)
+                        final_db_session.commit()
+                        yield encoder.from_ai_message_id(str(ai_msg.id))
+
                     yield encoder.finish()
                     return
                 except Exception as adhoc_err:

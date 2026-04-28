@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy, FolderOpen, User, Zap } from 'lucide-react'
 import { TablePreview } from './TablePreview'
+import { BASE_URL } from '@/lib/api'
 import { useUIStore } from '@/store/useUIStore'
 import { useUserProfileStore } from '@/store/useUserProfileStore'
 
@@ -1260,7 +1261,7 @@ export function AdhocAnalysisCard({
           {executionResult.status === 'success' && outputProjectId && outputDirName && (
             <div className="mb-3">
               <a
-                href={`/api/chat/adhoc/download/${outputProjectId}/${encodeURIComponent(outputDirName)}`}
+                href={`${BASE_URL}/api/chat/adhoc/download/${outputProjectId}/${encodeURIComponent(outputDirName)}`}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-500 hover:bg-indigo-600 text-white rounded-md transition-colors"
               >
                 📦 打包下载结果

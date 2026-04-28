@@ -53,6 +53,11 @@ class ChatMessage(SQLModel, table=True):
     # 用于记录用户发送消息时附带的文件、图片、技能等，在聊天界面显示标记
     attachments: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSONB))
 
+    # ✨ 工具调用信息（JSON 格式存储）
+    # 格式: [{"id": "call_xxx", "name": "render_adhoc_card", "args": {...}}]
+    # 用于页面刷新后重建 Active Probing 工具调用（如即席分析策略卡片）
+    tool_calls: Optional[List[Dict[str, Any]]] = Field(default=None, sa_column=Column(JSONB))
+
     session: Optional["ChatSession"] = Relationship(back_populates="messages")
 
     # ==========================================

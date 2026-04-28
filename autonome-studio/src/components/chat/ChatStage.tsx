@@ -417,7 +417,7 @@ export function ChatStage() {
           // 构造完整的 UIMessage 格式，包含 parts 字段（text part 从 content 重建），
           // 避免 Vercel AI SDK 因缺少 parts 导致内部状态不一致
           // ✨ Active Probing：如果历史消息包含 tool_calls，重建 tool invocation parts
-          setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string; tool_calls?: any }) => {
+          setAiMessages(formattedMessages.map((m: { id: string; role: string; content: string; tool_calls?: any; attachments?: any }) => {
             const parts = m.content ? [{ type: 'text' as const, text: m.content }] : [];
             // ✨ 从后端 tool_calls 数据重建工具调用 parts（用于 Active Probing 历史回显）
             // 后端 AIMessage 的 tool_calls 字段包含工具调用信息，
@@ -434,11 +434,15 @@ export function ChatStage() {
                 });
               }
             }
+            // ✨ 将 attachments 通过 annotations 传递，供 useChatSync.convertToStoreMessages 提取
+            // UIMessage 不含自定义字段，annotations 是标准通道，不会被 Vercel AI SDK 丢弃
+            const annotations = m.attachments ? [{ type: 'data-attachments', data: m.attachments }] : [];
             return {
               id: m.id,
               role: m.role,
               content: m.content,
               parts,
+              annotations,
             };
           }));
 
