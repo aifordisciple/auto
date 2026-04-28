@@ -2173,6 +2173,64 @@ async def delete_adhoc_history(
     return {"success": True, "message": "记录已删除"}
 
 
+@router.get("/adhoc/download/{project_id}/{output_dir_name}")
+async def download_adhoc_result(
+    project_id: str,
+    output_dir_name: str,
+    user: User = Depends(get_current_user),
+):
+    """
+    下载即席分析输出结果打包文件。
+
+    程序说明：
+    将指定输出目录打包为 tar.gz 并作为流式下载返回。
+    验证用户对项目的访问权限，防止路径穿越攻击。
+    """
+    import tarfile
+    import io
+    from app.core.config import settings
+
+    # 验证 output_dir_name 不包含路径穿越字符
+    if ".." in output_dir_name or "/" in output_dir_name or "\\" in output_dir_name:
+        raise HTTPException(status_code=400, detail="非法的目录名称")
+
+    # 构建输出目录路径
+    project_host_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
+    output_dir = os.path.join(project_host_dir, "results", output_dir_name)
+
+    if not os.path.isdir(output_dir):
+        raise HTTPException(status_code=404, detail="输出目录不存在或已被清理")
+
+    # 检查是否为空目录
+    if not any(os.scandir(output_dir)):
+        raise HTTPException(status_code=404, detail="输出目录为空")
+
+    log.info(f"[adhoc_download] 打包下载: project={project_id}, dir={output_dir_name}")
+
+    # 在内存中创建 tar.gz
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:
+        for root, dirs, files in os.walk(output_dir):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                arcname = os.path.relpath(fpath, output_dir)
+                tar.add(fpath, arcname=arcname)
+
+    tar_buffer.seek(0)
+
+    # 安全文件名：移除路径穿越字符
+    safe_name = output_dir_name.replace("/", "_").replace("\\", "_")
+    filename = f"autonome_result_{safe_name}.tar.gz"
+
+    return StreamingResponse(
+        tar_buffer,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
 class AdhocSaveSkillRequest(BaseModel):
     """即席分析固化技能请求"""
     message_id: str = Field(..., description="关联的 render_adhoc_card tool_call 的 message_id")

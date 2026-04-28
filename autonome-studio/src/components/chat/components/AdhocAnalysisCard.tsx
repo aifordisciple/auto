@@ -1048,6 +1048,18 @@ export function AdhocAnalysisCard({
               : '❌ 执行失败'}
           </h4>
 
+          {/* 打包下载按钮（成功时显示） */}
+          {executionResult.status === 'success' && outputProjectId && outputDirName && (
+            <div className="mb-3">
+              <a
+                href={`/api/chat/adhoc/download/${outputProjectId}/${encodeURIComponent(outputDirName)}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-500 hover:bg-indigo-600 text-white rounded-md transition-colors"
+              >
+                📦 打包下载结果
+              </a>
+            </div>
+          )}
+
           {/* LLM 结果解读（成功时） */}
           {executionResult.status === 'success' && interpretation && (
             <div className="mb-3 p-3 rounded-md bg-white/60 dark:bg-white/5 border border-gray-200 dark:border-zinc-700">
