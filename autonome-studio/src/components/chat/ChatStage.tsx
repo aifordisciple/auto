@@ -465,43 +465,64 @@ export function ChatStage() {
   // 发送消息包装函数 — 调用 useChat.append
   // ✨ 扩展：接收 enableThink 参数，写入 transport body
   // ==========================================
-  const handleSendWrapper = useCallback((messageText: string, _enableThink?: boolean) => {
+  // ✨ handleSendWrapper 签名扩展：第二个参数支持传递预存附件（编辑重发场景）
+  const handleSendWrapper = useCallback((messageText: string, options?: { preAttachments?: MessageAttachments }) => {
     // ✨ 修复图片传递时序问题：
     // 1. 先从 store 提取图片/文件路径，存入 ref 缓冲区
     // 2. 然后调用 sendMessage（body() 会从 ref 读取）
     // 3. 最后清理粘贴附件和 ref
-    const { pastedAttachments, pendingChatAttachments: contextFiles } = useWorkspaceStore.getState();
-    const imagePaths = pastedAttachments
-      .filter(att => att.type === 'image' && att.serverPath && !att.isUploading)
-      .map(att => att.serverPath);
-    const filePaths = pastedAttachments
-      .filter(att => att.type === 'file' && att.serverPath && !att.isUploading)
-      .map(att => att.serverPath);
+    //
+    // ✨ 编辑重发场景：如果传入了 preAttachments（原始消息的附件），
+    // 直接使用它们，不从 store 读取（store 中的粘贴附件已在上次发送时清理）
+    const preAttachments = options?.preAttachments;
 
-    pendingImagesRef.current = imagePaths;
-    pendingFilesRef.current = filePaths;
-    // ✨ 将项目文件附件路径存入 ref 缓冲区（body() 从此 ref 读取，避免 store 被清空后丢失）
-    pendingContextFilesRef.current = contextFiles;
-
-    // ✨ 设置待关联的 attachments（发送后 useChatSync 会将其附加到最新用户消息）
-    // 包含粘贴附件（图片/文件）和项目文件附件（contextFiles → files 字段，蓝色标签）
-    if (imagePaths.length > 0 || filePaths.length > 0 || contextFiles.length > 0) {
-      const attachments: MessageAttachments = {};
-      if (imagePaths.length > 0) attachments.images = imagePaths;
-      if (filePaths.length > 0) attachments.pastedFiles = filePaths;
-      if (contextFiles.length > 0) attachments.files = contextFiles;
-      pendingAttachmentsRef.current = attachments;
+    if (preAttachments) {
+      // 编辑重发：使用原始消息的附件
+      pendingImagesRef.current = preAttachments.images || [];
+      pendingFilesRef.current = preAttachments.pastedFiles || [];
+      pendingContextFilesRef.current = preAttachments.files || [];
+      // ✨ 保留技能信息（skill 标记）
+      pendingAttachmentsRef.current = {
+        ...preAttachments,
+        // 确保 images/pastedFiles/files 字段正确映射
+        images: preAttachments.images || [],
+        pastedFiles: preAttachments.pastedFiles || [],
+        files: preAttachments.files || [],
+      };
     } else {
-      pendingAttachmentsRef.current = null;
+      // 正常发送：从 store 读取
+      const { pastedAttachments, pendingChatAttachments: contextFiles } = useWorkspaceStore.getState();
+      const imagePaths = pastedAttachments
+        .filter(att => att.type === 'image' && att.serverPath && !att.isUploading)
+        .map(att => att.serverPath);
+      const filePaths = pastedAttachments
+        .filter(att => att.type === 'file' && att.serverPath && !att.isUploading)
+        .map(att => att.serverPath);
+
+      pendingImagesRef.current = imagePaths;
+      pendingFilesRef.current = filePaths;
+      pendingContextFilesRef.current = contextFiles;
+
+      if (imagePaths.length > 0 || filePaths.length > 0 || contextFiles.length > 0) {
+        const attachments: MessageAttachments = {};
+        if (imagePaths.length > 0) attachments.images = imagePaths;
+        if (filePaths.length > 0) attachments.pastedFiles = filePaths;
+        if (contextFiles.length > 0) attachments.files = contextFiles;
+        pendingAttachmentsRef.current = attachments;
+      } else {
+        pendingAttachmentsRef.current = null;
+      }
     }
 
     // 调用 sendMessage 发送消息（v5 API）
     sendMessage({ text: messageText });
 
     // 发送后清理粘贴附件、项目文件附件和 ref 缓冲区
-    cleanupPastedAttachments();
-    // ✨ 清空项目文件附件（避免附件标签残留在输入框上方）
-    useWorkspaceStore.getState().clearPendingChatAttachments();
+    // ✨ 编辑重发场景：不需要清理 store（store 中已无对应数据）
+    if (!preAttachments) {
+      cleanupPastedAttachments();
+      useWorkspaceStore.getState().clearPendingChatAttachments();
+    }
     // 延迟清空 ref，确保 body() 已经读取
     setTimeout(() => {
       pendingImagesRef.current = [];

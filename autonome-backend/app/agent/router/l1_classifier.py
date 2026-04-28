@@ -102,6 +102,7 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
 - 用户有文件 + 想做探索性**分析/建模/画图** → INTENT_ADHOC_INTERACTIVE_ANALYSIS
 - 用户只想**查看/检查/了解**数据的元信息或做**轻量文件内计算**（不涉及建模/画图）→ INTENT_DATA_PROBE
 - 用户明确说"写脚本" → INTENT_SKILL_FORGE
+	- **⚠️ 指定分析语言/工具 ≠ 写脚本**：用户说"用 R 做 PCA 分析"、"用 Python 画热图"等，只是指定分析工具偏好，核心意图仍是分析/画图，应归为 ADHOC。只有当用户明确要求产出可复用的脚本文件（如"写一个 R 脚本保存下来"、"生成 Python 代码文件"）时才归为 SKILL_FORGE。
 
 **DATA_PROBE 扩展场景（V2.4）**：
 - 轻量文件内计算属于 DATA_PROBE，不是 ADHOC：
@@ -126,6 +127,7 @@ L1_DECOMPOSER_PROMPT_TEMPLATE = """你是一个专业的意图解构器，负责
   - "画基因重叠的 Venn 图" → INTENT_ADHOC_INTERACTIVE_ANALYSIS（可视化产出）
   - "检查 NA 比例" → INTENT_DATA_PROBE
   - "用这个 CSV 画个热图" → INTENT_ADHOC_INTERACTIVE_ANALYSIS
+  - "以这两个文件为输入，使用R语言进行PCA分析作图" → INTENT_ADHOC_INTERACTIVE_ANALYSIS（有文件+分析+可视化，指定语言只是工具偏好）
 
 **⚠️ 条件分支 DAG 生成规则（V2.4 新增）**：
 - 当用户输入包含"先检查A → 如果满足条件X就B，否则C"模式时，生成 is_conditional=true 的 DAG

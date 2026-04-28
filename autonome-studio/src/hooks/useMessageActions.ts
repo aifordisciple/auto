@@ -37,7 +37,8 @@ export function useMessageActions(_options?: UseMessageActionsOptions) {
   const currentSessionId = useWorkspaceStore(state => state.currentSessionId);
 
   // handleSend 引用 — 由父组件通过 useEffect 更新
-  const handleSendRef = useRef<(message: string, contextFiles?: string[]) => void>(() => {});
+  // ✨ 签名扩展：第二个参数支持 options.preAttachments（编辑重发场景传递原始附件）
+  const handleSendRef = useRef<(message: string, options?: { preAttachments?: Message['attachments'] }) => void>(() => {});
 
   // ==========================================
   // 消息重试：重新发送指定消息
@@ -82,8 +83,10 @@ export function useMessageActions(_options?: UseMessageActionsOptions) {
 
   // ==========================================
   // 消息编辑重发：修改内容后重新发送
+  // ✨ 修复：传递原始消息的 attachments（图片/文件/技能标记），
+  // 避免编辑重发时丢失附件信息
   // ==========================================
-  const handleEditResend = useCallback(async (messageId: string, newContent: string, _attachments?: Message['attachments']) => {
+  const handleEditResend = useCallback(async (messageId: string, newContent: string, attachments?: Message['attachments']) => {
     const message = messages.find(m => m.id === messageId);
     if (!message || message.role !== 'user') return;
 
@@ -92,8 +95,8 @@ export function useMessageActions(_options?: UseMessageActionsOptions) {
     const trimmedMessages = messages.slice(0, messageIndex);
     setMessages(trimmedMessages);
 
-    // 发送编辑后的消息
-    handleSendRef.current(newContent);
+    // ✨ 发送编辑后的消息，同时传递原始附件（图片/文件/技能标记）
+    handleSendRef.current(newContent, { preAttachments: attachments });
   }, [messages, setMessages]);
 
   // ==========================================
