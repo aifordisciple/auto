@@ -241,9 +241,12 @@ async def _generate_strategy_pack(
     # 注入文件探查结果，使 LLM 能根据实际列名和数据类型生成代码
     system_prompt = ADHOC_SYSTEM_PROMPT
     if file_profiles_text:
+        # 转义花括号：ChatPromptTemplate 将 {var} 解释为模板变量，
+        # 探查结果中可能包含 {} 字符（如 DataFrame 样本数据），需转义为 {{ 和 }}
+        escaped_profiles = file_profiles_text.replace("{", "{{").replace("}", "}}")
         system_prompt += (
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
-            + file_profiles_text + "\n"
+            + escaped_profiles + "\n"
         )
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -341,9 +344,12 @@ async def _generate_strategy_pack_streaming(
     # 构建 system prompt，注入文件探查结果以提升参数准确性
     system_prompt = ADHOC_SYSTEM_PROMPT
     if file_profiles_text:
+        # 转义花括号：ChatPromptTemplate 将 {var} 解释为模板变量，
+        # 探查结果中可能包含 {} 字符（如 DataFrame 样本数据），需转义为 {{ 和 }}
+        escaped_profiles = file_profiles_text.replace("{", "{{").replace("}", "}}")
         system_prompt += (
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
-            + file_profiles_text + "\n"
+            + escaped_profiles + "\n"
         )
 
     prompt = ChatPromptTemplate.from_messages([
