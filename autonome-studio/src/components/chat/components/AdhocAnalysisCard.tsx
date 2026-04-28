@@ -7,6 +7,7 @@ import { TablePreview } from './TablePreview'
 import { BASE_URL } from '@/lib/api'
 import { useUIStore } from '@/store/useUIStore'
 import { useUserProfileStore } from '@/store/useUserProfileStore'
+import { useAuthStore } from '@/store/useAuthStore'
 
 /**
  * 动态导入 Monaco Editor（禁用 SSR，仅专家模式使用）
@@ -318,7 +319,7 @@ export function AdhocAnalysisCard({
       code_snapshot: editableCode,
     }
 
-    const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+    const token = useAuthStore.getState().token
 
     // 创建 AbortController 用于取消请求
     const abortController = new AbortController()
@@ -508,7 +509,7 @@ export function AdhocAnalysisCard({
     // 大文件仅下载
     if (isLargeFile(file)) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      const token = useAuthStore.getState().token
       const fileViewPath = `results/${outputDirName}/${file.path}`
       const downloadUrl = `${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`
       // 直接触发下载
@@ -536,11 +537,12 @@ export function AdhocAnalysisCard({
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      const token = useAuthStore.getState().token
       const fileViewPath = `results/${outputDirName}/${file.path}`
 
       if (isImage) {
         const res = await fetch(`${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`, {
+          credentials: 'include',
           headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         })
         if (!res.ok) throw new Error(`获取文件失败 (${res.status})`)
@@ -550,6 +552,7 @@ export function AdhocAnalysisCard({
         setPreviewType('image')
       } else if (isCsv || isText) {
         const res = await fetch(`${apiUrl}/api/projects/${outputProjectId}/files/${fileViewPath}/view`, {
+          credentials: 'include',
           headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         })
         if (!res.ok) throw new Error(`获取文件失败 (${res.status})`)
@@ -592,9 +595,10 @@ export function AdhocAnalysisCard({
     setFixCodeResult(null)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      const token = useAuthStore.getState().token
       const res = await fetch(`${apiUrl}/api/chat/adhoc/fix-code`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -642,9 +646,10 @@ export function AdhocAnalysisCard({
     setShowSaveModal(false)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      const token = useAuthStore.getState().token
       const res = await fetch(`${apiUrl}/api/chat/adhoc/save-skill`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
