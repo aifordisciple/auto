@@ -19,3 +19,4 @@ export { TABS } from './types';
 export { getFileIcon, formatBytes, formatDateTime } from './utils';
 export { TreeNode } from './TreeNode';
 export type { FileNode, TreeNodeProps } from './TreeNode';
+export { default as AdhocHistory } from './AdhocHistory';

@@ -91,6 +91,7 @@ from app.models.chat import (
     SessionSummaryCache,
     ChatSessionTag,
     SessionTagRelation,
+    AdhocAnalysisRecord,
 )
 
 # ==========================================

@@ -111,3 +111,45 @@ class SessionTagRelation(SQLModel, table=True):
     session_id: str = Field(foreign_key="chatsession.id", index=True)
     tag_id: int = Field(foreign_key="chatsessiontag.id", index=True)
     created_at: datetime = Field(default_factory=get_utc_now)
+
+
+# ==========================================
+# 即席分析历史记录模型 (AdhocAnalysisRecord)
+# ==========================================
+class AdhocAnalysisRecord(SQLModel, table=True):
+    """
+    即席分析历史记录表
+
+    每次用户在即席分析卡片上确认执行后，自动保存策略、参数、执行结果等完整信息。
+    用户可在数据中心查看历史分析列表，支持回溯、重执行、对比和删除。
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    # 关联标识：message_id 用于关联 Redis 策略包和聊天消息
+    message_id: str = Field(index=True, description="策略包/消息唯一标识")
+    project_id: str = Field(foreign_key="project.id", index=True, description="所属项目ID")
+    user_id: int = Field(foreign_key="user.id", index=True, description="执行用户ID")
+    # 策略信息
+    strategy: str = Field(description="分析策略描述文本")
+    code_language: str = Field(default="python", description="代码语言: python / r")
+    code_snapshot: str = Field(description="用户确认执行时的代码快照")
+    parameters: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB), description="执行参数")
+    # 输出信息
+    output_dir: Optional[str] = Field(default=None, description="输出目录路径（相对项目目录）")
+    output_files: Optional[List[str]] = Field(default=None, sa_column=Column(JSONB), description="输出文件列表")
+    # 状态与结果
+    status: str = Field(default="running", index=True, description="执行状态: running / success / failed")
+    output_text: Optional[str] = Field(default=None, description="脚本标准输出")
+    error_text: Optional[str] = Field(default=None, description="错误信息")
+    # 时间戳
+    created_at: datetime = Field(default_factory=get_utc_now, index=True)
+    completed_at: Optional[datetime] = Field(default=None, description="完成时间")
+
+    # ==========================================
+    # 复合索引定义（性能优化）
+    # ==========================================
+    __table_args__ = (
+        # 按项目+创建时间降序（历史列表高频查询）
+        Index('ix_adhoc_record_project_time', 'project_id', 'created_at'),
+        # 按用户+时间（用户维度查询）
+        Index('ix_adhoc_record_user_time', 'user_id', 'created_at'),
+    )

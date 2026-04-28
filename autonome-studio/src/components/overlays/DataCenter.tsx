@@ -10,7 +10,7 @@ import { CreateFolderModal } from "./CreateFolderModal";
 import { MoveFileModal } from "./MoveFileModal";
 import { UploadManager } from "./UploadManager";
 import { RenameModal } from "./RenameModal";
-import { GenomePanel, DatabasePanel, GenomeFormModal, DatabaseFormModal, GenomeDetailDrawer, DatabaseDetailDrawer, ImportGenomeModal, TABS, TreeNode, formatBytes, formatDateTime } from "./DataCenter/index";
+import { GenomePanel, DatabasePanel, GenomeFormModal, DatabaseFormModal, GenomeDetailDrawer, DatabaseDetailDrawer, ImportGenomeModal, TABS, TreeNode, AdhocHistory, formatBytes, formatDateTime } from "./DataCenter/index";
 import { GenomeAsset, AnalysisDatabase } from '@/lib/api';
 
 // ✨ 文件预览增强组件导入
@@ -864,6 +864,20 @@ export function DataCenter() {
               onCreateNew={() => { setEditingDatabase(null); setDatabaseFormOpen(true); }}
               onEdit={(db) => { setEditingDatabase(db); setDatabaseFormOpen(true); }}
               onViewDetail={(db) => setViewingDatabase(db)}
+            />
+          )}
+
+          {/* ✨ 即席分析历史 Tab */}
+          {activeTab === 'history' && (
+            <AdhocHistory
+              projectId={currentProjectId || ''}
+              onNavigateToOutput={(outputDir) => {
+                // 构建完整路径：results/{outputDir}
+                const fullPath = `results/${outputDir}`;
+                setDataCenterHighlightPath(fullPath);
+                // 切换到文件 Tab 以显示高亮
+                setActiveTab('files');
+              }}
             />
           )}
         </div>

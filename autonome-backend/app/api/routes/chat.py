@@ -23,7 +23,7 @@ import asyncio
 from pathlib import Path
 from http import HTTPStatus
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from fastapi.responses import StreamingResponse
@@ -1683,6 +1683,58 @@ async def _generate_error_diagnosis(
         return None
 
 
+def _save_adhoc_history(
+    session,
+    message_id: str,
+    project_id: str,
+    user_id: int,
+    strategy: str,
+    code_language: str,
+    code_snapshot: str,
+    parameters: dict,
+    output_dir: str,
+    output_files: list,
+    status: str,
+    output_text: str | None = None,
+    error_text: str | None = None,
+):
+    """
+    保存即席分析执行记录到数据库。
+
+    程序说明：
+    在 /adhoc/execute 执行完成（成功或失败）后自动调用。
+    将策略、代码、参数、输出文件、执行结果等完整信息持久化到 AdhocAnalysisRecord 表，
+    用于前端历史列表展示和回溯。
+
+    非致命操作：保存失败仅记录 warning 日志，不阻塞 SSE 流。
+    """
+    from app.models.chat import AdhocAnalysisRecord
+    from datetime import datetime, timezone
+
+    try:
+        record = AdhocAnalysisRecord(
+            message_id=message_id,
+            project_id=project_id,
+            user_id=user_id,
+            strategy=strategy,
+            code_language=code_language,
+            code_snapshot=code_snapshot,
+            parameters=parameters,
+            output_dir=output_dir,
+            output_files=[f["path"] for f in output_files] if output_files else [],
+            status=status,
+            output_text=output_text,
+            error_text=error_text,
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(record)
+        session.commit()
+        log.info(f"[adhoc_history] 执行记录已保存: message_id={message_id}, status={status}")
+    except Exception as e:
+        session.rollback()
+        log.warning(f"[adhoc_history] 保存失败（非致命）: {e}")
+
+
 def _derive_short_name(strategy_text: str, max_len: int = 20) -> str:
     """
     从即席分析策略描述中提取简短英文标识，用于输出目录命名。
@@ -1995,6 +2047,26 @@ async def adhoc_execute(
                         except Exception as diag_err:
                             log.warning(f"[adhoc_execute] 错误诊断生成失败（非致命）: {diag_err}")
 
+                    # 自动保存即席分析执行记录到数据库（用于历史列表）
+                    try:
+                        _save_adhoc_history(
+                            session=session,
+                            message_id=request.message_id,
+                            project_id=project_id,
+                            user_id=user.id,
+                            strategy=strategy_pack.get("strategy", ""),
+                            code_language=code_language,
+                            code_snapshot=code_snapshot,
+                            parameters=parameters,
+                            output_dir=output_dir_name,
+                            output_files=output_files,
+                            status="success" if success else "failed",
+                            output_text=docker_output[:10000] if success else None,
+                            error_text=docker_output[:5000] if not success else None,
+                        )
+                    except Exception as hist_err:
+                        log.warning(f"[adhoc_execute] 历史记录保存失败（非致命）: {hist_err}")
+
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
                 elif msg_type == "error":
@@ -2014,6 +2086,91 @@ async def adhoc_execute(
             "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
         },
     )
+
+
+@router.get("/adhoc/history")
+async def get_adhoc_history(
+    project_id: str = Query(..., description="项目ID"),
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    获取即席分析历史记录列表。
+
+    程序说明：
+    按项目 ID 查询当前用户的所有即席分析执行记录，
+    按创建时间降序排列，支持分页。
+    返回包含策略描述、代码语言、参数、状态、输出文件等信息的列表。
+    """
+    from app.models.chat import AdhocAnalysisRecord
+
+    query = (
+        session.query(AdhocAnalysisRecord)
+        .filter(
+            AdhocAnalysisRecord.project_id == project_id,
+            AdhocAnalysisRecord.user_id == user.id,
+        )
+        .order_by(AdhocAnalysisRecord.created_at.desc())
+    )
+
+    total = query.count()
+    records = query.offset(offset).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "message_id": r.message_id,
+                "strategy": r.strategy,
+                "code_language": r.code_language,
+                "code_snapshot": r.code_snapshot,
+                "parameters": r.parameters,
+                "output_dir": r.output_dir,
+                "output_files": r.output_files,
+                "status": r.status,
+                "output_text": r.output_text,
+                "error_text": r.error_text,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            }
+            for r in records
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.delete("/adhoc/history/{record_id}")
+async def delete_adhoc_history(
+    record_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    删除单条即席分析历史记录。
+
+    程序说明：
+    仅允许删除当前用户自己的记录。
+    删除操作不可逆，但不影响已生成的输出文件。
+    """
+    from app.models.chat import AdhocAnalysisRecord
+
+    record = session.query(AdhocAnalysisRecord).filter(
+        AdhocAnalysisRecord.id == record_id,
+        AdhocAnalysisRecord.user_id == user.id,
+    ).first()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在或无权删除")
+
+    session.delete(record)
+    session.commit()
+    log.info(f"[adhoc_history] 记录已删除: id={record_id}, message_id={record.message_id}")
+
+    return {"success": True, "message": "记录已删除"}
 
 
 class AdhocSaveSkillRequest(BaseModel):

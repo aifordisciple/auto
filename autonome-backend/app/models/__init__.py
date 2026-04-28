@@ -41,7 +41,7 @@ from app.models.domain import (
     Project, DataFile, ProjectUpdate, PublicDataset,
     # 聊天模型
     ChatSession, ChatMessage, MessageBookmark, SessionSummaryCache,
-    ChatSessionTag, SessionTagRelation,
+    ChatSessionTag, SessionTagRelation, AdhocAnalysisRecord,
     # 任务模型
     TaskRecord,
     # 系统配置
@@ -100,7 +100,7 @@ __all__ = [
 
     # User & Project
     "User", "OAuthAccount", "ActiveSession", "BillingAccount", "Project", "ProjectUpdate",
-    "ChatSession", "ChatMessage", "DataFile", "TaskRecord",
+    "ChatSession", "ChatMessage", "DataFile", "TaskRecord", "AdhocAnalysisRecord",
     "SystemConfig", "PublicDataset",
 
     # Skill
