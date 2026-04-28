@@ -1660,11 +1660,14 @@ async def adhoc_execute(
         f"[adhoc_execute] 输出目录: host={host_out_dir}, container={container_out_dir}"
     )
 
-    # 写入脚本文件到输出目录
+    # 写入脚本文件到输出目录（注入进度报告辅助函数）
+    from app.services.progress_injector import inject_progress_helper, classify_log_line
     script_name = "latest_script.py" if code_language == "python" else "latest_script.R"
     script_path = os.path.join(host_out_dir, script_name)
+    # 注入进度辅助函数以支持结构化进度推送
+    enhanced_code = inject_progress_helper(code_snapshot, code_language)
     with open(script_path, 'w', encoding='utf-8') as f:
-        f.write(code_snapshot)
+        f.write(enhanced_code)
 
     # 构建执行命令：必须使用沙箱容器内可见路径
     # 沙箱挂载 project_proj_{id} → /workspace，因此容器内路径为 /workspace/results/{name}/{script}
@@ -1704,9 +1707,13 @@ async def adhoc_execute(
         loop = asyncio.get_event_loop()
 
         def log_callback(line: str):
-            """同步回调：将日志行推入异步队列"""
+            """同步回调：分类日志行并推入异步队列"""
             try:
-                loop.call_soon_threadsafe(queue.put_nowait, ("log", line))
+                category, progress_data = classify_log_line(line)
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    ("log", {"line": line, "category": category, "progress": progress_data}),
+                )
             except Exception:
                 pass  # 队列满时丢弃日志，不影响主流程
 
@@ -1753,7 +1760,19 @@ async def adhoc_execute(
             while True:
                 msg_type, data = await asyncio.wait_for(queue.get(), timeout=3600)
                 if msg_type == "log":
-                    yield f"data: {json.dumps({'type': 'log', 'line': data})}\n\n"
+                    # 根据日志分类推送不同事件类型
+                    line_text = data["line"]
+                    cat = data["category"]
+                    prog = data["progress"]
+                    if cat == "progress" and prog:
+                        # 进度事件：结构化进度数据
+                        yield f"data: {json.dumps({'type': 'progress', 'step': prog['step'], 'total': prog['total'], 'message': prog['message'], 'percent': prog['percent']})}\n\n"
+                    elif cat == "system":
+                        # 系统日志：标记为可折叠
+                        yield f"data: {json.dumps({'type': 'log', 'line': line_text, 'category': 'system'})}\n\n"
+                    else:
+                        # 分析日志
+                        yield f"data: {json.dumps({'type': 'log', 'line': line_text, 'category': 'analysis'})}\n\n"
                 elif msg_type == "done":
                     docker_output = data["output"]
                     exit_code = data["exit_code"]

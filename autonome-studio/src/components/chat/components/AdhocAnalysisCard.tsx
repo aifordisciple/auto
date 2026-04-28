@@ -137,10 +137,16 @@ export function AdhocAnalysisCard({
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   // 实时日志流状态
-  const [logLines, setLogLines] = useState<string[]>([])
+  const [logLines, setLogLines] = useState<string[]>([])  // 所有日志（用于复制）
+  const [systemLogs, setSystemLogs] = useState<string[]>([])  // 系统日志（pip install等）
+  const [analysisLogs, setAnalysisLogs] = useState<string[]>([])  // 分析日志
   const [showLogWindow, setShowLogWindow] = useState(false)
   const [logCollapsed, setLogCollapsed] = useState(false)
   const [logCopied, setLogCopied] = useState(false)
+  const [systemLogsCollapsed, setSystemLogsCollapsed] = useState(true)  // 系统日志默认折叠
+  const [activeLogTab, setActiveLogTab] = useState<'analysis' | 'system' | 'all'>('analysis')
+  // 进度状态
+  const [progressData, setProgressData] = useState<{ step: number; total: number; message: string; percent: number } | null>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   // 执行计时器状态
@@ -242,6 +248,11 @@ export function AdhocAnalysisCard({
     setIsExecuting(true)
     setExecutionResult(null)
     setLogLines([])
+    setSystemLogs([])
+    setAnalysisLogs([])
+    setProgressData(null)
+    setSystemLogsCollapsed(true)
+    setActiveLogTab('analysis')
     setShowLogWindow(true)
     setLogCollapsed(false)
     setExecutionStartTime(Date.now())
@@ -343,10 +354,32 @@ export function AdhocAnalysisCard({
     switch (event.type) {
       case 'init':
         setLogLines(prev => [...prev, `🚀 ${event.message || '沙箱启动中...'}`])
+        setAnalysisLogs(prev => [...prev, `🚀 ${event.message || '沙箱启动中...'}`])
         break
-      case 'log':
-        setLogLines(prev => [...prev, event.line as string])
+      case 'progress': {
+        // 结构化进度事件
+        const prog = {
+          step: event.step as number,
+          total: event.total as number,
+          message: event.message as string,
+          percent: event.percent as number,
+        }
+        setProgressData(prog)
+        setLogLines(prev => [...prev, `📊 [${prog.step}/${prog.total}] ${prog.message}`])
+        setAnalysisLogs(prev => [...prev, `📊 [${prog.step}/${prog.total}] ${prog.message}`])
         break
+      }
+      case 'log': {
+        const line = event.line as string
+        const category = (event.category as string) || 'analysis'
+        setLogLines(prev => [...prev, line])
+        if (category === 'system') {
+          setSystemLogs(prev => [...prev, line])
+        } else {
+          setAnalysisLogs(prev => [...prev, line])
+        }
+        break
+      }
       case 'result': {
         const result: ExecutionResult = {
           status: (event.status as 'success' | 'failed') || 'failed',
@@ -842,6 +875,73 @@ export function AdhocAnalysisCard({
           {/* 日志内容区（可折叠） */}
           {!logCollapsed && (
             <>
+              {/* 进度条（仅在有进度数据时显示） */}
+              {progressData && (
+                <div className="bg-gray-800 px-3 py-2 border-b border-gray-700">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] text-gray-300">
+                      📊 [{progressData.step}/{progressData.total}] {progressData.message}
+                    </span>
+                    <span className="text-[10px] text-gray-500">{progressData.percent}%</span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-1.5">
+                    <div
+                      className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${progressData.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 日志 Tab 切换 */}
+              <div className="bg-gray-800 px-2 pt-1.5 flex items-center gap-1 border-b border-gray-700">
+                <button
+                  onClick={() => setActiveLogTab('analysis')}
+                  className={`text-[10px] px-2 py-1 rounded-t transition-colors ${
+                    activeLogTab === 'analysis'
+                      ? 'bg-gray-900 text-gray-100'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  📈 分析日志
+                  {analysisLogs.length > 0 && (
+                    <span className="ml-1 text-[9px] opacity-60">{analysisLogs.length}</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveLogTab('system')}
+                  className={`text-[10px] px-2 py-1 rounded-t transition-colors ${
+                    activeLogTab === 'system'
+                      ? 'bg-gray-900 text-gray-100'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  ⚙️ 系统日志
+                  {systemLogs.length > 0 && (
+                    <span className="ml-1 text-[9px] opacity-60">{systemLogs.length}</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveLogTab('all')}
+                  className={`text-[10px] px-2 py-1 rounded-t transition-colors ${
+                    activeLogTab === 'all'
+                      ? 'bg-gray-900 text-gray-100'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  📋 全部
+                </button>
+                {/* 系统日志计数徽章（有系统日志时显示折叠/展开切换） */}
+                {systemLogs.length > 0 && (
+                  <button
+                    onClick={() => setSystemLogsCollapsed(!systemLogsCollapsed)}
+                    className="ml-auto text-[10px] text-gray-500 hover:text-gray-300"
+                  >
+                    {systemLogsCollapsed ? '▶ 展开系统' : '▼ 折叠系统'}
+                  </button>
+                )}
+              </div>
+
               <div
                 ref={logContainerRef}
                 className="bg-gray-900 text-gray-100 p-3 text-xs font-mono max-h-64 overflow-y-auto"
@@ -849,18 +949,46 @@ export function AdhocAnalysisCard({
                 {logLines.length === 0 && isExecuting ? (
                   <span className="text-gray-500">等待日志输出...</span>
                 ) : (
-                  logLines.map((line, i) => (
-                    <div key={i} className="whitespace-pre-wrap break-all">
-                      {line}
-                    </div>
-                  ))
+                  (() => {
+                    // 根据 Tab 选择展示的日志行
+                    let displayLines: string[] = logLines
+                    if (activeLogTab === 'analysis') {
+                      displayLines = analysisLogs
+                    } else if (activeLogTab === 'system') {
+                      displayLines = systemLogs
+                    }
+                    // 系统日志折叠：在 analysis 或 all tab 中隐藏系统日志
+                    if (systemLogsCollapsed && activeLogTab !== 'system') {
+                      // 从 logLines 中过滤掉系统日志来展示
+                      if (activeLogTab === 'all') {
+                        const systemSet = new Set(systemLogs)
+                        displayLines = logLines.filter(l => !systemSet.has(l))
+                      }
+                    }
+                    return displayLines.map((line, i) => {
+                      // 进度行高亮
+                      const isProgressLine = line.includes('[1/') || line.includes('[2/') || line.includes('[3/') || line.includes('[4/') || line.includes('[5/') || line.includes('[6/')
+                      return (
+                        <div
+                          key={i}
+                          className={`whitespace-pre-wrap break-all ${
+                            isProgressLine
+                              ? 'text-indigo-300 dark:text-indigo-400'
+                              : ''
+                          }`}
+                        >
+                          {line}
+                        </div>
+                      )
+                    })
+                  })()
                 )}
-                {/* 长时间无新日志警告：运行超过 5 分钟且最近一次日志距今超 5 分钟 */}
+                {/* 长时间无新日志警告 */}
                 {isExecuting && logLines.length > 0 && elapsedSeconds > 300 && (
                   <div className="mt-2 text-amber-400 text-[11px] flex items-center gap-1.5">
                     <span>⚠️</span>
                     <span>
-                      已运行 {formatElapsed(elapsedSeconds)}，如长时间无新日志输出，可能是脚本卡住或进入了长时间计算
+                      已运行 {formatElapsed(elapsedSeconds)}，如长时间无新日志输出，可能是进入了长时间计算
                     </span>
                   </div>
                 )}
