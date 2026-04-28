@@ -143,7 +143,7 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
             decode_responses=True,
         )
         message_id = f"adhoc_graph_{idx}"
-        r.setex(f"adhoc:{message_id}", 600, json.dumps(strategy_pack, ensure_ascii=False))
+        r.setex(f"adhoc:{message_id}", 3600, json.dumps(strategy_pack, ensure_ascii=False))
         log.info(f"[adhoc_analysis_node] 策略包已存入 Redis: key=adhoc:{message_id}")
     except Exception as redis_err:
         log.warning(f"[adhoc_analysis_node] Redis 存储失败（非致命）: {redis_err}")

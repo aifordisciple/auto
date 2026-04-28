@@ -14,7 +14,9 @@ export default function DebugChat() {
     headers: () => {
       const token = typeof window !== 'undefined'
         ? localStorage.getItem('autonome_access_token') : null;
-      return token ? { Authorization: `Bearer ${token}` } : {};
+      const result: Record<string, string> = {};
+      if (token) result['Authorization'] = `Bearer ${token}`;
+      return result;
     },
     body: () => ({
       data: {

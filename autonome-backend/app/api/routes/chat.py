@@ -721,7 +721,7 @@ async def chat_stream(
                     }
                     r.setex(
                         f"adhoc:{user_msg.id}",
-                        600,
+                        3600,
                         json.dumps(redis_data, ensure_ascii=False),
                     )
                     log.info(f"[Chat] 即席分析策略包已存入 Redis: key=adhoc:{user_msg.id}")

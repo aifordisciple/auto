@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye } from 'lucide-react'
+import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw } from 'lucide-react'
 
 /**
  * JSON Schema 属性定义（与 ParameterProbingCard 一致）
  */
 interface SchemaProperty {
-  type: 'string' | 'number' | 'boolean'
+  type: 'string' | 'number' | 'boolean' | 'file'
   title?: string
   description?: string
   enum?: string[]
@@ -101,6 +101,9 @@ export function AdhocAnalysisCard({
     return defaults
   })
 
+  // 表单验证错误状态：key → 错误消息
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+
   const [isExecuting, setIsExecuting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
@@ -130,11 +133,61 @@ export function AdhocAnalysisCard({
   // 处理参数变化
   const handleParamChange = (key: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [key]: value }))
+    // 清除该字段的验证错误
+    if (validationErrors[key]) {
+      setValidationErrors(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    }
+  }
+
+  // 恢复所有参数为 Schema 默认值
+  const handleRestoreDefaults = () => {
+    const defaults: Record<string, unknown> = {}
+    for (const [key, prop] of Object.entries(parameter_schema?.properties || {})) {
+      if (prop.default !== undefined) {
+        defaults[key] = prop.default
+      }
+    }
+    setFormData(defaults)
+    setValidationErrors({})
+  }
+
+  // 表单验证：检查必填项、类型约束
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {}
+    for (const [key, field] of Object.entries(parameter_schema?.properties || {})) {
+      const value = formData[key]
+      const isRequired = parameter_schema?.required?.includes(key)
+      // 必填项检查
+      if (isRequired && (value === undefined || value === null || value === '')) {
+        errors[key] = `${field.title || key} 为必填项`
+        continue
+      }
+      // 数值范围检查
+      if (field.type === 'number' && value !== undefined && value !== null && value !== '') {
+        const numVal = Number(value)
+        if (field.minimum !== undefined && numVal < field.minimum) {
+          errors[key] = `不能小于 ${field.minimum}`
+        }
+        if (field.maximum !== undefined && numVal > field.maximum) {
+          errors[key] = `不能大于 ${field.maximum}`
+        }
+      }
+    }
+    setValidationErrors(errors)
+    return Object.keys(errors).length === 0
   }
 
   // 核心：点击执行，通过 SSE 流式接收 Docker 沙箱实时日志
   const handleExecute = async () => {
     if (isExecuting) return
+
+    // 执行前表单验证
+    if (!validateForm()) return
+
     setIsExecuting(true)
     setExecutionResult(null)
     setLogLines([])
@@ -369,72 +422,185 @@ export function AdhocAnalysisCard({
   return (
     <div className="my-3 rounded-xl border border-indigo-500/40 bg-white dark:bg-[#1a1a1c] shadow-sm overflow-hidden">
       {/* 1. 策略说明区（顶部，靛蓝色背景） */}
-      <div className="bg-indigo-50/50 dark:bg-indigo-900/20 p-4 border-b border-indigo-100 dark:border-indigo-500/20">
-        <h3 className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 text-sm">
-          <span>⚡ 即席分析就绪</span>
+      <div className={`p-4 border-b transition-colors duration-300 ${
+        executionResult?.status === 'success'
+          ? 'bg-green-50/50 dark:bg-green-900/20 border-green-100 dark:border-green-500/20'
+          : executionResult?.status === 'failed'
+          ? 'bg-red-50/50 dark:bg-red-900/20 border-red-100 dark:border-red-500/20'
+          : isExecuting
+          ? 'bg-blue-50/50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-500/20'
+          : 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/20'
+      }`}>
+        <h3 className={`font-bold flex items-center gap-2 text-sm transition-colors duration-300 ${
+          executionResult?.status === 'success'
+            ? 'text-green-900 dark:text-green-300'
+            : executionResult?.status === 'failed'
+            ? 'text-red-900 dark:text-red-300'
+            : isExecuting
+            ? 'text-blue-900 dark:text-blue-300'
+            : 'text-indigo-900 dark:text-indigo-300'
+        }`}>
+          <span>
+            {isExecuting
+              ? '⏳ 分析执行中...'
+              : executionResult?.status === 'success'
+              ? `✅ 分析完成 — 共生成 ${executionResult?.output_files?.length || 0} 个文件`
+              : executionResult?.status === 'failed'
+              ? `❌ 执行失败 — ${executionResult?.error ? executionResult.error.slice(0, 60) + (executionResult.error.length > 60 ? '...' : '') : '未知错误'}`
+              : '⚡ 即席分析就绪'
+            }
+          </span>
         </h3>
         <p className="text-gray-600 dark:text-zinc-300 text-sm mt-2">{strategy}</p>
       </div>
 
-      {/* 2. 参数面板（中部，网格布局，动态表单） */}
-      {Object.keys(parameter_schema?.properties || {}).length > 0 && (
-        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {Object.entries(parameter_schema.properties).map(([key, field]) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                {field.title || key}
-                {parameter_schema.required?.includes(key) && <span className="ml-1 text-red-400">*</span>}
-              </label>
-
-              {/* enum → 下拉选择框 */}
-              {field.enum ? (
-                <select
-                  value={String(formData[key] ?? field.default ?? '')}
-                  onChange={(e) => handleParamChange(key, e.target.value)}
-                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                >
-                  {field.enum.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              ) : field.type === 'boolean' ? (
-                /* boolean → 开关 */
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(formData[key] ?? field.default ?? false)}
-                    onChange={(e) => handleParamChange(key, e.target.checked)}
-                    className="h-4 w-4 rounded border-zinc-600 text-indigo-500 focus:ring-indigo-500"
-                  />
-                  <span className="text-sm text-zinc-400">{field.description || '启用'}</span>
-                </label>
-              ) : field.type === 'number' ? (
-                /* number → 数字输入框 */
-                <input
-                  type="number"
-                  value={Number(formData[key] ?? field.default ?? 0)}
-                  onChange={(e) => handleParamChange(key, Number(e.target.value))}
-                  min={field.minimum}
-                  max={field.maximum}
-                  step={field.step ?? 1}
-                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
-              ) : (
-                /* string → 文本输入框 */
-                <input
-                  type="text"
-                  value={String(formData[key] ?? field.default ?? '')}
-                  onChange={(e) => handleParamChange(key, e.target.value)}
-                  placeholder={field.description || `请输入 ${field.title || key}`}
-                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
-              )}
+      {/* 2. 输入文件映射区（在参数面板上方） */}
+      {Object.keys(input_mapping || {}).length > 0 && (
+        <div className="px-4 pt-4">
+          <div className="rounded-md bg-blue-50 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-500/20 p-3">
+            <h4 className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-1.5">
+              <File size={13} />
+              输入文件映射
+            </h4>
+            <div className="space-y-1">
+              {Object.entries(input_mapping).map(([paramName, filePath]) => {
+                const fileName = (filePath || '').split('/').pop() || filePath
+                return (
+                  <div
+                    key={paramName}
+                    className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400"
+                  >
+                    <File size={11} className="flex-shrink-0 text-blue-400" />
+                    <span className="font-mono truncate flex-1" title={filePath}>
+                      {fileName}
+                    </span>
+                    <span className="text-blue-400 flex-shrink-0">→</span>
+                    <span className="font-medium flex-shrink-0">{paramName}</span>
+                  </div>
+                )
+              })}
             </div>
-          ))}
+          </div>
         </div>
       )}
 
-      {/* 3. 代码预览区（折叠） */}
+      {/* 3. 参数面板（中部，网格布局，动态表单） */}
+      {Object.keys(parameter_schema?.properties || {}).length > 0 && (
+        <div className="p-4">
+          {/* 参数面板标题栏 + 恢复默认按钮 */}
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">
+              分析参数
+            </h4>
+            <button
+              onClick={handleRestoreDefaults}
+              className="flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline transition-colors"
+            >
+              <RotateCcw size={11} />
+              恢复默认
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {Object.entries(parameter_schema.properties).map(([key, field]) => {
+              const isRequired = parameter_schema.required?.includes(key)
+              const hasError = !!validationErrors[key]
+              const isFileParam = field.type === 'file' || Object.keys(input_mapping || {}).includes(key)
+              // 文件参数的默认值从 input_mapping 获取
+              const filePath = isFileParam ? (input_mapping?.[key] || '') : ''
+              const fileName = filePath ? filePath.split('/').pop() || filePath : ''
+
+              // 通用的输入框样式，错误状态时红色边框
+              const inputBaseClass = `w-full rounded-md border bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none ${
+                hasError
+                  ? 'border-red-400 dark:border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-300 transition-all'
+                  : 'border-zinc-300 dark:border-zinc-600 focus:border-indigo-500'
+              }`
+
+              return (
+                <div key={key} className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1">
+                    {field.title || key}
+                    {isRequired && <span className="text-red-400 font-bold">*</span>}
+                  </label>
+
+                  {/* file 类型 → 只读文件路径展示，不可编辑 */}
+                  {isFileParam ? (
+                    <div className={`${inputBaseClass} flex items-center gap-2 bg-gray-50 dark:bg-zinc-700/50 cursor-default`}>
+                      <File size={13} className="text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                      <span className="truncate text-gray-600 dark:text-zinc-400 font-mono" title={filePath}>
+                        {fileName || filePath || '（未映射）'}
+                      </span>
+                    </div>
+                  ) : field.enum ? (
+                    /* enum → 下拉选择框 */
+                    <select
+                      value={String(formData[key] ?? field.default ?? '')}
+                      onChange={(e) => handleParamChange(key, e.target.value)}
+                      className={inputBaseClass}
+                    >
+                      {field.enum.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : field.type === 'boolean' ? (
+                    /* boolean → 开关 */
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData[key] ?? field.default ?? false)}
+                        onChange={(e) => handleParamChange(key, e.target.checked)}
+                        className={`h-4 w-4 rounded border-zinc-600 text-indigo-500 focus:ring-indigo-500 ${hasError ? 'border-red-400' : ''}`}
+                      />
+                      <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                        {field.description || '启用'}
+                      </span>
+                    </label>
+                  ) : field.type === 'number' ? (
+                    /* number → 数字输入框 */
+                    <div className="flex flex-col gap-1">
+                      <input
+                        type="number"
+                        value={Number(formData[key] ?? field.default ?? 0)}
+                        onChange={(e) => handleParamChange(key, Number(e.target.value))}
+                        min={field.minimum}
+                        max={field.maximum}
+                        step={field.step ?? 1}
+                        className={inputBaseClass}
+                      />
+                      {field.description && (
+                        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{field.description}</span>
+                      )}
+                    </div>
+                  ) : (
+                    /* string → 文本输入框 */
+                    <div className="flex flex-col gap-1">
+                      <input
+                        type="text"
+                        value={String(formData[key] ?? field.default ?? '')}
+                        onChange={(e) => handleParamChange(key, e.target.value)}
+                        placeholder={`请输入 ${field.title || key}`}
+                        className={inputBaseClass}
+                      />
+                      {field.description && (
+                        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{field.description}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 验证错误消息 */}
+                  {hasError && (
+                    <span className="text-[11px] text-red-500 dark:text-red-400 transition-all">
+                      {validationErrors[key]}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 4. 代码预览区（折叠） */}
       <div className="px-4">
         <button
           onClick={() => setShowCode(!showCode)}
@@ -453,7 +619,7 @@ export function AdhocAnalysisCard({
         )}
       </div>
 
-      {/* 4. 实时日志窗口（点击执行后展开，始终可见直到手动关闭） */}
+      {/* 5. 实时日志窗口（点击执行后展开，始终可见直到手动关闭） */}
       {showLogWindow && (
         <div className="mx-4 mb-4 border border-gray-700 rounded-md overflow-hidden">
           {/* 日志窗口标题栏 */}
@@ -507,7 +673,7 @@ export function AdhocAnalysisCard({
         </div>
       )}
 
-      {/* 5. 结果区（执行完成后显示在日志窗口下方） */}
+      {/* 6. 结果区（执行完成后显示在日志窗口下方） */}
       {executionResult && (
         <div
           className={`mx-4 mb-4 p-4 rounded-md ${
@@ -613,7 +779,7 @@ export function AdhocAnalysisCard({
         </div>
       )}
 
-      {/* 6. 操作区（底部） */}
+      {/* 7. 操作区（底部） */}
       <div className="p-4 bg-gray-50 dark:bg-[#1e1e20] flex justify-between items-center border-t border-gray-200 dark:border-zinc-800">
         <button
           onClick={handleSaveSkill}
@@ -627,18 +793,33 @@ export function AdhocAnalysisCard({
           )}
           {saveResult || (isSaving ? '保存中...' : '固化为团队技能')}
         </button>
-        <button
-          onClick={handleExecute}
-          disabled={isExecuting}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 disabled:cursor-not-allowed rounded-md transition-colors"
-        >
-          {isExecuting ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <Play size={14} />
+        <div className="flex items-center gap-3">
+          {/* 失败原因摘要（仅在失败后显示） */}
+          {executionResult?.status === 'failed' && !isExecuting && (
+            <span className="text-xs text-red-500 dark:text-red-400 max-w-48 truncate" title={executionResult.error || ''}>
+              {(executionResult.error || '未知错误').slice(0, 50)}
+              {(executionResult.error || '').length > 50 ? '...' : ''}
+            </span>
           )}
-          {isExecuting ? '沙箱执行中...' : '执行分析'}
-        </button>
+          <button
+            onClick={handleExecute}
+            disabled={isExecuting}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-md transition-colors disabled:cursor-not-allowed ${
+              executionResult?.status === 'failed' && !isExecuting
+                ? 'text-red-600 dark:text-red-400 border border-red-400 dark:border-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50'
+                : 'text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50'
+            }`}
+          >
+            {isExecuting ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : executionResult?.status === 'failed' ? (
+              <RotateCcw size={14} />
+            ) : (
+              <Play size={14} />
+            )}
+            {isExecuting ? '沙箱执行中...' : executionResult?.status === 'failed' ? '重试分析' : '执行分析'}
+          </button>
+        </div>
       </div>
     </div>
   )
