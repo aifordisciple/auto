@@ -40,18 +40,22 @@ def get_current_user(
 
     两种方式都支持，Cookie 模式下前端无需手动注入 header
     """
-    # 优先使用 Bearer Token，回退到 Cookie
-    actual_token = token or access_token_cookie
+    # 优先使用 Bearer Token，若无效则回退到 Cookie
+    # 注意：不能简单用 `token or access_token_cookie` 做短路求值，
+    # 因为 token 可能是非空但已过期的 JWT 字符串，此时应继续尝试 Cookie
+    payload = None
+    if token:
+        payload = verify_access_token(token)
+    if payload is None and access_token_cookie:
+        payload = verify_access_token(access_token_cookie)
 
-    if not actual_token:
+    if not token and not access_token_cookie:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="未提供认证凭证",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 验证 JWT（拒绝 scoped token，仅接受业务 access_token）
-    payload = verify_access_token(actual_token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

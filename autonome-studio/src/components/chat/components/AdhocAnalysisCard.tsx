@@ -318,7 +318,6 @@ export function AdhocAnalysisCard({
       code_snapshot: editableCode,
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
 
     // 创建 AbortController 用于取消请求
@@ -326,7 +325,8 @@ export function AdhocAnalysisCard({
     abortControllerRef.current = abortController
 
     try {
-      const res = await fetch(`${apiUrl}/api/chat/adhoc/execute`, {
+      // 通过 BFF 代理调用，避免跨域 Cookie 问题
+      const res = await fetch(`/api/chat/adhoc/execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
