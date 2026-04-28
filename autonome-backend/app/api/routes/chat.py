@@ -711,27 +711,13 @@ async def chat_stream(
                         enable_think=request.enable_think,
                     )
 
-                    # 策略包存入 Redis，供用户确认执行后读取
-                    # key 格式: adhoc:{message_id}，TTL 10 分钟
-                    # 同时存储 project_id，供 execute 端点确定项目文件系统范围
-                    import redis as redis_client
-                    from app.core.config import settings as app_settings
-                    r = redis_client.Redis(
-                        host=app_settings.REDIS_HOST,
-                        port=app_settings.REDIS_PORT,
-                        db=0,
-                        decode_responses=True,
+                    # 策略包存入 Redis，通过 Chat/Graph 共享函数统一存储
+                    from app.agent.nodes.adhoc_analysis_node import _store_strategy_pack_to_redis
+                    _store_strategy_pack_to_redis(
+                        strategy_pack=strategy_pack,
+                        message_id=user_msg.id,
+                        project_id=request.project_id,
                     )
-                    redis_data = {
-                        **strategy_pack,
-                        "project_id": request.project_id,
-                    }
-                    r.setex(
-                        f"adhoc:{user_msg.id}",
-                        3600,
-                        json.dumps(redis_data, ensure_ascii=False),
-                    )
-                    log.info(f"[Chat] 即席分析策略包已存入 Redis: key=adhoc:{user_msg.id}")
 
                     # 发送 render_adhoc_card ToolCall（通过 data-tool_call 自定义事件流向 Vercel AI SDK）
                     # message_id 传递给前端，执行时前端回传用于 Redis 查找策略包

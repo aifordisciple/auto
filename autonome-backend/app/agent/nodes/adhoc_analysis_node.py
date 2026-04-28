@@ -130,26 +130,12 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
     nodes[idx]["adhoc_metadata"] = strategy_pack
 
     # 策略包同时存入 Redis，供前端 /api/chat/adhoc/execute 端点读取
-    # key 格式: adhoc:{message_id}，TTL 1 小时
-    # 使用 UUID 生成唯一 message_id，保证 Chat 路径和 Graph 路径格式一致
+    # 使用 UUID 生成唯一 message_id，通过共享函数 _store_strategy_pack_to_redis 存储
     import uuid
-    import redis as redis_client
-    from app.core.config import settings as app_settings
 
     message_id = str(uuid.uuid4())
     strategy_pack["message_id"] = message_id
-
-    try:
-        r = redis_client.Redis(
-            host=app_settings.REDIS_HOST,
-            port=app_settings.REDIS_PORT,
-            db=0,
-            decode_responses=True,
-        )
-        r.setex(f"adhoc:{message_id}", 3600, json.dumps(strategy_pack, ensure_ascii=False))
-        log.info(f"[adhoc_analysis_node] 策略包已存入 Redis: key=adhoc:{message_id}")
-    except Exception as redis_err:
-        log.warning(f"[adhoc_analysis_node] Redis 存储失败（非致命）: {redis_err}")
+    _store_strategy_pack_to_redis(strategy_pack, message_id)
 
     # 生成 ProbingRequest 触发前端渲染即席分析卡片
     probing_request = ProbingRequest(
@@ -249,3 +235,43 @@ async def _generate_strategy_pack(
     )
 
     return strategy_pack
+
+
+def _store_strategy_pack_to_redis(
+    strategy_pack: Dict[str, Any],
+    message_id: str,
+    project_id: str | None = None,
+) -> bool:
+    """
+    将策略包存入 Redis，供 /api/chat/adhoc/execute 端点读取。
+
+    这是 Chat 路径和 Graph 路径的共享函数，统一 key 格式为 adhoc:{message_id}。
+
+    Args:
+        strategy_pack: LLM 生成的策略包字典
+        message_id: 消息唯一标识符（Chat 路径用 user_msg.id，Graph 路径用 UUID）
+        project_id: 项目 ID（可选，Chat 路径传入用于 execute 时确定文件系统范围）
+
+    Returns:
+        True 表示存储成功，False 表示存储失败（非致命错误）
+    """
+    import redis as redis_client
+    from app.core.config import settings as app_settings
+
+    redis_data = {**strategy_pack}
+    if project_id:
+        redis_data["project_id"] = project_id
+
+    try:
+        r = redis_client.Redis(
+            host=app_settings.REDIS_HOST,
+            port=app_settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        r.setex(f"adhoc:{message_id}", 3600, json.dumps(redis_data, ensure_ascii=False))
+        log.info(f"[adhoc] 策略包已存入 Redis: key=adhoc:{message_id}")
+        return True
+    except Exception as redis_err:
+        log.warning(f"[adhoc] Redis 存储失败（非致命）: {redis_err}")
+        return False
