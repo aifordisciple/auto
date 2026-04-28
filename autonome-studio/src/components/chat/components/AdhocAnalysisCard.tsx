@@ -1,9 +1,23 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy, FolderOpen } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy, FolderOpen, User, Zap } from 'lucide-react'
 import { TablePreview } from './TablePreview'
 import { useUIStore } from '@/store/useUIStore'
+import { useUserProfileStore } from '@/store/useUserProfileStore'
+
+/**
+ * 动态导入 Monaco Editor（禁用 SSR，仅专家模式使用）
+ */
+const MonacoEditor = dynamic(() => import('@monaco-editor/react').then(mod => mod.default), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full bg-gray-900 p-3 rounded-md mb-4 min-h-[120px] flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-gray-500" />
+    </div>
+  ),
+})
 
 /**
  * JSON Schema 属性定义（与 ParameterProbingCard 一致）
@@ -114,6 +128,15 @@ export function AdhocAnalysisCard({
   // 表单验证错误状态：key → 错误消息
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
+  // === 自适应体验：读取用户画像 ===
+  const profileMode = useUserProfileStore(s => s.mode)
+  const codeExpandedByDefault = useUserProfileStore(s => s.codeExpandedByDefault)
+  const defaultLogTab = useUserProfileStore(s => s.defaultLogTab)
+  const setMode = useUserProfileStore(s => s.setMode)
+  const unlockMode = useUserProfileStore(s => s.unlockMode)
+  const recordCodeEdit = useUserProfileStore(s => s.recordCodeEdit)
+  const recordRawLogView = useUserProfileStore(s => s.recordRawLogView)
+
   const [isExecuting, setIsExecuting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
@@ -122,7 +145,8 @@ export function AdhocAnalysisCard({
   const [saveSkillName, setSaveSkillName] = useState('')
   const [saveCategory, setSaveCategory] = useState('即席分析')
   const [saveVisibility, setSaveVisibility] = useState('private')
-  const [showCode, setShowCode] = useState(false)
+  // 代码区：初始状态由用户模式决定（新手隐藏，专家默认展示）
+  const [showCode, setShowCode] = useState(codeExpandedByDefault)
   const [editableCode, setEditableCode] = useState(code)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
   // 输出文件预览所需：project_id 和 output_dir_name 从 SSE result 事件中获取
@@ -144,7 +168,8 @@ export function AdhocAnalysisCard({
   const [logCollapsed, setLogCollapsed] = useState(false)
   const [logCopied, setLogCopied] = useState(false)
   const [systemLogsCollapsed, setSystemLogsCollapsed] = useState(true)  // 系统日志默认折叠
-  const [activeLogTab, setActiveLogTab] = useState<'analysis' | 'system' | 'all'>('analysis')
+  // 日志 Tab：初始值由用户模式决定（新手→进度，专家→全部）
+  const [activeLogTab, setActiveLogTab] = useState<'analysis' | 'system' | 'all'>(defaultLogTab as 'analysis' | 'system' | 'all')
   // 进度状态
   const [progressData, setProgressData] = useState<{ step: number; total: number; message: string; percent: number } | null>(null)
   // LLM 结果解读
@@ -598,26 +623,54 @@ export function AdhocAnalysisCard({
           ? 'bg-blue-50/50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-500/20'
           : 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/20'
       }`}>
-        <h3 className={`font-bold flex items-center gap-2 text-sm transition-colors duration-300 ${
-          executionResult?.status === 'success'
-            ? 'text-green-900 dark:text-green-300'
-            : executionResult?.status === 'failed'
-            ? 'text-red-900 dark:text-red-300'
-            : isExecuting
-            ? 'text-blue-900 dark:text-blue-300'
-            : 'text-indigo-900 dark:text-indigo-300'
-        }`}>
-          <span>
-            {isExecuting
-              ? '⏳ 分析执行中...'
-              : executionResult?.status === 'success'
-              ? `✅ 分析完成 — 共生成 ${executionResult?.output_files?.length || 0} 个文件`
+        <div className="flex items-start justify-between gap-2">
+          <h3 className={`font-bold flex items-center gap-2 text-sm transition-colors duration-300 ${
+            executionResult?.status === 'success'
+              ? 'text-green-900 dark:text-green-300'
               : executionResult?.status === 'failed'
-              ? `❌ 执行失败 — ${executionResult?.error ? executionResult.error.slice(0, 60) + (executionResult.error.length > 60 ? '...' : '') : '未知错误'}`
-              : '⚡ 即席分析就绪'
-            }
-          </span>
-        </h3>
+              ? 'text-red-900 dark:text-red-300'
+              : isExecuting
+              ? 'text-blue-900 dark:text-blue-300'
+              : 'text-indigo-900 dark:text-indigo-300'
+          }`}>
+            <span>
+              {isExecuting
+                ? '⏳ 分析执行中...'
+                : executionResult?.status === 'success'
+                ? `✅ 分析完成 — 共生成 ${executionResult?.output_files?.length || 0} 个文件`
+                : executionResult?.status === 'failed'
+                ? `❌ 执行失败 — ${executionResult?.error ? executionResult.error.slice(0, 60) + (executionResult.error.length > 60 ? '...' : '') : '未知错误'}`
+                : '⚡ 即席分析就绪'
+              }
+            </span>
+          </h3>
+          {/* 自适应模式切换（仅非执行状态显示） */}
+          {!isExecuting && !executionResult && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => profileMode === 'beginner' ? setMode('expert') : unlockMode()}
+                className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full transition-colors border ${
+                  profileMode === 'expert'
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                    : 'bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 border-gray-300 dark:border-zinc-700 hover:border-amber-500/30'
+                }`}
+                title={profileMode === 'expert' ? '专家模式（点击恢复自动检测）' : '切换到专家模式'}
+              >
+                {profileMode === 'expert' ? (
+                  <>
+                    <Zap size={11} />
+                    专家
+                  </>
+                ) : (
+                  <>
+                    <User size={11} />
+                    新手
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
         <p className="text-gray-600 dark:text-zinc-300 text-sm mt-2">{strategy}</p>
       </div>
 
@@ -685,10 +738,23 @@ export function AdhocAnalysisCard({
 
               return (
                 <div key={key} className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1">
-                    {field.title || key}
+                  <label className="text-sm font-medium text-gray-700 dark:text-zinc-300 flex items-center gap-1 flex-wrap">
+                    {/* 新手模式：优先显示中文 title；专家模式：显示技术参数名 */}
+                    <span>{field.title || key}</span>
+                    {/* 专家模式额外显示参数键名 */}
+                    {profileMode === 'expert' && field.title && (
+                      <span className="text-[10px] text-gray-400 dark:text-zinc-500 font-mono font-normal">
+                        ({key})
+                      </span>
+                    )}
                     {isRequired && <span className="text-red-400 font-bold">*</span>}
                   </label>
+                  {/* 新手模式显示自然语言参数描述 */}
+                  {profileMode === 'beginner' && field.description && (
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      💡 {field.description}
+                    </span>
+                  )}
 
                   {/* file 类型 → 只读文件路径展示，不可编辑 */}
                   {isFileParam ? (
@@ -734,7 +800,8 @@ export function AdhocAnalysisCard({
                         step={field.step ?? 1}
                         className={inputBaseClass}
                       />
-                      {field.description && (
+                      {/* 专家模式显示技术描述 */}
+                      {profileMode === 'expert' && field.description && (
                         <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{field.description}</span>
                       )}
                     </div>
@@ -748,7 +815,8 @@ export function AdhocAnalysisCard({
                         placeholder={`请输入 ${field.title || key}`}
                         className={inputBaseClass}
                       />
-                      {field.description && (
+                      {/* 专家模式显示技术描述 */}
+                      {profileMode === 'expert' && field.description && (
                         <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{field.description}</span>
                       )}
                     </div>
@@ -817,12 +885,38 @@ export function AdhocAnalysisCard({
                 ))}
               </div>
             )}
-            <textarea
-              value={editableCode}
-              onChange={(e) => setEditableCode(e.target.value)}
-              className="w-full text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 font-mono resize-y min-h-[120px] max-h-96"
-              spellCheck={false}
-            />
+            {/* 代码编辑器：专家模式使用 Monaco，新手模式使用 textarea */}
+            {profileMode === 'expert' ? (
+              <div className="mb-4 border border-gray-700 rounded-md overflow-hidden">
+                <MonacoEditor
+                  height="300px"
+                  language={code_language === 'r' ? 'r' : 'python'}
+                  value={editableCode}
+                  onChange={(val) => {
+                    setEditableCode(val || '')
+                    recordCodeEdit()
+                  }}
+                  theme="vs-dark"
+                  options={{
+                    fontSize: 12,
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    lineNumbers: 'on',
+                    padding: { top: 8 },
+                  }}
+                />
+              </div>
+            ) : (
+              <textarea
+                value={editableCode}
+                onChange={(e) => {
+                  setEditableCode(e.target.value)
+                  recordCodeEdit()
+                }}
+                className="w-full text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 font-mono resize-y min-h-[120px] max-h-96"
+                spellCheck={false}
+              />
+            )}
           </>
         )}
       </div>
@@ -940,7 +1034,10 @@ export function AdhocAnalysisCard({
                   )}
                 </button>
                 <button
-                  onClick={() => setActiveLogTab('all')}
+                  onClick={() => {
+                    setActiveLogTab('all')
+                    recordRawLogView()
+                  }}
                   className={`text-[10px] px-2 py-1 rounded-t transition-colors ${
                     activeLogTab === 'all'
                       ? 'bg-gray-900 text-gray-100'
