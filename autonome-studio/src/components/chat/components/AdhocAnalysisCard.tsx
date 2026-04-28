@@ -134,6 +134,9 @@ export function AdhocAnalysisCard({
   const [logCopied, setLogCopied] = useState(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  // 执行计时器状态
+  const [executionStartTime, setExecutionStartTime] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
   // 日志窗口自动滚动到底部
   useEffect(() => {
@@ -141,6 +144,18 @@ export function AdhocAnalysisCard({
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
     }
   }, [logLines])
+
+  // 执行计时器：每秒更新已运行时间
+  useEffect(() => {
+    if (!executionStartTime) {
+      setElapsedSeconds(0)
+      return
+    }
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - executionStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [executionStartTime])
 
   // 处理参数变化
   const handleParamChange = (key: string, value: unknown) => {
@@ -167,7 +182,7 @@ export function AdhocAnalysisCard({
     setValidationErrors({})
   }
 
-  // 表单验证：检查必填项、类型约束
+  // 表单验证：基于 JSON Schema 校验必填项、类型、枚举、数值范围
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
     for (const [key, field] of Object.entries(parameter_schema?.properties || {})) {
@@ -178,14 +193,26 @@ export function AdhocAnalysisCard({
         errors[key] = `${field.title || key} 为必填项`
         continue
       }
-      // 数值范围检查
-      if (field.type === 'number' && value !== undefined && value !== null && value !== '') {
+      // 跳过空值的非必填项
+      if (value === undefined || value === null || value === '') continue
+      // 类型校验
+      if (field.type === 'number') {
         const numVal = Number(value)
+        if (isNaN(numVal)) {
+          errors[key] = `${field.title || key} 必须为数字`
+          continue
+        }
         if (field.minimum !== undefined && numVal < field.minimum) {
           errors[key] = `不能小于 ${field.minimum}`
         }
         if (field.maximum !== undefined && numVal > field.maximum) {
           errors[key] = `不能大于 ${field.maximum}`
+        }
+      }
+      // 枚举校验
+      if (field.enum && field.enum.length > 0) {
+        if (!field.enum.includes(String(value))) {
+          errors[key] = `必须为 ${field.enum.join(' / ')}`
         }
       }
     }
@@ -205,6 +232,8 @@ export function AdhocAnalysisCard({
     setLogLines([])
     setShowLogWindow(true)
     setLogCollapsed(false)
+    setExecutionStartTime(Date.now())
+    setElapsedSeconds(0)
 
     // 合并用户填写的参数和底层文件映射
     const finalPayload = {
@@ -293,6 +322,7 @@ export function AdhocAnalysisCard({
     } finally {
       setIsExecuting(false)
       abortControllerRef.current = null
+      setExecutionStartTime(null)
     }
   }
 
@@ -703,7 +733,10 @@ export function AdhocAnalysisCard({
           >
             <span className="text-xs font-medium text-gray-300 flex items-center gap-2">
               {isExecuting ? (
-                <Loader2 size={12} className="animate-spin text-blue-400" />
+                <>
+                  <Loader2 size={12} className="animate-spin text-blue-400" />
+                  <span>⏱ {formatElapsed(elapsedSeconds)}</span>
+                </>
               ) : executionResult ? (
                 executionResult.status === 'success' ? (
                   <span className="text-green-400">✅ 执行日志</span>
@@ -765,6 +798,15 @@ export function AdhocAnalysisCard({
                       {line}
                     </div>
                   ))
+                )}
+                {/* 长时间无新日志警告：运行超过 5 分钟且最近一次日志距今超 5 分钟 */}
+                {isExecuting && logLines.length > 0 && elapsedSeconds > 300 && (
+                  <div className="mt-2 text-amber-400 text-[11px] flex items-center gap-1.5">
+                    <span>⚠️</span>
+                    <span>
+                      已运行 {formatElapsed(elapsedSeconds)}，如长时间无新日志输出，可能是脚本卡住或进入了长时间计算
+                    </span>
+                  </div>
                 )}
               </div>
               {/* 取消按钮（仅在执行中显示） */}
@@ -1161,4 +1203,14 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
+/** 格式化已运行时间 (秒 → mm:ss 或 hh:mm:ss) */
+function formatElapsed(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  if (h > 0) return `${h}:${mmss}`
+  return mmss
 }
