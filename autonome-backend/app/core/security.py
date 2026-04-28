@@ -257,7 +257,6 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         key="access_token",
         value=access_token,
         max_age=settings.ACCESS_TOKEN_SHORT_EXPIRE_MINUTES * 60,
-        path="/api",
         httponly=True,
         samesite="lax",
         secure=settings.SECURE_COOKIES,  # 本地开发 False，生产 True（HTTPS）
@@ -266,7 +265,6 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         key="refresh_token",
         value=refresh_token,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        path="/api",
         httponly=True,
         samesite="lax",
         secure=settings.SECURE_COOKIES,
@@ -290,8 +288,8 @@ def clear_auth_cookies(response: Response):
     注意：delete_cookie 必须指定与 set_cookie 相同的 path，
     否则浏览器不会删除该 Cookie（Cookie 的 path 是匹配键的一部分）。
     """
-    response.delete_cookie(key="access_token", httponly=True, path="/api")
-    response.delete_cookie(key="refresh_token", httponly=True, path="/api")
+    response.delete_cookie(key="access_token", httponly=True, path="/")
+    response.delete_cookie(key="refresh_token", httponly=True, path="/")
     response.delete_cookie(key="authenticated", path="/")
 
 
