@@ -2577,6 +2577,112 @@ async def adhoc_fix_code(
         raise HTTPException(status_code=500, detail=f"代码修复失败: {str(e)}")
 
 
+class AdhocRefineRequest(BaseModel):
+    """即席分析策略包对话式修改请求 —— 用户在策略卡片上输入修改需求"""
+    message_id: str = Field(..., description="策略包的 Redis key/message_id")
+    modification_request: str = Field(..., description="用户的修改需求描述")
+    current_pack: dict = Field(..., description="当前策略包完整数据")
+    project_id: str = Field(default="default", description="项目ID")
+
+
+@router.post("/adhoc/refine")
+async def adhoc_refine(
+    request: AdhocRefineRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    对话式策略包修改 — 基于当前策略包和用户修改需求，增量更新策略包。
+
+    程序说明：
+    用户在策略卡片上通过对话输入框输入修改需求（如"添加置信椭圆"），
+    此端点调用 LLM 基于当前策略包进行增量修改，保留原有上下文，
+    返回更新后的策略包。修改后自动执行语法校验+代码审核。
+    """
+    import os
+    from app.core.config import settings
+
+    try:
+        current_pack = request.current_pack
+        project_id = request.project_id
+
+        # 从 input_mapping 提取文件路径
+        input_mapping = current_pack.get("input_mapping", {})
+        file_paths_list = [
+            v for v in input_mapping.values()
+            if isinstance(v, str) and v.startswith("/workspace/")
+        ]
+        if not file_paths_list:
+            # 从 parameter_schema 的 file 类型字段中获取
+            param_props = current_pack.get("parameter_schema", {}).get("properties", {})
+            for key, prop in param_props.items():
+                if prop.get("type") == "file" and isinstance(prop.get("default"), str):
+                    if prop["default"].startswith("/workspace/"):
+                        file_paths_list.append(prop["default"])
+
+        file_paths_str = "\n  - ".join(file_paths_list)
+        if file_paths_str:
+            file_paths_str = f"  - {file_paths_str}"
+
+        # 重新探查文件以获取最新的列名信息
+        file_profiles_text = ""
+        if file_paths_list:
+            try:
+                from app.services.file_profiler import profile_files, format_profiles_for_prompt
+                host_project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{project_id}")
+                host_file_paths = [
+                    os.path.join(host_project_dir, f.removeprefix("/workspace/"))
+                    for f in file_paths_list
+                ]
+                profiles = profile_files(host_file_paths)
+                sandbox_profiles = {}
+                for host_path, profile in profiles.items():
+                    rel_path = host_path.removeprefix(host_project_dir + "/")
+                    sandbox_path = f"/workspace/{rel_path}"
+                    profile.file_path = sandbox_path
+                    sandbox_profiles[sandbox_path] = profile
+                file_profiles_text = format_profiles_for_prompt(sandbox_profiles)
+            except Exception as prof_err:
+                log.warning(f"[adhoc_refine] 文件探查失败（非致命）: {prof_err}")
+
+        from app.agent.nodes.adhoc_analysis_node import _refine_strategy_pack
+
+        refined_pack = await _refine_strategy_pack(
+            current_pack=current_pack,
+            modification_request=request.modification_request,
+            file_paths=file_paths_str,
+            file_profiles_text=file_profiles_text,
+            session=session,
+            user_id=user.id,
+        )
+
+        # 将更新后的策略包重新存入 Redis
+        import redis as redis_client
+        import json as json_mod
+        try:
+            r = redis_client.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                db=0,
+                decode_responses=True,
+            )
+            refined_pack["message_id"] = request.message_id
+            refined_pack["project_id"] = project_id
+            r.setex(
+                f"adhoc:{request.message_id}",
+                3600,
+                json_mod.dumps(refined_pack, ensure_ascii=False),
+            )
+            log.info(f"[adhoc_refine] 策略包已更新: key=adhoc:{request.message_id}")
+        except Exception as redis_err:
+            log.warning(f"[adhoc_refine] Redis 更新失败（非致命）: {redis_err}")
+
+        return refined_pack
+    except Exception as e:
+        log.error(f"[adhoc_refine] 策略包修改失败: {e}")
+        raise HTTPException(status_code=500, detail=f"策略包修改失败: {str(e)}")
+
+
 # ==========================================
 # DAG 节点重试端点
 # ==========================================

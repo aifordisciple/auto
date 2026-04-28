@@ -47,6 +47,15 @@ interface OutputFile {
 }
 
 /**
+ * 对话修改消息
+ */
+interface RefinementMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+}
+
+/**
  * 执行结果载荷
  */
 interface ExecutionResult {
@@ -134,18 +143,27 @@ export interface AdhocAnalysisCardProps {
  * 5. 操作区（底部，执行按钮 + 固化技能按钮）
  */
 export function AdhocAnalysisCard({
-  strategy,
-  code,
-  code_language,
-  parameter_schema,
-  input_mapping,
+  strategy: _strategy,
+  code: _code,
+  code_language: _code_language,
+  parameter_schema: _parameter_schema,
+  input_mapping: _input_mapping,
   message_id,
   addToolResult,
   toolCallId,
-  _validation,
-  _auto_fix,
-  _code_review,
+  _validation: __validation,
+  _auto_fix: __auto_fix,
+  _code_review: __code_review,
 }: AdhocAnalysisCardProps) {
+  // 可被对话修改刷新的状态（初始值来自 props，后续由 refine 更新）
+  const [strategy, setStrategy] = useState(_strategy)
+  const [code_language, setCodeLanguage] = useState(_code_language)
+  const [parameter_schema, setParameterSchema] = useState(_parameter_schema)
+  const [input_mapping, setInputMapping] = useState(_input_mapping)
+  const [_validation, setValidation] = useState(__validation)
+  const [_auto_fix, setAutoFix] = useState(__auto_fix)
+  const [_code_review, setCodeReview] = useState(__code_review)
+
   // 从 Schema 默认值初始化表单状态
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
     const defaults: Record<string, unknown> = {}
@@ -179,7 +197,7 @@ export function AdhocAnalysisCard({
   const [saveVisibility, setSaveVisibility] = useState('private')
   // 代码区：初始状态由用户模式决定（新手隐藏，专家默认展示）
   const [showCode, setShowCode] = useState(codeExpandedByDefault)
-  const [editableCode, setEditableCode] = useState(code)
+  const [editableCode, setEditableCode] = useState(_code)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
   // 输出文件预览所需：project_id 和 output_dir_name 从 SSE result 事件中获取
   const [outputProjectId, setOutputProjectId] = useState<string | null>(null)
@@ -218,6 +236,11 @@ export function AdhocAnalysisCard({
     success: boolean
     re_validation?: { is_valid: boolean; status_text: string; status_icon: string; issues: Array<{ severity: string; message: string; suggestion: string }> }
   } | null>(_auto_fix || null)
+  // 对话修改状态
+  const [refinementMessages, setRefinementMessages] = useState<RefinementMessage[]>([])
+  const [refinementInput, setRefinementInput] = useState('')
+  const [isRefining, setIsRefining] = useState(false)
+  const refinementInputRef = useRef<HTMLTextAreaElement>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   // 执行计时器状态
@@ -653,6 +676,107 @@ export function AdhocAnalysisCard({
       setFixCodeResult({ fixed_code: null, changes_description: message, success: false })
     } finally {
       setIsFixingCode(false)
+    }
+  }
+
+  // 对话式修改：发送修改需求到后端，更新策略包
+  const handleRefine = async () => {
+    if (!refinementInput.trim() || isRefining) return
+
+    const userMessage: RefinementMessage = {
+      role: 'user',
+      content: refinementInput.trim(),
+      timestamp: Date.now(),
+    }
+    setRefinementMessages(prev => [...prev, userMessage])
+    setRefinementInput('')
+    setIsRefining(true)
+
+    try {
+      const currentPack = {
+        strategy,
+        code: editableCode,
+        code_language,
+        parameter_schema,
+        input_mapping,
+        message_id,
+      }
+
+      const res = await fetch('/api/chat/adhoc/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id,
+          modification_request: userMessage.content,
+          current_pack: currentPack,
+          project_id: outputProjectId || 'default',
+        }),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(errData.detail || '策略修改失败')
+      }
+
+      const refinedPack = await res.json()
+
+      // 更新所有可刷新状态
+      if (refinedPack.strategy) setStrategy(refinedPack.strategy)
+      if (refinedPack.code) setEditableCode(refinedPack.code)
+      if (refinedPack.code_language) setCodeLanguage(refinedPack.code_language)
+      if (refinedPack.parameter_schema) {
+        setParameterSchema(refinedPack.parameter_schema)
+        // 合并表单数据：保留已有参数值，新增参数用默认值，移除已删除参数
+        setFormData(prev => {
+          const updated = { ...prev }
+          const newProps = refinedPack.parameter_schema?.properties || {}
+          for (const key of Object.keys(updated)) {
+            if (!(key in newProps)) delete updated[key]
+          }
+          for (const [key, prop] of Object.entries(newProps)) {
+            if (updated[key] === undefined && (prop as SchemaProperty).default !== undefined) {
+              updated[key] = (prop as SchemaProperty).default
+            }
+          }
+          return updated
+        })
+      }
+      if (refinedPack.input_mapping) setInputMapping(refinedPack.input_mapping)
+      if (refinedPack._validation) setValidation(refinedPack._validation)
+      if (refinedPack._auto_fix) {
+        setAutoFix(refinedPack._auto_fix)
+        setFixCodeResult(refinedPack._auto_fix)
+      }
+      if (refinedPack._code_review) setCodeReview(refinedPack._code_review)
+
+      // 添加 AI 回复消息
+      const changesDesc = refinedPack._code_review?.changes_description
+        || refinedPack._auto_fix?.changes_description
+        || '策略包已根据您的要求更新'
+      const assistantMessage: RefinementMessage = {
+        role: 'assistant',
+        content: changesDesc,
+        timestamp: Date.now(),
+      }
+      setRefinementMessages(prev => [...prev, assistantMessage])
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '策略修改失败'
+      const errorMessage: RefinementMessage = {
+        role: 'assistant',
+        content: `修改失败：${message}`,
+        timestamp: Date.now(),
+      }
+      setRefinementMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsRefining(false)
+    }
+  }
+
+  // 对话输入框键盘事件：Enter 发送，Shift+Enter 换行
+  const handleRefinementKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleRefine()
     }
   }
 
@@ -1109,6 +1233,93 @@ export function AdhocAnalysisCard({
             )}
           </>
         )}
+      </div>
+
+      {/* 4.5 对话修改区 — 通过自然语言对话迭代修改策略和代码 */}
+      <div className="px-4 pb-4">
+        <div className="rounded-lg border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-900/10 overflow-hidden">
+          {/* 标题栏 */}
+          <div className="flex items-center justify-between px-3 py-2 bg-indigo-100/50 dark:bg-indigo-900/20 border-b border-indigo-200/50 dark:border-indigo-500/10">
+            <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+              <span>💬</span> 对话修改
+            </span>
+            {refinementMessages.length > 0 && (
+              <span className="text-[10px] text-indigo-500 dark:text-indigo-400">
+                {refinementMessages.length} 条消息
+              </span>
+            )}
+          </div>
+
+          {/* 对话历史 */}
+          {refinementMessages.length > 0 && (
+            <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2">
+              {refinementMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-lg px-3 py-1.5 text-xs ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-500 text-white rounded-br-sm'
+                        : 'bg-white dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 rounded-bl-sm border border-gray-200 dark:border-zinc-700'
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                    <span
+                      className={`text-[9px] mt-0.5 block ${
+                        msg.role === 'user' ? 'text-indigo-200' : 'text-gray-400 dark:text-zinc-500'
+                      }`}
+                    >
+                      {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {/* 修改中加载指示器 */}
+              {isRefining && (
+                <div className="flex justify-start">
+                  <div className="bg-white dark:bg-zinc-800 rounded-lg rounded-bl-sm border border-gray-200 dark:border-zinc-700 px-3 py-2">
+                    <div className="flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400">
+                      <Loader2 size={12} className="animate-spin" />
+                      正在修改策略...
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 输入区 */}
+          <div className="px-3 py-2 border-t border-indigo-200/50 dark:border-indigo-500/10 bg-white/50 dark:bg-zinc-900/30">
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={refinementInputRef}
+                value={refinementInput}
+                onChange={(e) => setRefinementInput(e.target.value)}
+                onKeyDown={handleRefinementKeyDown}
+                placeholder="输入修改需求，如：添加置信椭圆、改用红蓝色系..."
+                rows={2}
+                disabled={isRefining}
+                className="flex-1 resize-none rounded-md border border-gray-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleRefine}
+                disabled={!refinementInput.trim() || isRefining}
+                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-500 hover:bg-indigo-600 text-white disabled:bg-indigo-300 dark:disabled:bg-indigo-800 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+              >
+                {isRefining ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <span>发送</span>
+                )}
+              </button>
+            </div>
+            <p className="text-[9px] text-gray-400 dark:text-zinc-500 mt-1">
+              Enter 发送，Shift+Enter 换行
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* 5. 实时日志窗口 */}

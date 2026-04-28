@@ -789,3 +789,198 @@ def _store_strategy_pack_to_redis(
     except Exception as redis_err:
         log.warning(f"[adhoc] Redis 存储失败（非致命）: {redis_err}")
         return False
+
+
+async def _refine_strategy_pack(
+    current_pack: Dict[str, Any],
+    modification_request: str,
+    file_paths: str,
+    file_profiles_text: str,
+    session: Any,
+    user_id: Any,
+) -> Dict[str, Any]:
+    """
+    对话式策略包修改 — 基于当前策略包和用户修改需求，增量更新策略包。
+
+    程序说明：
+    用户在策略卡片上输入修改需求（如"添加置信椭圆"、"改用红色配色"），
+    此函数调用 LLM 基于当前策略包进行增量修改，保留原有的完整上下文，
+    输出更新后的策略包。修改后执行语法校验+代码审核。
+
+    Args:
+        current_pack: 当前策略包（strategy, code, code_language, parameter_schema, input_mapping）
+        modification_request: 用户的修改需求描述
+        file_paths: 文件路径字符串（换行分隔）
+        file_profiles_text: 文件探查结果文本
+        session: 数据库会话
+        user_id: 用户 ID
+
+    Returns:
+        更新后的策略包字典
+    """
+    from app.utils.llm_config import get_fast_llm_config
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_openai import ChatOpenAI
+    from json_repair import repair_json
+
+    llm_config = get_fast_llm_config(session, user_id)
+    api_key = llm_config.api_key or "not-needed"
+    llm = ChatOpenAI(
+        api_key=api_key,
+        base_url=llm_config.base_url,
+        model=llm_config.model_name,
+        temperature=0.0,
+    )
+
+    # 构建当前策略包的完整上下文
+    current_code = current_pack.get("code", "")
+    current_language = current_pack.get("code_language", "python")
+    current_strategy = current_pack.get("strategy", "")
+    current_params = json.dumps(current_pack.get("parameter_schema", {}), ensure_ascii=False, indent=2)
+    current_mapping = json.dumps(current_pack.get("input_mapping", {}), ensure_ascii=False, indent=2)
+
+    refine_prompt = f"""你是一个生物信息学即席分析专家。用户希望修改当前的分析策略。
+
+当前策略包如下：
+
+策略描述：{current_strategy}
+代码语言：{current_language}
+参数 Schema：{current_params}
+输入映射：{current_mapping}
+
+当前代码：
+```{current_language}
+{current_code}
+```
+
+输入文件：
+{file_paths}
+
+{file_profiles_text if file_profiles_text else ""}
+
+用户修改需求：{modification_request}
+
+请根据用户的修改需求，更新策略包。注意：
+1. 保持与当前策略包的连续性，只修改用户要求的变更，不要重写整个策略包
+2. 如果用户要求修改参数（如更改配色、调整阈值），只更新 parameter_schema 中对应的 default 值
+3. 如果用户要求添加分析功能（如添加置信椭圆、添加统计检验），在代码中追加新功能，保留原有代码
+4. 如果用户要求修改图表样式（如 CSN 级配色、双格式输出），按要求更新代码中的对应部分
+5. 如果用户要求添加/移除/调整参数，同步更新 parameter_schema 和代码
+6. 所有文件路径必须保持为绝对路径（以 /workspace/ 开头），不可修改输入文件的路径
+7. input_mapping 中必须保留当前所有的文件映射，不可丢失任何文件
+
+请按以下 JSON 格式输出更新后的策略包（与原始即席分析策略包格式相同）：
+```json
+{{
+  "strategy": "更新后的策略描述",
+  "code": "更新后的完整代码",
+  "code_language": "{current_language}",
+  "parameter_schema": {{...}},
+  "input_mapping": {{...}}
+}}
+```
+
+请严格按上述 JSON 格式输出，不要输出任何其他内容。"""
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", refine_prompt),
+        ("human", modification_request),
+    ])
+
+    chain = prompt | llm
+    response = await chain.ainvoke({})
+
+    raw_content = response.content.strip()
+    if raw_content.startswith("```"):
+        lines = raw_content.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        raw_content = "\n".join(lines)
+
+    repaired = repair_json(raw_content)
+    refined_pack = json.loads(repaired)
+
+    # 验证必需字段
+    required_keys = ["strategy", "code", "code_language", "parameter_schema", "input_mapping"]
+    for key in required_keys:
+        if key not in refined_pack:
+            raise ValueError(f"策略包缺少必需字段: {key}")
+
+    # 文件路径后处理：修正可能的不完整路径
+    _resolved_paths = [
+        line.strip("- ") for line in file_paths.split("\n") if line.strip("- ").startswith("/workspace/")
+    ] if file_paths else []
+    if _resolved_paths:
+        _normalize_strategy_pack_paths(refined_pack, _resolved_paths)
+
+    # 代码语法校验
+    try:
+        from app.services.code_validator import validate_generated_code, auto_fix_generated_code
+        validation = validate_generated_code(
+            code=refined_pack.get("code", ""),
+            language=refined_pack.get("code_language", "python"),
+        )
+        refined_pack["_validation"] = {
+            "is_valid": validation.is_valid,
+            "status_text": validation.status_text,
+            "status_icon": validation.status_icon,
+            "issues": [
+                {"severity": i.severity, "message": i.message, "suggestion": i.suggestion}
+                for i in validation.issues
+            ],
+        }
+
+        if validation.error_count > 0:
+            fix_result = await auto_fix_generated_code(
+                code=refined_pack.get("code", ""),
+                language=refined_pack.get("code_language", "python"),
+                instruction=modification_request,
+                issues=validation.issues,
+                session=session,
+                user_id=user_id,
+            )
+            refined_pack["_auto_fix"] = {
+                "fixed_code": fix_result.get("fixed_code"),
+                "changes_description": fix_result.get("changes_description"),
+                "success": fix_result.get("success"),
+                "re_validation": fix_result.get("re_validation"),
+            }
+            if fix_result.get("success") and fix_result.get("fixed_code"):
+                refined_pack["code"] = fix_result["fixed_code"]
+
+        # 代码审核 Agent
+        try:
+            from app.services.code_validator import review_generated_code
+            current_code_refined = refined_pack.get("code", "")
+            current_lang = refined_pack.get("code_language", "python")
+            review_result = await review_generated_code(
+                code=current_code_refined,
+                language=current_lang,
+                instruction=refined_pack.get("strategy", ""),
+                file_profiles_text=file_profiles_text,
+                session=session,
+                user_id=user_id,
+            )
+            refined_pack["_code_review"] = {
+                "review_report": review_result.get("review_report", ""),
+                "overall_verdict": review_result.get("overall_verdict", "minor_issues"),
+                "issues_found": review_result.get("issues_found", []),
+                "fixed_code": review_result.get("fixed_code"),
+                "changes_description": review_result.get("changes_description", ""),
+                "success": review_result.get("success", True),
+                "re_validation": review_result.get("re_validation"),
+            }
+            if review_result.get("fixed_code") and review_result.get("overall_verdict") == "major_issues":
+                refined_pack["code"] = review_result["fixed_code"]
+                refined_pack["_code_review"]["code_applied"] = True
+        except Exception as review_err:
+            log.warning(f"[refine] 代码审核 Agent 失败（非致命）: {review_err}")
+    except Exception as val_err:
+        log.warning(f"[refine] 代码校验失败（非致命）: {val_err}")
+
+    log.info(
+        f"[refine] 策略包对话式修改完成: "
+        f"language={refined_pack.get('code_language')}, "
+        f"request='{modification_request[:50]}...'"
+    )
+
+    return refined_pack
