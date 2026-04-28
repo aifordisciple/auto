@@ -674,7 +674,7 @@ async def chat_stream(
             if is_adhoc_intent:
                 log.info("[Chat] 检测到即席交互式分析意图，生成策略包并发送策略卡片")
                 try:
-                    from app.agent.nodes.adhoc_analysis_node import _generate_strategy_pack
+                    from app.agent.nodes.adhoc_analysis_node import _generate_strategy_pack_streaming
 
                     dag_node = intent_data["nodes"][0]
                     raw_instruction = dag_node.get("raw_instruction", request.message)
@@ -693,23 +693,58 @@ async def chat_stream(
                     if file_paths_str:
                         file_paths_str = f"  - {file_paths_str}"
 
-                    # 发送骨架屏事件，让前端在策略生成期间显示加载动画
-                    # 用户等待 LLM 生成策略包需要 10-30s，期间展示脉冲骨架卡片
-                    yield encoder.data_event(
-                        {"status": "generating_strategy", "message": "正在分析您的要求并生成分析策略..."},
-                        event_name="adhoc_status",
-                    )
+                    # 流式生成策略包（分阶段进度事件 + 内容块）
+                    # 替代原来的阻塞式骨架屏方案，前端渐进式渲染策略卡片
+                    # 先探查输入文件结构，注入 LLM prompt 以提升代码和参数准确性
+                    file_profiles_text = ""
+                    if full_file_paths:
+                        try:
+                            from app.services.file_profiler import profile_files, format_profiles_for_prompt
+                            profiles = profile_files(full_file_paths)
+                            file_profiles_text = format_profiles_for_prompt(profiles)
+                            log.info(f"[Chat] 文件探查完成: {len(profiles)} 个文件")
+                        except Exception as prof_err:
+                            log.warning(f"[Chat] 文件探查失败（非致命）: {prof_err}")
 
-                    # 调用 LLM 生成策略包（策略描述 + 代码 + 参数 Schema + 输入映射）
-                    # 传递 enable_think 以尊重用户在前端的深度思考模式选择
-                    strategy_pack = await _generate_strategy_pack(
+                    strategy_pack = None
+                    async for event in _generate_strategy_pack_streaming(
                         file_id=file_id,
                         instruction=raw_instruction,
                         session=session,
                         user_id=current_user.id,
                         file_paths=file_paths_str,
                         enable_think=request.enable_think,
-                    )
+                        file_profiles_text=file_profiles_text,
+                    ):
+                        if event["type"] == "stage":
+                            # 推送阶段变更事件 → 前端更新进度指示器
+                            yield encoder.data_event(
+                                {
+                                    "status": "generating_strategy",
+                                    "stage": event["stage"],
+                                    "message": event["message"],
+                                },
+                                event_name="adhoc_status",
+                            )
+                        elif event["type"] == "chunk":
+                            # 推送流式内容块 → 前端渐进式填充卡片内容
+                            yield encoder.data_event(
+                                {
+                                    "status": "streaming_chunk",
+                                    "stage": event["stage"],
+                                    "content": event["content"],
+                                },
+                                event_name="adhoc_chunk",
+                            )
+                        elif event["type"] == "complete":
+                            # 策略包生成完成
+                            strategy_pack = event["data"]
+                        elif event["type"] == "error":
+                            # 策略包生成失败，抛出异常进入降级处理
+                            raise Exception(event["message"])
+
+                    if strategy_pack is None:
+                        raise Exception("策略包流式生成未返回完整数据")
 
                     # 策略包存入 Redis，通过 Chat/Graph 共享函数统一存储
                     from app.agent.nodes.adhoc_analysis_node import _store_strategy_pack_to_redis
@@ -733,6 +768,7 @@ async def chat_stream(
                             "input_mapping": strategy_pack.get("input_mapping", {}),
                             "message": "即席分析策略已生成，请在卡片上确认参数后执行",
                             "message_id": user_msg.id,
+                            "_validation": strategy_pack.get("_validation"),
                         },
                     }
                     yield encoder.from_custom_event("tool_call", tool_call_event)

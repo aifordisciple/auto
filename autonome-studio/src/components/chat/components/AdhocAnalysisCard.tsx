@@ -67,6 +67,13 @@ export interface AdhocAnalysisCardProps {
   addToolResult: any
   /** ToolCall ID */
   toolCallId: string
+  /** 代码校验结果（由后端 code_validator 生成） */
+  _validation?: {
+    is_valid: boolean
+    status_text: string
+    status_icon: 'error' | 'warning' | 'success'
+    issues: Array<{ severity: string; message: string; suggestion: string }>
+  }
 }
 
 /**
@@ -91,6 +98,7 @@ export function AdhocAnalysisCard({
   message_id,
   addToolResult,
   toolCallId,
+  _validation,
 }: AdhocAnalysisCardProps) {
   // 从 Schema 默认值初始化表单状态
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
@@ -710,20 +718,61 @@ export function AdhocAnalysisCard({
 
       {/* 4. 代码预览区（折叠） */}
       <div className="px-4">
-        <button
-          onClick={() => setShowCode(!showCode)}
-          className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mb-2 flex items-center gap-1"
-        >
-          {showCode ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          {showCode ? '隐藏底层代码' : '查看底层代码'}
-        </button>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <button
+            onClick={() => setShowCode(!showCode)}
+            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+          >
+            {showCode ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {showCode ? '隐藏底层代码' : '查看底层代码'}
+          </button>
+          {/* 代码校验状态指示器 */}
+          {_validation && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 ${
+              _validation.status_icon === 'success'
+                ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                : _validation.status_icon === 'warning'
+                ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
+                : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+            }`}>
+              {_validation.status_text}
+            </span>
+          )}
+        </div>
         {showCode && (
-          <textarea
-            value={editableCode}
-            onChange={(e) => setEditableCode(e.target.value)}
-            className="w-full text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 font-mono resize-y min-h-[120px] max-h-96"
-            spellCheck={false}
-          />
+          <>
+            {/* 校验问题列表 */}
+            {_validation && _validation.issues.length > 0 && (
+              <div className="mb-2 space-y-1">
+                {_validation.issues.map((issue, idx) => (
+                  <div
+                    key={idx}
+                    className={`text-[10px] px-2 py-1 rounded flex items-start gap-1 ${
+                      issue.severity === 'error'
+                        ? 'bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'
+                        : issue.severity === 'warning'
+                        ? 'bg-yellow-50 dark:bg-yellow-900/10 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800'
+                        : 'bg-blue-50 dark:bg-blue-900/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                    }`}
+                  >
+                    <span className="flex-shrink-0 mt-0.5">
+                      {issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}
+                    </span>
+                    <span>
+                      {issue.message}
+                      {issue.suggestion && <span className="ml-1 opacity-75">— {issue.suggestion}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <textarea
+              value={editableCode}
+              onChange={(e) => setEditableCode(e.target.value)}
+              className="w-full text-xs bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto mb-4 font-mono resize-y min-h-[120px] max-h-96"
+              spellCheck={false}
+            />
+          </>
         )}
       </div>
 

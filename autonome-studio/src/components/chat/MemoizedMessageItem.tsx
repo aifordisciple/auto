@@ -10,6 +10,7 @@ import { MarkdownBlock } from "../MarkdownBlock";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 import { ParameterProbingCard, type ParameterProbingCardProps } from "./ParameterProbingCard";
 import { AdhocAnalysisCard } from "./components/AdhocAnalysisCard";
+import type { AdhocAnalysisCardProps } from "./components/AdhocAnalysisCard";
 import { AdhocSkeletonCard } from "./components/AdhocSkeletonCard";
 import { IntentTag } from "./IntentTag";
 import { BASE_URL, getToken } from "@/lib/api";
@@ -519,10 +520,19 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                 return <MarkdownBlock content={displayContent} projectId={currentProjectId} />;
               })()}
 
-              {/* ✨ 即席分析骨架屏：策略包生成中（10-30s），有 data-adhoc_status 事件但尚无真实卡片 */}
-              {msg.isAdhocGenerating && !msg.toolInvocationParts?.some(p => p.toolName === 'render_adhoc_card') && (
-                <AdhocSkeletonCard />
-              )}
+              {/* ✨ 即席分析进度卡片：策略包生成中，根据 adhoc_status 事件展示分阶段进度 */}
+              {msg.isAdhocGenerating && !msg.toolInvocationParts?.some(p => p.toolName === 'render_adhoc_card') && (() => {
+                // 从 data-adhoc_status parts 中提取阶段事件列表
+                const adhocStatusParts = (msg as any).parts?.filter(
+                  (p: any) => p.type === 'data-adhoc_status' && p.data?.stage
+                ) || [];
+                const stages = adhocStatusParts.map((p: any) => ({
+                  stage: p.data.stage,
+                  message: p.data.message || '',
+                  timestamp: Date.now(),
+                }));
+                return <AdhocSkeletonCard stages={stages} />;
+              })()}
 
               {/* ✨ Active Probing：渲染工具调用（ParameterProbingCard 参数探查表单）
                   Vercel AI SDK v5 中，工具调用以 parts 形式存储在 UIMessage 上。
@@ -553,6 +563,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                       };
                       const input_mapping = (toolInput?.input_mapping || {}) as Record<string, string>;
                       const message_id = (toolInput?.message_id || '') as string;
+                      const _validation = toolInput?._validation as AdhocAnalysisCardProps['_validation'];
 
                       return (
                         <AdhocAnalysisCard
@@ -565,6 +576,7 @@ const MemoizedMessageItem = memo(function MemoizedMessageItem({
                           message_id={message_id}
                           addToolResult={addToolResult}
                           toolCallId={toolCallId}
+                          _validation={_validation}
                         />
                       );
                     }

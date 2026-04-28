@@ -38,6 +38,17 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
    **关键要求**：文件输入参数（如 expression_file、group_file 等）的 default 值必须使用上面列出的实际文件路径！
 5. **input_mapping**: 将用户提供的文件路径映射到代码的输入参数名
 
+参数智能推断要求（重要）：
+- 仔细分析用户需求中的关键词，自动推断参数默认值
+- 常见模式识别：
+  * 提到"红色"/"蓝色"/"绿色"等 → color_palette 或 color_scheme 参数
+  * 提到"log2"/"log10"/"标准化"/"归一化" → transform 或 normalization 参数
+  * 提到"p值"/"显著性"/"阈值" → p_value 或 threshold 参数（默认应匹配用户要求）
+  * 提到"聚类"/"分组"/"分类" → cluster 或 group 参数
+  * 提到具体数值（如"前100个"、"top 50"）→ top_n 或 n_genes 参数
+  * 提到"热图"/"散点图"/"箱线图"/"火山图"等 → plot_type 参数
+- 如果有文件探查结果，严格使用探查出的列名来生成参数和代码，不要编造列名
+
 代码要求：
 - Python 必须使用 argparse，R 必须使用 optparse 或 commandArgs
 - 必须为所有参数设定符合生信经验的默认值（如 p-value 默认 0.05，聚类默认开启）
@@ -50,6 +61,7 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
 - file 类型参数的 default 必须是用户实际提供的文件路径，不能是占位路径
 - 可选参数使用 enum 提供选项列表
 - 数值参数可提供 minimum、maximum、step
+- 参数 title 应使用中文，简洁易懂
 
 输出示例：
 ```json
@@ -235,6 +247,207 @@ async def _generate_strategy_pack(
     )
 
     return strategy_pack
+
+
+async def _generate_strategy_pack_streaming(
+    file_id: str,
+    instruction: str,
+    session: Any,
+    user_id: Any,
+    file_paths: str = "",
+    enable_think: bool = False,
+    file_profiles_text: str = "",
+):
+    """
+    流式生成即席分析策略包，通过异步生成器推送各阶段进度事件。
+
+    程序说明：
+    使用 ChatOpenAI streaming=True + chain.astream() 实现 token 级流式输出。
+    通过检测 JSON 顶层字段边界来识别当前生成阶段，向前端推送分阶段进度事件。
+    前端消费这些事件实现渐进式卡片渲染，消除 10-30s 的骨架屏空等。
+
+    生成阶段：
+    1. understanding → L1 分类完成，开始理解需求
+    2. planning → 正在输出 strategy 字段
+    3. coding → 正在输出 code 字段
+    4. params → 正在输出 parameter_schema 字段
+    5. validating → 解析 JSON + 字段校验
+
+    Yields:
+        {"type": "stage", "stage": str, "message": str}  — 阶段变更事件
+        {"type": "chunk", "stage": str, "content": str}   — 流式内容块
+        {"type": "complete", "data": dict}                — 完整策略包
+        {"type": "error", "message": str}                 — 生成失败
+    """
+    import re
+    from app.utils.llm_config import get_fast_llm_config, get_thinking_llm_config
+
+    # Stage 1: 理解需求（L1+L2 分类已完成，直接通知前端开始生成）
+    yield {
+        "type": "stage",
+        "stage": "understanding",
+        "message": "正在理解您的分析需求...",
+    }
+
+    # 根据深度思考模式选择模型
+    if enable_think:
+        llm_config = get_thinking_llm_config(session, user_id)
+    else:
+        llm_config = get_fast_llm_config(session, user_id)
+
+    api_key = llm_config.api_key or "not-needed"
+    llm = ChatOpenAI(
+        api_key=api_key,
+        base_url=llm_config.base_url,
+        model=llm_config.model_name,
+        temperature=0.0,
+        streaming=True,
+    )
+
+    # 构建 system prompt，注入文件探查结果以提升参数准确性
+    system_prompt = ADHOC_SYSTEM_PROMPT
+    if file_profiles_text:
+        system_prompt += (
+            "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
+            f"{file_profiles_text}\n"
+        )
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", "请根据以上要求生成即席分析策略包，输出严格 JSON 格式。"),
+    ])
+
+    # Stage 2: 设计策略（LLM 开始输出 strategy 字段）
+    yield {
+        "type": "stage",
+        "stage": "planning",
+        "message": "正在设计分析策略...",
+    }
+
+    chain = prompt | llm
+    full_content = ""
+    current_stage = "planning"
+
+    try:
+        async for chunk in chain.astream({
+            "file_paths": file_paths or file_id,
+            "instruction": instruction,
+        }):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            full_content += content
+
+            # 检测 JSON 顶层字段边界，切换阶段
+            # 字段生成顺序固定: strategy → code → code_language → parameter_schema → input_mapping
+            if current_stage == "planning" and re.search(r'"code"\s*:\s*"', full_content):
+                current_stage = "coding"
+                yield {
+                    "type": "stage",
+                    "stage": "coding",
+                    "message": "正在生成分析代码...",
+                }
+            elif current_stage == "coding" and re.search(r'"parameter_schema"\s*:\s*\{', full_content):
+                current_stage = "params"
+                yield {
+                    "type": "stage",
+                    "stage": "params",
+                    "message": "正在构建参数表单...",
+                }
+
+            # 推送流式内容块
+            yield {"type": "chunk", "stage": current_stage, "content": content}
+
+    except Exception as stream_err:
+        log.error(f"[adhoc_analysis_node] 流式生成失败: {stream_err}")
+        yield {
+            "type": "error",
+            "message": f"策略包生成失败: {stream_err}",
+        }
+        return
+
+    # Stage 5: 解析和校验
+    yield {
+        "type": "stage",
+        "stage": "validating",
+        "message": "正在校验策略包...",
+    }
+
+    # 解析 JSON
+    raw_content = full_content.strip()
+    if raw_content.startswith("```"):
+        lines = raw_content.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        raw_content = "\n".join(lines)
+
+    try:
+        repaired = repair_json(raw_content)
+        strategy_pack = json.loads(repaired)
+
+        # 验证策略包必需字段
+        required_keys = ["strategy", "code", "code_language", "parameter_schema", "input_mapping"]
+        for key in required_keys:
+            if key not in strategy_pack:
+                raise ValueError(f"策略包缺少必需字段: {key}")
+
+        log.info(
+            f"[adhoc_analysis_node] 流式策略包验证通过: "
+            f"language={strategy_pack.get('code_language')}, "
+            f"params={list(strategy_pack.get('parameter_schema', {}).get('properties', {}).keys())}"
+        )
+
+        # 代码语法校验（非阻塞，校验结果附加到策略包中供前端展示）
+        try:
+            from app.services.code_validator import validate_generated_code
+            validation = validate_generated_code(
+                code=strategy_pack.get("code", ""),
+                language=strategy_pack.get("code_language", "python"),
+            )
+            strategy_pack["_validation"] = {
+                "is_valid": validation.is_valid,
+                "status_text": validation.status_text,
+                "status_icon": validation.status_icon,
+                "issues": [
+                    {"severity": i.severity, "message": i.message, "suggestion": i.suggestion}
+                    for i in validation.issues
+                ],
+            }
+        except Exception as val_err:
+            log.warning(f"[adhoc_analysis_node] 代码校验失败（非致命）: {val_err}")
+
+        yield {"type": "complete", "data": strategy_pack}
+    except Exception as parse_err:
+        log.error(f"[adhoc_analysis_node] 策略包 JSON 解析失败: {parse_err}")
+        # 尝试 json_repair 修复后再试
+        try:
+            repaired_again = repair_json(raw_content, skip_json_loads=True)
+            strategy_pack = json.loads(repaired_again)
+            required_keys = ["strategy", "code", "code_language", "parameter_schema", "input_mapping"]
+            for key in required_keys:
+                if key not in strategy_pack:
+                    raise ValueError(f"策略包缺少必需字段: {key}")
+            # 重试路径也做代码校验
+            try:
+                from app.services.code_validator import validate_generated_code
+                validation = validate_generated_code(
+                    code=strategy_pack.get("code", ""),
+                    language=strategy_pack.get("code_language", "python"),
+                )
+                strategy_pack["_validation"] = {
+                    "is_valid": validation.is_valid,
+                    "status_text": validation.status_text,
+                    "status_icon": validation.status_icon,
+                    "issues": [
+                        {"severity": i.severity, "message": i.message, "suggestion": i.suggestion}
+                        for i in validation.issues
+                    ],
+                }
+            except Exception as val_err:
+                log.warning(f"[adhoc_analysis_node] 代码校验失败（非致命）: {val_err}")
+            yield {"type": "complete", "data": strategy_pack}
+        except Exception:
+            yield {
+                "type": "error",
+                "message": f"策略包解析失败: {parse_err}",
+            }
 
 
 def _store_strategy_pack_to_redis(
