@@ -402,12 +402,13 @@ export function ChatStage() {
       try {
         const data = await fetchAPI(`/api/chat/sessions/${currentSessionId}/messages`);
         if (data.data && data.data.length > 0) {
-          const formattedMessages = data.data.map((msg: { role: string; content: string; id: number; attachments?: any }) => ({
+          const formattedMessages = data.data.map((msg: { role: string; content: string; id: number; attachments?: any; tool_calls?: any }) => ({
             id: String(msg.id),
             role: msg.role as 'user' | 'assistant',
             content: msg.content,
             timestamp: Date.now(),
-            attachments: msg.attachments
+            attachments: msg.attachments,
+            tool_calls: msg.tool_calls,
           }));
 
           // 同步给 Zustand store（供 SessionSidebar 等读取）
