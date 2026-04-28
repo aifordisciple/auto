@@ -86,6 +86,13 @@ interface UIState {
   inlineExpansions: Record<string, boolean>;
 
   // ==========================================
+  // 即席分析结果 → 数据中心联动
+  // ==========================================
+  /** 即席分析输出目录高亮路径（用于执行完成后引导用户到数据中心查看文件） */
+  dataCenterHighlightPath: string | null;
+  setDataCenterHighlightPath: (path: string | null) => void;
+
+  // ==========================================
   // 操作方法
   // ==========================================
   // 移动端菜单
@@ -175,6 +182,8 @@ export const useUIStore = create<UIState>()(
       skillFilterMode: 'all',
       globalTaskMode: 'normal',
       inlineExpansions: {},
+      dataCenterHighlightPath: null,
+      setDataCenterHighlightPath: (path) => set({ dataCenterHighlightPath: path }),
 
       // ==========================================
       // 移动端菜单

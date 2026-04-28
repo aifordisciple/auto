@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy } from 'lucide-react'
+import { ChevronDown, ChevronRight, Play, Star, Loader2, FileText, Eye, File, RotateCcw, Check, Copy, FolderOpen } from 'lucide-react'
 import { TablePreview } from './TablePreview'
+import { useUIStore } from '@/store/useUIStore'
 
 /**
  * JSON Schema 属性定义（与 ParameterProbingCard 一致）
@@ -137,6 +138,9 @@ export function AdhocAnalysisCard({
   // 执行计时器状态
   const [executionStartTime, setExecutionStartTime] = useState<number | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  // 数据中心联动
+  const openDataCenter = useUIStore(s => s.openDataCenter)
+  const setDataCenterHighlightPath = useUIStore(s => s.setDataCenterHighlightPath)
 
   // 日志窗口自动滚动到底部
   useEffect(() => {
@@ -1030,6 +1034,21 @@ export function AdhocAnalysisCard({
                   />
                 </div>
               )}
+            </div>
+          )}
+          {/* 在数据中心查看按钮（仅在成功执行且有输出目录时显示） */}
+          {outputProjectId && outputDirName && (
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-zinc-700">
+              <button
+                onClick={() => {
+                  setDataCenterHighlightPath(`results/${outputDirName}`)
+                  openDataCenter()
+                }}
+                className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+              >
+                <FolderOpen size={13} />
+                在数据中心中查看所有输出文件
+              </button>
             </div>
           )}
         </div>
