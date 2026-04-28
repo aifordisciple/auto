@@ -243,7 +243,7 @@ async def _generate_strategy_pack(
     if file_profiles_text:
         system_prompt += (
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
-            f"{file_profiles_text}\n"
+            + file_profiles_text + "\n"
         )
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -343,7 +343,7 @@ async def _generate_strategy_pack_streaming(
     if file_profiles_text:
         system_prompt += (
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
-            f"{file_profiles_text}\n"
+            + file_profiles_text + "\n"
         )
 
     prompt = ChatPromptTemplate.from_messages([
