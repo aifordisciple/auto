@@ -49,12 +49,27 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
   * 提到"热图"/"散点图"/"箱线图"/"火山图"等 → plot_type 参数
 - 如果有文件探查结果，严格使用探查出的列名来生成参数和代码，不要编造列名
 
+⚠️ 输入文件路径识别（极其重要，必须严格遵守）：
+- 文件列表中的每个文件路径（如 /workspace/expression.csv、/workspace/project_xxx/sample.fastq.gz）就是沙箱容器内真实可访问的文件路径
+- 代码中读取输入文件时，必须使用 argparse/optparse 接收的参数值，直接传递给 pd.read_csv() 等读取函数
+- 绝对不要编造、简化或修改文件路径！如果文件列表显示路径是 "/workspace/project_abc123/sample.csv"，代码中就必须使用这个完整路径
+- parameter_schema 中 file 类型参数的 default 值必须是文件列表中的完整路径（如 "/workspace/expression.csv"），不要使用相对路径或文件名
+- input_mapping 必须将文件路径正确映射到代码参数名，例如：{{ "/workspace/expression.csv": "expression_file", "/workspace/group.csv": "group_file" }}
+
+⚠️ 输出目录规则（极其重要，必须严格遵守）：
+- 所有输出文件（图表、结果表格等）必须写入 TASK_OUT_DIR 环境变量指定的目录
+- Python: output_dir = os.environ["TASK_OUT_DIR"]
+- R: output_dir <- Sys.getenv("TASK_OUT_DIR")
+- 绝对不要将输出写入当前工作目录、硬编码路径（如 /tmp、/output）或其他位置
+- 代码示例 Python: plt.savefig(os.path.join(os.environ["TASK_OUT_DIR"], "heatmap.png"))
+- 代码示例 R: ggsave(file.path(Sys.getenv("TASK_OUT_DIR"), "heatmap.png"))
+
 代码要求：
 - Python 必须使用 argparse，R 必须使用 optparse 或 commandArgs
 - 必须为所有参数设定符合生信经验的默认值（如 p-value 默认 0.05，聚类默认开启）
-- 输出目录使用 TASK_OUT_DIR 环境变量
+- 输出目录使用 TASK_OUT_DIR 环境变量（见上方输出目录规则）
 - 代码必须完整可执行，不能有省略或占位符
-- 文件输入参数的默认值必须使用用户实际提供的文件路径
+- 文件输入参数的默认值必须使用用户实际提供的文件路径（见上方输入文件路径识别）
 
 参数 Schema 要求：
 - 每个参数必须有 type、title、default
@@ -404,7 +419,7 @@ async def _generate_strategy_pack_streaming(
 
         # 代码语法校验（非阻塞，校验结果附加到策略包中供前端展示）
         try:
-            from app.services.code_validator import validate_generated_code
+            from app.services.code_validator import validate_generated_code, auto_fix_generated_code
             validation = validate_generated_code(
                 code=strategy_pack.get("code", ""),
                 language=strategy_pack.get("code_language", "python"),
@@ -418,8 +433,33 @@ async def _generate_strategy_pack_streaming(
                     for i in validation.issues
                 ],
             }
+
+            # 若校验发现错误，自动拉起 LLM Agent 修复代码
+            if validation.error_count > 0:
+                log.info(
+                    f"[adhoc_analysis_node] 代码校验发现 {validation.error_count} 个错误，"
+                    f"启动 LLM Agent 自动修复..."
+                )
+                fix_result = await auto_fix_generated_code(
+                    code=strategy_pack.get("code", ""),
+                    language=strategy_pack.get("code_language", "python"),
+                    instruction=instruction,
+                    issues=validation.issues,
+                    session=session,
+                    user_id=user_id,
+                )
+                strategy_pack["_auto_fix"] = {
+                    "fixed_code": fix_result.get("fixed_code"),
+                    "changes_description": fix_result.get("changes_description"),
+                    "success": fix_result.get("success"),
+                    "re_validation": fix_result.get("re_validation"),
+                }
+                if fix_result.get("success") and fix_result.get("fixed_code"):
+                    log.info("[adhoc_analysis_node] LLM Agent 自动修复成功，已附加到策略包")
+                else:
+                    log.warning("[adhoc_analysis_node] LLM Agent 自动修复未完全解决问题")
         except Exception as val_err:
-            log.warning(f"[adhoc_analysis_node] 代码校验失败（非致命）: {val_err}")
+            log.warning(f"[adhoc_analysis_node] 代码校验/修复失败（非致命）: {val_err}")
 
         yield {"type": "complete", "data": strategy_pack}
     except Exception as parse_err:
@@ -432,9 +472,9 @@ async def _generate_strategy_pack_streaming(
             for key in required_keys:
                 if key not in strategy_pack:
                     raise ValueError(f"策略包缺少必需字段: {key}")
-            # 重试路径也做代码校验
+            # 重试路径也做代码校验 + 自动修复
             try:
-                from app.services.code_validator import validate_generated_code
+                from app.services.code_validator import validate_generated_code, auto_fix_generated_code
                 validation = validate_generated_code(
                     code=strategy_pack.get("code", ""),
                     language=strategy_pack.get("code_language", "python"),
@@ -448,6 +488,21 @@ async def _generate_strategy_pack_streaming(
                         for i in validation.issues
                     ],
                 }
+                if validation.error_count > 0:
+                    fix_result = await auto_fix_generated_code(
+                        code=strategy_pack.get("code", ""),
+                        language=strategy_pack.get("code_language", "python"),
+                        instruction=instruction,
+                        issues=validation.issues,
+                        session=session,
+                        user_id=user_id,
+                    )
+                    strategy_pack["_auto_fix"] = {
+                        "fixed_code": fix_result.get("fixed_code"),
+                        "changes_description": fix_result.get("changes_description"),
+                        "success": fix_result.get("success"),
+                        "re_validation": fix_result.get("re_validation"),
+                    }
             except Exception as val_err:
                 log.warning(f"[adhoc_analysis_node] 代码校验失败（非致命）: {val_err}")
             yield {"type": "complete", "data": strategy_pack}

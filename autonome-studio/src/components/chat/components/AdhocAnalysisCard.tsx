@@ -88,6 +88,18 @@ export interface AdhocAnalysisCardProps {
     status_icon: 'error' | 'warning' | 'success'
     issues: Array<{ severity: string; message: string; suggestion: string }>
   }
+  /** LLM Agent 自动修复结果（由后端 auto_fix_generated_code 生成） */
+  _auto_fix?: {
+    fixed_code: string | null
+    changes_description: string
+    success: boolean
+    re_validation?: {
+      is_valid: boolean
+      status_text: string
+      status_icon: 'error' | 'warning' | 'success'
+      issues: Array<{ severity: string; message: string; suggestion: string }>
+    }
+  }
 }
 
 /**
@@ -113,6 +125,7 @@ export function AdhocAnalysisCard({
   addToolResult,
   toolCallId,
   _validation,
+  _auto_fix,
 }: AdhocAnalysisCardProps) {
   // 从 Schema 默认值初始化表单状态
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
@@ -176,6 +189,14 @@ export function AdhocAnalysisCard({
   const [interpretation, setInterpretation] = useState<string | null>(null)
   // 智能错误诊断
   const [diagnosis, setDiagnosis] = useState<{ diagnosis: string; fixed_code: string | null; fix_description: string } | null>(null)
+  // LLM Agent 代码修复状态
+  const [isFixingCode, setIsFixingCode] = useState(false)
+  const [fixCodeResult, setFixCodeResult] = useState<{
+    fixed_code: string | null
+    changes_description: string
+    success: boolean
+    re_validation?: { is_valid: boolean; status_text: string; status_icon: string; issues: Array<{ severity: string; message: string; suggestion: string }> }
+  } | null>(_auto_fix || null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   // 执行计时器状态
@@ -563,6 +584,46 @@ export function AdhocAnalysisCard({
     setLightboxOpen(false)
   }
 
+  // 调用 LLM Agent 修复代码
+  const handleFixCode = async () => {
+    if (isFixingCode) return
+    setIsFixingCode(true)
+    setFixCodeResult(null)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const token = typeof window !== 'undefined' ? localStorage.getItem('autonome_access_token') : null
+      const res = await fetch(`${apiUrl}/api/chat/adhoc/fix-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          code: editableCode,
+          language: code_language,
+          instruction: strategy,
+          issues: _validation?.issues || [],
+        }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(errData.detail || '修复失败')
+      }
+      const data = await res.json()
+      setFixCodeResult(data)
+      if (data.success && data.fixed_code) {
+        // 自动应用修复后的代码
+        setEditableCode(data.fixed_code)
+        setShowCode(true)
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '修复失败'
+      setFixCodeResult({ fixed_code: null, changes_description: message, success: false })
+    } finally {
+      setIsFixingCode(false)
+    }
+  }
+
   // 固化技能到资产库：调用后端 API 将策略包写入文件系统
   // 打开保存模态框
   const handleSaveSkill = () => {
@@ -883,6 +944,56 @@ export function AdhocAnalysisCard({
                     </span>
                   </div>
                 ))}
+                {/* LLM Agent 代码修复按钮 */}
+                {_validation.issues.some(i => i.severity === 'error') && (
+                  <div className="mt-2">
+                    {!fixCodeResult?.success && (
+                      <button
+                        onClick={handleFixCode}
+                        disabled={isFixingCode}
+                        className="text-[10px] px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                      >
+                        {isFixingCode ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <span>🔧</span>
+                        )}
+                        {isFixingCode ? 'AI 正在修复代码...' : 'AI 自动修复代码'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {/* LLM Agent 修复结果 */}
+                {fixCodeResult && (
+                  <div className={`text-[10px] px-2 py-1.5 rounded flex items-start gap-1.5 ${
+                    fixCodeResult.success
+                      ? 'bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800'
+                      : 'bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800'
+                  }`}>
+                    <span className="flex-shrink-0 mt-0.5">
+                      {fixCodeResult.success ? '✅' : '⚠️'}
+                    </span>
+                    <div className="flex-1">
+                      <span>{fixCodeResult.changes_description}</span>
+                      {fixCodeResult.success && fixCodeResult.re_validation && (
+                        <span className="ml-2 opacity-75">
+                          → {fixCodeResult.re_validation.status_text}
+                        </span>
+                      )}
+                      {fixCodeResult.success && fixCodeResult.fixed_code && (
+                        <button
+                          onClick={() => {
+                            setEditableCode(fixCodeResult.fixed_code!)
+                            setFixCodeResult(null)
+                          }}
+                          className="ml-2 text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          查看/应用修复代码
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {/* 代码编辑器：专家模式使用 Monaco，新手模式使用 textarea */}

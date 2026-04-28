@@ -1799,7 +1799,8 @@ async def adhoc_execute(
     from app.core.config import settings
     from app.tools.bio_tools import run_container
 
-    # 从 Redis 读取策略包
+    # 从 Redis 读取策略包，若已过期则从数据库历史记录恢复
+    strategy_pack = None
     try:
         r = redis.Redis(
             host=settings.REDIS_HOST,
@@ -1809,18 +1810,46 @@ async def adhoc_execute(
         )
         strategy_key = f"adhoc:{request.message_id}"
         strategy_json = r.get(strategy_key)
-        if not strategy_json:
+        if strategy_json:
+            strategy_pack = json.loads(strategy_json)
+            log.info(f"[adhoc_execute] 从 Redis 读取策略包: key={strategy_key}")
+    except Exception as e:
+        log.warning(f"[adhoc_execute] Redis 读取异常，尝试从数据库恢复: {e}")
+
+    # Redis 未命中时，从 AdhocAnalysisRecord 数据库记录恢复策略包
+    if not strategy_pack:
+        from app.models.chat import AdhocAnalysisRecord
+        db_record = session.query(AdhocAnalysisRecord).filter(
+            AdhocAnalysisRecord.message_id == request.message_id,
+            AdhocAnalysisRecord.user_id == user.id,
+        ).first()
+        if not db_record:
             raise HTTPException(
                 status_code=404,
-                detail="策略包已过期或不存在（有效期 10 分钟），请重新发起即席分析请求",
+                detail="策略包已过期或不存在（有效期 1 小时），请重新发起即席分析请求",
             )
-        strategy_pack = json.loads(strategy_json)
-        log.info(f"[adhoc_execute] 从 Redis 读取策略包: key={strategy_key}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"[adhoc_execute] Redis 读取失败: {e}")
-        raise HTTPException(status_code=500, detail=f"读取策略包失败: {str(e)}")
+        # 从数据库记录重建策略包
+        strategy_pack = {
+            "strategy": db_record.strategy,
+            "code": db_record.code_snapshot,
+            "code_language": db_record.code_language,
+            "parameter_schema": {
+                "type": "object",
+                "properties": {
+                    k: {"type": "string" if not isinstance(v, (int, float, bool)) else "number" if isinstance(v, (int, float)) else "boolean", "title": k, "default": v}
+                    for k, v in (db_record.parameters or {}).items()
+                },
+            },
+            "input_mapping": {},
+            "message_id": db_record.message_id,
+            "project_id": db_record.project_id,
+        }
+        # 重新写入 Redis 以延长有效期
+        try:
+            r.setex(strategy_key, 3600, json.dumps(strategy_pack, ensure_ascii=False))
+            log.info(f"[adhoc_execute] 策略包已从数据库恢复并重新缓存: message_id={request.message_id}")
+        except Exception as redis_write_err:
+            log.warning(f"[adhoc_execute] 恢复后写入 Redis 失败（非致命）: {redis_write_err}")
 
     # 提取执行参数和项目信息
     payload = request.payload or {}
@@ -2381,6 +2410,57 @@ async def adhoc_save_skill(
         "skill_id": skill_id,
         "skill_name": request.skill_name,
     }
+
+
+class AdhocFixCodeRequest(BaseModel):
+    """即席分析代码修复请求 —— 前端在策略卡片中触发 LLM Agent 代码修复"""
+    code: str = Field(..., description="需要修复的代码")
+    language: str = Field(default="python", description="代码语言: python / r")
+    instruction: str = Field(default="", description="原始分析需求描述")
+    issues: list = Field(default_factory=list, description="校验发现的问题列表")
+
+
+@router.post("/adhoc/fix-code")
+async def adhoc_fix_code(
+    request: AdhocFixCodeRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    调用 LLM Agent 自动修复即席分析生成代码中的问题。
+
+    程序说明：
+    当 validate_generated_code 发现代码问题或用户在前端手动触发"修复代码"时调用。
+    启动一个独立的 LLM Agent，专门针对校验发现的问题进行代码修复。
+    """
+    from app.services.code_validator import auto_fix_generated_code
+
+    try:
+        # 转换前端传来的 issues 为 ValidationIssue 对象
+        from app.services.code_validator import ValidationIssue
+        validation_issues = [
+            ValidationIssue(
+                severity=i.get("severity", "error"),
+                message=i.get("message", ""),
+                suggestion=i.get("suggestion", ""),
+                line=i.get("line"),
+                column=i.get("column"),
+            )
+            for i in (request.issues or [])
+        ]
+
+        fix_result = await auto_fix_generated_code(
+            code=request.code,
+            language=request.language,
+            instruction=request.instruction,
+            issues=validation_issues,
+            session=session,
+            user_id=user.id,
+        )
+        return fix_result
+    except Exception as e:
+        log.error(f"[adhoc_fix_code] 代码修复失败: {e}")
+        raise HTTPException(status_code=500, detail=f"代码修复失败: {str(e)}")
 
 
 # ==========================================
