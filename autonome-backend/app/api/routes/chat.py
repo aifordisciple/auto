@@ -682,23 +682,13 @@ async def chat_stream(
                     file_id = resolved_assets[0] if resolved_assets else "unknown"
 
                     # 收集用户实际提供的文件路径，填充到参数 Schema 默认值中
-                    # 构造文件路径：沙箱路径用于 LLM prompt 展示，宿主机路径用于实际文件探查
-                    # 注意：沙箱容器按项目挂载（project_{id} → /workspace），
-                    # LLM 生成的代码中使用 /workspace/ 前缀路径
+                    # 注意：沙箱容器现在按项目挂载（project_{id} → /workspace），
+                    # 所以文件路径只需补全 /workspace/ 前缀，无需 project_{id} 中间层
                     context_file_paths = request.context_files or []
-                    # 沙箱路径（给 LLM prompt 展示，代码参数默认值用）
                     full_file_paths = [
                         f"/workspace/{f}" if not f.startswith("/") else f
                         for f in context_file_paths
                     ]
-                    # 宿主机路径（给 file_profiler 实际读取文件用）
-                    from pathlib import Path
-                    from app.core.config import settings as prof_settings
-                    project_host_dir = str(Path(prof_settings.UPLOAD_DIR) / f"project_{request.project_id}")
-                    host_file_paths = [
-                        f"{project_host_dir}/{f}" for f in context_file_paths
-                    ]
-
                     file_paths_str = "\n  - ".join(full_file_paths)
                     if file_paths_str:
                         file_paths_str = f"  - {file_paths_str}"
@@ -706,13 +696,29 @@ async def chat_stream(
                     # 流式生成策略包（分阶段进度事件 + 内容块）
                     # 替代原来的阻塞式骨架屏方案，前端渐进式渲染策略卡片
                     # 先探查输入文件结构，注入 LLM prompt 以提升代码和参数准确性
+                    # 注意：full_file_paths 是沙箱内路径（/workspace/...），
+                    # profile_files 需要宿主机路径（uploads/project_{id}/...）才能读取文件
                     file_profiles_text = ""
-                    if host_file_paths:
+                    if full_file_paths:
                         try:
+                            from app.core.config import settings
                             from app.services.file_profiler import profile_files, format_profiles_for_prompt
+                            # 将沙箱路径映射到宿主机路径：/workspace/file.csv → uploads/project_{id}/file.csv
+                            host_project_dir = os.path.join(settings.UPLOAD_DIR, f"project_{request.project_id}")
+                            host_file_paths = [
+                                os.path.join(host_project_dir, f.removeprefix("/workspace/"))
+                                for f in full_file_paths
+                            ]
                             profiles = profile_files(host_file_paths)
-                            file_profiles_text = format_profiles_for_prompt(profiles)
-                            log.info(f"[Chat] 文件探查完成: {len(profiles)} 个文件")
+                            # 将宿主机路径替换回沙箱路径，使 LLM 在 prompt 中看到的是沙箱路径
+                            sandbox_profiles = {}
+                            for host_path, profile in profiles.items():
+                                rel_path = host_path.removeprefix(host_project_dir + "/")
+                                sandbox_path = f"/workspace/{rel_path}"
+                                profile.file_path = sandbox_path
+                                sandbox_profiles[sandbox_path] = profile
+                            file_profiles_text = format_profiles_for_prompt(sandbox_profiles)
+                            log.info(f"[Chat] 文件探查完成: {len(sandbox_profiles)} 个文件")
                         except Exception as prof_err:
                             log.warning(f"[Chat] 文件探查失败（非致命）: {prof_err}")
 

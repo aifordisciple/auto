@@ -147,6 +147,7 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
 
       const execRes = await fetch('/api/chat/adhoc/execute', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message_id: messageId,

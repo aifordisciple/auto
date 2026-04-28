@@ -25,7 +25,7 @@ from app.core.logger import log
 
 
 # 即席分析策略包生成的系统提示词
-ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家，擅长使用 R/Bioconductor 和 Python 生态进行数据分析和可视化。
+ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
 用户希望对以下文件进行分析：{file_paths}
 分析需求：{instruction}
 
@@ -37,24 +37,6 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家，擅长�
 4. **parameter_schema**: 符合 JSON Schema 规范的参数定义，用于前端渲染表单。必须包含 default 值。
    **关键要求**：文件输入参数（如 expression_file、group_file 等）的 default 值必须使用上面列出的实际文件路径！
 5. **input_mapping**: 将用户提供的文件路径映射到代码的输入参数名
-
-⚠️ 代码语言选择规则（极其重要，必须严格遵守）：
-- **涉及数据可视化必须使用 R 语言**：热图(heatmap)、火山图(volcano)、散点图(scatter)、箱线图(boxplot)、PCA 图、小提琴图(violin)、气泡图(dotplot/bubble)、韦恩图(Venn)、GO/KEGG 富集气泡图、染色体分布图等
-- R 语言默认使用领域标准包：ggplot2（通用绑图，优先）、ComplexHeatmap（热图/聚类热图）、EnhancedVolcano（火山图）、pheatmap（简洁热图）、ggpubr（拼图/统计检验图）、ggrepel（标签避让）、ggsci（期刊色板）、RColorBrewer（色板）、patchwork/cowplot（拼图）
-- 仅当分析需求完全不涉及可视化（如纯统计检验、数据清洗、格式转换）时，才使用 Python
-- Python 可视化仅用于交互式图表（plotly）
-
-⚠️ CNS 级出图规范（当 code_language 为 r 且涉及可视化时强制执行）：
-- **双格式输出**：每张图必须同时保存 PDF 矢量图和 PNG 位图
-  ```r
-  ggsave(file.path(output_dir, "figure_name.pdf"), p, width=8, height=6, device="pdf")
-  ggsave(file.path(output_dir, "figure_name.png"), p, width=8, height=6, dpi=300)
-  ```
-- **期刊级配色**：使用 ggsci::scale_color_npg() / scale_fill_npg() 或 scale_color_nejm() / scale_fill_lancet()（Nature/NEJM/Lancet 色板）
-- **字体规范**：theme_minimal()/theme_bw() 基础 + 统一 Arial/Helvetica family（theme(text=element_text(family="Arial"))) + 字号 7-10pt
-- **高分辨率**：PNG 至少 300 dpi，PDF 为矢量格式（无限分辨率）
-- **完整注释**：轴标签含单位，图注清晰，必要时添加统计显著性标注（如 p 值星号）
-- **尺寸合理**：宽 6-10 inches，高 4-8 inches，适合双栏/单栏排版
 
 参数智能推断要求（重要）：
 - 仔细分析用户需求中的关键词，自动推断参数默认值
@@ -165,38 +147,12 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
         if assets_paths:
             assets_paths = f"  - {assets_paths}"
 
-        # 探查输入文件结构，注入 LLM prompt 以提升代码和参数准确性
-        # resolved_assets 是沙箱路径（如 /workspace/expression.csv），需转换为宿主机路径
-        file_profiles_text = ""
-        if resolved_assets:
-            try:
-                from pathlib import Path
-                from app.core.config import settings as prof_settings
-                from app.services.file_profiler import profile_files, format_profiles_for_prompt
-
-                context = state.get("context", {})
-                project_id = context.get("project_id")
-                if project_id:
-                    project_host_dir = str(Path(prof_settings.UPLOAD_DIR) / f"project_{project_id}")
-                    # 将沙箱路径 /workspace/filename 转换为宿主机路径
-                    host_file_paths = []
-                    for asset in resolved_assets:
-                        # 提取文件名（去掉 /workspace/ 前缀）
-                        filename = asset.replace("/workspace/", "") if asset.startswith("/workspace/") else asset
-                        host_file_paths.append(f"{project_host_dir}/{filename}")
-                    profiles = profile_files(host_file_paths)
-                    file_profiles_text = format_profiles_for_prompt(profiles)
-                    log.info(f"[adhoc_analysis_node] 文件探查完成: {len(profiles)} 个文件")
-            except Exception as prof_err:
-                log.warning(f"[adhoc_analysis_node] 文件探查失败（非致命）: {prof_err}")
-
         strategy_pack = await _generate_strategy_pack(
             file_id=file_id,
             instruction=raw_instruction,
             session=session,
             user_id=user_id,
             file_paths=assets_paths,
-            file_profiles_text=file_profiles_text,
         )
     except Exception as e:
         log.error(f"[adhoc_analysis_node] 策略包生成失败，降级为 Skill Forge: {e}")
@@ -261,7 +217,7 @@ async def _generate_strategy_pack(
         user_id: 用户 ID
         file_paths: 用户实际提供的文件路径（换行分隔），用于填充参数默认值
         enable_think: 深度思考模式开关（由前端传递，默认关闭）
-        file_profiles_text: 文件探查结果文本，注入 LLM prompt 以提升代码和参数准确性
+        file_profiles_text: 文件探查结果文本（列名、数据类型等），注入 prompt 提升准确性
 
     Returns:
         策略包字典，包含 strategy、code、code_language、parameter_schema、input_mapping
@@ -281,15 +237,14 @@ async def _generate_strategy_pack(
         temperature=0.0,
     )
 
-    # 构造 system prompt，注入文件探查结果以提升参数准确性
+    # 构造提示词（必须包含 user 消息，否则部分 LLM 提供商会报错 "No user query found in messages"）
+    # 注入文件探查结果，使 LLM 能根据实际列名和数据类型生成代码
     system_prompt = ADHOC_SYSTEM_PROMPT
     if file_profiles_text:
         system_prompt += (
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
             f"{file_profiles_text}\n"
         )
-
-    # 构造提示词（必须包含 user 消息，否则部分 LLM 提供商会报错 "No user query found in messages"）
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         ("human", "请根据以上要求生成即席分析策略包，输出严格 JSON 格式。"),

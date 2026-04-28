@@ -328,6 +328,7 @@ export function AdhocAnalysisCard({
     try {
       const res = await fetch(`${apiUrl}/api/chat/adhoc/execute`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
