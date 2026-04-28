@@ -6,7 +6,7 @@
  */
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { RefreshCw, Trash2, Eye, Play, ChevronRight, X, Loader2, FileText, CheckCircle2, XCircle } from 'lucide-react';
 
 /**
@@ -67,6 +67,12 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
   const [deleting, setDeleting] = useState<number | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  // 重新执行状态
+  const [rerunningId, setRerunningId] = useState<number | null>(null);
+  const [rerunLogs, setRerunLogs] = useState<string[]>([]);
+  const [rerunProgress, setRerunProgress] = useState<{ step: number; total: number; message: string; percent: number } | null>(null);
+  const [rerunResult, setRerunResult] = useState<{ status: string; output_files: string[] } | null>(null);
+  const rerunAbortRef = useRef<AbortController | null>(null);
 
   /** 加载历史列表 */
   const loadHistory = useCallback(async (newOffset = 0) => {
@@ -111,6 +117,97 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
       console.error('删除历史记录失败:', err);
     } finally {
       setDeleting(null);
+    }
+  };
+
+  /** 重新执行历史记录 */
+  const handleRerun = async (item: AdhocHistoryItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (rerunningId) return;
+
+    setRerunningId(item.id);
+    setExpandedId(item.id);
+    setRerunLogs([]);
+    setRerunProgress(null);
+    setRerunResult(null);
+
+    try {
+      // Step 1: 从 DB 恢复策略包到 Redis
+      const rerunRes = await fetch(`/api/chat/adhoc/rerun/${item.id}`, { method: 'POST' });
+      if (!rerunRes.ok) {
+        const errData = await rerunRes.json().catch(() => ({}));
+        throw new Error((errData as { detail?: string }).detail || `HTTP ${rerunRes.status}`);
+      }
+      const rerunData = await rerunRes.json();
+      const messageId = rerunData.message_id;
+
+      // Step 2: SSE 流式执行
+      const abortController = new AbortController();
+      rerunAbortRef.current = abortController;
+
+      const execRes = await fetch('/api/chat/adhoc/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id: messageId,
+          payload: {
+            parameters: item.parameters || {},
+            code_snapshot: item.code_snapshot,
+          },
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!execRes.ok) {
+        throw new Error(`执行请求失败: HTTP ${execRes.status}`);
+      }
+
+      // Step 3: 读取 SSE 流
+      const reader = execRes.body?.getReader();
+      if (!reader) throw new Error('无法读取响应流');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'progress') {
+              setRerunProgress({ step: data.step, total: data.total, message: data.message, percent: data.percent });
+            } else if (data.type === 'log') {
+              setRerunLogs(prev => [...prev, `[${data.category}] ${data.line}`]);
+            } else if (data.type === 'result') {
+              setRerunResult({ status: data.status, output_files: data.output_files?.map((f: { name: string }) => f.name) || [] });
+            } else if (data.type === 'done') {
+              break;
+            }
+          } catch {
+            // skip non-JSON lines
+          }
+        }
+      }
+
+      // 刷新历史列表
+      loadHistory();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '未知错误';
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setRerunLogs(prev => [...prev, '[系统] 执行已取消']);
+      } else {
+        setRerunLogs(prev => [...prev, `[错误] ${msg}`]);
+        setRerunResult({ status: 'failed', output_files: [] });
+      }
+    } finally {
+      setRerunningId(null);
     }
   };
 
@@ -250,15 +347,18 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
                         <Eye size={13} />
                       </button>
                     )}
-                    {onRerun && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onRerun(item); }}
-                        className="p-1.5 min-h-[32px] min-w-[32px] text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
-                        title="重新执行"
-                      >
+                    <button
+                      onClick={(e) => handleRerun(item, e)}
+                      disabled={rerunningId === item.id}
+                      className="p-1.5 min-h-[32px] min-w-[32px] text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors disabled:opacity-50"
+                      title="重新执行"
+                    >
+                      {rerunningId === item.id ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
                         <Play size={13} />
-                      </button>
-                    )}
+                      )}
+                    </button>
                     <button
                       onClick={(e) => handleDelete(item.id, e)}
                       disabled={deleting === item.id}
@@ -332,6 +432,51 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
                         <pre className="mt-1 text-[10px] text-red-400/70 bg-red-500/5 rounded p-2 max-h-24 overflow-y-auto font-mono leading-relaxed border border-red-500/10">
                           {item.error_text.slice(0, 300)}
                         </pre>
+                      </div>
+                    )}
+
+                    {/* 重新执行进度（仅当正在重新执行此条记录时显示） */}
+                    {rerunningId === item.id && (
+                      <div className="border-t border-neutral-700/50 pt-2 mt-2">
+                        <span className="text-[10px] text-indigo-400 uppercase tracking-wider flex items-center gap-1">
+                          <Loader2 size={10} className="animate-spin" />
+                          重新执行中...
+                        </span>
+                        {/* 进度条 */}
+                        {rerunProgress && (
+                          <div className="mt-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] text-neutral-300">
+                                [{rerunProgress.step}/{rerunProgress.total}] {rerunProgress.message}
+                              </span>
+                              <span className="text-[9px] text-neutral-500">{rerunProgress.percent}%</span>
+                            </div>
+                            <div className="w-full bg-neutral-700 rounded-full h-1">
+                              <div
+                                className="bg-indigo-500 h-1 rounded-full transition-all duration-500"
+                                style={{ width: `${rerunProgress.percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {/* 日志 */}
+                        {rerunLogs.length > 0 && (
+                          <pre className="mt-2 text-[9px] text-neutral-400 bg-neutral-900 rounded p-2 max-h-32 overflow-y-auto font-mono leading-relaxed">
+                            {rerunLogs.slice(-30).join('\n')}
+                          </pre>
+                        )}
+                        {/* 结果 */}
+                        {rerunResult && (
+                          <div className={`mt-2 text-[10px] px-2 py-1 rounded ${
+                            rerunResult.status === 'success'
+                              ? 'text-emerald-400 bg-emerald-500/10'
+                              : 'text-red-400 bg-red-500/10'
+                          }`}>
+                            {rerunResult.status === 'success'
+                              ? `✅ 执行成功 — ${rerunResult.output_files.length} 个输出文件`
+                              : '❌ 执行失败'}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

@@ -2173,6 +2173,75 @@ async def delete_adhoc_history(
     return {"success": True, "message": "记录已删除"}
 
 
+@router.post("/adhoc/rerun/{record_id}")
+async def rerun_adhoc_analysis(
+    record_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    从历史记录恢复策略包到 Redis，支持重新执行已过期的即席分析。
+
+    程序说明：
+    当用户点击历史记录中的"重新执行"时调用。
+    从 AdhocAnalysisRecord 读取完整策略包数据，重新写入 Redis（TTL 1 小时），
+    返回 message_id 供前端调用 /adhoc/execute 执行。
+    解决了 Redis 策略包 1 小时过期后无法重新执行的问题。
+    """
+    import redis as redis_client
+    from app.models.chat import AdhocAnalysisRecord
+    from app.core.config import settings
+
+    record = session.query(AdhocAnalysisRecord).filter(
+        AdhocAnalysisRecord.id == record_id,
+        AdhocAnalysisRecord.user_id == user.id,
+    ).first()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在或无权访问")
+
+    # 从 DB 记录重建策略包
+    strategy_pack = {
+        "strategy": record.strategy,
+        "code": record.code_snapshot,
+        "code_language": record.code_language,
+        "parameter_schema": {
+            "type": "object",
+            "properties": {
+                k: {"type": "string" if not isinstance(v, (int, float, bool)) else "number" if isinstance(v, (int, float)) else "boolean", "title": k, "default": v}
+                for k, v in (record.parameters or {}).items()
+            },
+        },
+        "input_mapping": {},
+        "message_id": record.message_id,
+        "project_id": record.project_id,
+    }
+
+    # 重新写入 Redis（TTL 1 小时）
+    try:
+        r = redis_client.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=0,
+            decode_responses=True,
+        )
+        r.setex(
+            f"adhoc:{record.message_id}",
+            3600,
+            json.dumps(strategy_pack, ensure_ascii=False),
+        )
+        log.info(f"[adhoc_rerun] 策略包已从历史恢复: record_id={record_id}, message_id={record.message_id}")
+    except Exception as e:
+        log.error(f"[adhoc_rerun] Redis 写入失败: {e}")
+        raise HTTPException(status_code=500, detail=f"恢复策略包失败: {str(e)}")
+
+    return {
+        "success": True,
+        "message_id": record.message_id,
+        "strategy_pack": strategy_pack,
+    }
+
+
 @router.get("/adhoc/download/{project_id}/{output_dir_name}")
 async def download_adhoc_result(
     project_id: str,
