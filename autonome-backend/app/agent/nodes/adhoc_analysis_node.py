@@ -24,6 +24,78 @@ from app.agent.router.schemas import AgentState, ProbingRequest
 from app.core.logger import log
 
 
+def _normalize_strategy_pack_paths(strategy_pack: Dict[str, Any], resolved_assets: list) -> Dict[str, Any]:
+    """
+    后处理：修正策略包中可能丢失 /workspace/ 前缀的文件路径。
+
+    程序说明：
+    LLM 有时输出不完整路径（如 "raw_data/xxx.csv" 而不是 "/workspace/raw_data/xxx.csv"）。
+    此函数遍历 input_mapping 和 parameter_schema 中的文件路径，
+    与 resolved_assets 中的完整路径进行模糊匹配并修正。
+
+    Args:
+        strategy_pack: 已解析的策略包
+        resolved_assets: 规范化的完整文件路径列表（均以 /workspace/ 开头）
+
+    Returns:
+        修正后的策略包（原地修改+返回）
+    """
+    import re
+
+    # 构建文件名 → 完整路径的映射表
+    file_name_to_full: Dict[str, str] = {}
+    for asset in resolved_assets:
+        if asset.startswith("/workspace/"):
+            fname = asset.rsplit("/", 1)[-1]
+            file_name_to_full[fname] = asset
+
+    if not file_name_to_full:
+        return strategy_pack
+
+    # 1. 修正 input_mapping 中的路径
+    input_mapping = strategy_pack.get("input_mapping", {})
+    for key, file_path in list(input_mapping.items()):
+        if isinstance(file_path, str):
+            fname = file_path.rsplit("/", 1)[-1]
+            if fname in file_name_to_full and not file_path.startswith("/workspace/"):
+                corrected = file_name_to_full[fname]
+                input_mapping[key] = corrected
+                log.info(f"[path_normalize] input_mapping 路径修正: {file_path} → {corrected}")
+
+    # 2. 修正 parameter_schema.properties 中 file 类型参数的 default 值
+    param_schema = strategy_pack.get("parameter_schema", {})
+    for key, prop in list(param_schema.get("properties", {}).items()):
+        if prop.get("type") == "file" and isinstance(prop.get("default"), str):
+            fname = prop["default"].rsplit("/", 1)[-1]
+            if fname in file_name_to_full and not prop["default"].startswith("/workspace/"):
+                corrected = file_name_to_full[fname]
+                prop["default"] = corrected
+                log.info(f"[path_normalize] parameter_schema 路径修正: {key} default {prop['default']} → {corrected}")
+
+    # 3. 修正 code 中的硬编码文件路径（如 pd.read_csv("raw_data/xxx.csv")）
+    code = strategy_pack.get("code", "")
+    if code:
+        original_code = code
+        for fname, full_path in file_name_to_full.items():
+            # 匹配引号内的相对路径（双引号或单引号）
+            # 例如: read.csv("raw_data/xxx.csv") → read.csv("/workspace/raw_data/xxx.csv")
+            escaped_fname = re.escape(fname)
+            # 匹配不以 /workspace/ 开头的文件引用
+            patterns = [
+                # 匹配其中包含 fname 的相对路径（双引号）
+                (rf'"((?!\/workspace\/)[^"]*?{escaped_fname})"', f'"{full_path}"'),
+                # 匹配其中包含 fname 的相对路径（单引号）
+                (rf"'((?!\/workspace\/)[^']*?{escaped_fname})'", f"'{full_path}'"),
+            ]
+            for pattern, replacement in patterns:
+                code = re.sub(pattern, replacement, code)
+        if code != original_code:
+            strategy_pack["code"] = code
+            log.info("[path_normalize] code 中文件路径已修正")
+
+    return strategy_pack
+
+
 # 即席分析策略包生成的系统提示词
 ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
 用户希望对以下文件进行分析：{file_paths}
@@ -37,6 +109,9 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
 4. **parameter_schema**: 符合 JSON Schema 规范的参数定义，用于前端渲染表单。必须包含 default 值。
    **关键要求**：文件输入参数（如 expression_file、group_file 等）的 default 值必须使用上面列出的实际文件路径！
 5. **input_mapping**: 将用户提供的文件路径映射到代码的输入参数名
+   **关键要求**：用户提供的每个文件路径都必须出现在 input_mapping 中，不能遗漏任何文件！
+   如果用户提供了多个文件（如表达矩阵+分组文件），必须为每个文件创建对应的参数，并在 input_mapping 中全部映射。
+   修改/追加需求时也应保留原有的所有文件参数，不能因为需求调整而丢失文件映射。
 
 参数智能推断要求（重要）：
 - 仔细分析用户需求中的关键词，自动推断参数默认值
@@ -170,7 +245,14 @@ async def adhoc_analysis_node(state: AgentState, config: RunnableConfig) -> Dict
 
     try:
         # 将 resolved_assets 拼接为 file_paths 字符串，填入参数默认值
-        assets_paths = "\n  - ".join(resolved_assets) if resolved_assets else ""
+        # 标准化文件路径：确保所有路径以 /workspace/ 开头（沙箱容器内路径）
+        # 这是 bug 修复：L1 解构器可能生成不完整路径（如 "raw_data/pca/xxx.txt"），
+        # 缺少 /workspace/ 前缀会导致 LLM 在代码中写入错误路径
+        normalized_assets = [
+            f"/workspace/{a}" if not a.startswith("/workspace/") and not a.startswith("file_") else a
+            for a in resolved_assets
+        ]
+        assets_paths = "\n  - ".join(normalized_assets) if normalized_assets else ""
         if assets_paths:
             assets_paths = f"  - {assets_paths}"
 
@@ -309,6 +391,13 @@ async def _generate_strategy_pack(
         f"language={strategy_pack.get('code_language')}, "
         f"params={list(strategy_pack.get('parameter_schema', {}).get('properties', {}).keys())}"
     )
+
+    # 文件路径后处理：修正 LLM 可能生成的不完整路径（补全 /workspace/ 前缀）
+    _resolved_paths_for_normalize = [
+        line.strip("- ") for line in file_paths.split("\n") if line.strip("- ").startswith("/workspace/")
+    ] if file_paths else []
+    if _resolved_paths_for_normalize:
+        _normalize_strategy_pack_paths(strategy_pack, _resolved_paths_for_normalize)
 
     return strategy_pack
 
@@ -461,6 +550,14 @@ async def _generate_strategy_pack_streaming(
             f"params={list(strategy_pack.get('parameter_schema', {}).get('properties', {}).keys())}"
         )
 
+        # 文件路径后处理：修正 LLM 可能生成的不完整路径（补全 /workspace/ 前缀）
+        # 从 file_paths 字符串解析出规范化资产路径
+        _resolved_paths = [
+            line.strip("- ") for line in file_paths.split("\n") if line.strip("- ").startswith("/workspace/")
+        ] if file_paths else []
+        if _resolved_paths:
+            _normalize_strategy_pack_paths(strategy_pack, _resolved_paths)
+
         # 代码语法校验（非阻塞，校验结果附加到策略包中供前端展示）
         try:
             from app.services.code_validator import validate_generated_code, auto_fix_generated_code
@@ -567,6 +664,11 @@ async def _generate_strategy_pack_streaming(
             for key in required_keys:
                 if key not in strategy_pack:
                     raise ValueError(f"策略包缺少必需字段: {key}")
+
+            # 重试路径也做文件路径后处理
+            if _resolved_paths:
+                _normalize_strategy_pack_paths(strategy_pack, _resolved_paths)
+
             # 重试路径也做代码校验 + 自动修复
             try:
                 from app.services.code_validator import validate_generated_code, auto_fix_generated_code
