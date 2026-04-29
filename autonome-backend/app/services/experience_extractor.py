@@ -20,6 +20,7 @@ import os
 from typing import Optional, List
 
 from sqlmodel import Session, select, text
+from sqlalchemy import func
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.database import engine
@@ -148,33 +149,29 @@ async def extract_experience_from_autofix(
         embed_text = f"分析需求: {instruction}\n经验摘要: {summary_result.get('summary', '')}"
         embedding = _generate_embedding(embed_text, user_id=user_id)
 
-        # 写入数据库
+        # Upsert（同标题合并，否则创建）
         with Session(engine) as db_session:
-            experience = ExperienceAsset(
-                experience_type=ExperienceType.DEBUG_PATTERN,
+            experience = _upsert_experience(
+                db_session,
                 title=summary_result.get("title", f"修复: {issues_text[:80]}"),
                 summary=summary_result.get("summary", ""),
                 key_insights=summary_result.get("key_insights", []),
                 original_query=instruction,
                 solution_code=fixed_code[:10000],
                 solution_strategy=summary_result.get("solution_strategy", ""),
-                debug_iterations=1,
+                experience_type=ExperienceType.DEBUG_PATTERN,
                 category=category,
                 tags=summary_result.get("tags", []),
                 language=language,
-                source_user_id=user_id,
-                source_project_id=project_id,
+                user_id=user_id,
+                project_id=project_id,
+                record_id=None,
+                debug_iterations=1,
                 usefulness_score=0.5,
+                embedding=embedding,
             )
-            # 写入嵌入向量（JSON 文本格式）
-            if embedding:
-                experience.embedding_text = json.dumps(embedding)
-
-            db_session.add(experience)
-            db_session.commit()
-            db_session.refresh(experience)
             log.info(
-                f"[ExperienceExtractor] DEBUG_PATTERN 经验已创建: "
+                f"[ExperienceExtractor] DEBUG_PATTERN 经验已处理: "
                 f"id={experience.id}, title={experience.title}, category={category}"
             )
             return experience
@@ -278,31 +275,27 @@ async def _extract_success_experience(
         embedding = _generate_embedding(embed_text, user_id=user_id)
 
         with Session(engine) as db_session:
-            experience = ExperienceAsset(
-                experience_type=ExperienceType.CODE_SNIPPET,
+            experience = _upsert_experience(
+                db_session,
                 title=summary_result.get("title", f"成功分析: {instruction[:80]}"),
                 summary=summary_result.get("summary", ""),
                 key_insights=summary_result.get("key_insights", []),
                 original_query=instruction,
                 solution_code=code[:10000],
                 solution_strategy=summary_result.get("solution_strategy", ""),
-                debug_iterations=0,
+                experience_type=ExperienceType.CODE_SNIPPET,
                 category=category,
                 tags=summary_result.get("tags", []),
                 language=language,
-                source_user_id=user_id or 0,
-                source_project_id=project_id,
-                source_record_id=record_id,
+                user_id=user_id or 0,
+                project_id=project_id,
+                record_id=record_id,
+                debug_iterations=0,
                 usefulness_score=0.5,
+                embedding=embedding,
             )
-            if embedding:
-                experience.embedding_text = json.dumps(embedding)
-
-            db_session.add(experience)
-            db_session.commit()
-            db_session.refresh(experience)
             log.info(
-                f"[ExperienceExtractor] CODE_SNIPPET 经验已创建: "
+                f"[ExperienceExtractor] CODE_SNIPPET 经验已处理: "
                 f"id={experience.id}, title={experience.title}, category={category}"
             )
             return experience
@@ -341,32 +334,27 @@ async def _extract_failure_experience(
         embedding = _generate_embedding(embed_text, user_id=user_id)
 
         with Session(engine) as db_session:
-            experience = ExperienceAsset(
-                experience_type=ExperienceType.DEBUG_PATTERN,
+            experience = _upsert_experience(
+                db_session,
                 title=summary_result.get("title", f"执行失败: {error_text[:80] if error_text else '未知错误'}"),
                 summary=summary_result.get("summary", ""),
                 key_insights=summary_result.get("key_insights", []),
                 original_query=instruction,
                 solution_code=code[:10000],
                 solution_strategy=summary_result.get("solution_strategy", ""),
-                debug_iterations=1,
+                experience_type=ExperienceType.DEBUG_PATTERN,
                 category=category,
                 tags=summary_result.get("tags", []),
                 language=language,
-                source_user_id=user_id or 0,
-                source_project_id=project_id,
-                source_record_id=record_id,
+                user_id=user_id or 0,
+                project_id=project_id,
+                record_id=record_id,
+                debug_iterations=1,
                 usefulness_score=0.3,
+                embedding=embedding,
             )
-            db_session.add(experience)
-            db_session.commit()
-
-            if embedding:
-                _set_embedding(db_session, experience.id, embedding)
-
-            db_session.refresh(experience)
             log.info(
-                f"[ExperienceExtractor] DEBUG_PATTERN 经验已创建(失败): "
+                f"[ExperienceExtractor] DEBUG_PATTERN 经验已处理(失败): "
                 f"id={experience.id}, title={experience.title}, category={category}"
             )
             return experience
@@ -405,6 +393,112 @@ def _infer_category(instruction: str, language: str) -> str:
             return best_cat
 
     return "general"
+
+
+def _normalize_title(title: str) -> str:
+    """规范化标题用于去重比较：全小写，去首尾空格"""
+    return title.strip().lower()
+
+
+def _upsert_experience(
+    db_session: Session,
+    *,
+    title: str,
+    summary: str,
+    key_insights: list,
+    original_query: str,
+    solution_code: Optional[str],
+    solution_strategy: str,
+    experience_type: ExperienceType,
+    category: str,
+    tags: list,
+    language: str,
+    user_id: int,
+    project_id: Optional[str],
+    record_id: Optional[int],
+    debug_iterations: int,
+    usefulness_score: float,
+    embedding: Optional[List[float]],
+) -> ExperienceAsset:
+    """
+    Upsert 经验资产：同用户同标题经验合并，否则创建新记录。
+
+    合并策略（不可变优先，仅在 merge 路径修改 existing）：
+    - key_insights: 新老 union 去重
+    - usefulness_score: 取 max(existing, new)
+    - reuse_count: +1
+    - embedding_text: 更新为新的（新摘要更完整）
+    - summary / solution_code / tags: 更新
+    """
+    norm_title = _normalize_title(title)
+
+    existing = db_session.exec(
+        select(ExperienceAsset).where(
+            func.lower(func.trim(ExperienceAsset.title)) == norm_title,
+            ExperienceAsset.source_user_id == user_id,
+        )
+    ).first()
+
+    if existing:
+        # === 合并路径 ===
+        existing_insights = set(existing.key_insights or [])
+        new_insights = [i for i in key_insights if i not in existing_insights]
+        if new_insights:
+            existing.key_insights = existing.key_insights + new_insights
+
+        existing.usefulness_score = max(existing.usefulness_score or 0.0, usefulness_score)
+        existing.reuse_count = (existing.reuse_count or 0) + 1
+
+        if embedding:
+            existing.embedding_text = json.dumps(embedding)
+
+        existing.summary = summary
+        if solution_code:
+            existing.solution_code = solution_code[:10000]
+        if solution_strategy:
+            existing.solution_strategy = solution_strategy
+        existing.tags = list(set((existing.tags or []) + tags))
+
+        db_session.add(existing)
+        db_session.commit()
+        db_session.refresh(existing)
+
+        log.info(
+            f"[ExperienceExtractor] 经验已合并: id={existing.id}, "
+            f"title={existing.title}, reuse_count={existing.reuse_count}"
+        )
+        return existing
+
+    # === 创建路径 ===
+    experience = ExperienceAsset(
+        experience_type=experience_type,
+        title=title,
+        summary=summary,
+        key_insights=key_insights,
+        original_query=original_query,
+        solution_code=solution_code[:10000] if solution_code else None,
+        solution_strategy=solution_strategy,
+        debug_iterations=debug_iterations,
+        category=category,
+        tags=tags,
+        language=language,
+        source_user_id=user_id,
+        source_project_id=project_id,
+        source_record_id=record_id,
+        usefulness_score=usefulness_score,
+    )
+    if embedding:
+        experience.embedding_text = json.dumps(embedding)
+
+    db_session.add(experience)
+    db_session.commit()
+    db_session.refresh(experience)
+
+    log.info(
+        f"[ExperienceExtractor] 经验已创建: id={experience.id}, "
+        f"title={experience.title}, category={category}"
+    )
+    return experience
 
 
 async def _summarize_experience(
