@@ -2104,6 +2104,9 @@ async def adhoc_execute(
         executor = ThreadPoolExecutor(max_workers=1)
         executor.submit(run_docker)
 
+        # 追踪最后一次进度事件，用于执行完成时自动补全进度条
+        last_progress = None
+
         try:
             while True:
                 msg_type, data = await asyncio.wait_for(queue.get(), timeout=3600)
@@ -2114,6 +2117,7 @@ async def adhoc_execute(
                     prog = data["progress"]
                     if cat == "progress" and prog:
                         # 进度事件：结构化进度数据
+                        last_progress = prog
                         yield f"data: {json.dumps({'type': 'progress', 'step': prog['step'], 'total': prog['total'], 'message': prog['message'], 'percent': prog['percent']})}\n\n"
                     elif cat == "system":
                         # 系统日志：标记为可折叠
@@ -2130,6 +2134,11 @@ async def adhoc_execute(
                         f"[adhoc_execute] 执行完成: exit_code={exit_code}, "
                         f"success={success}"
                     )
+
+                    # 自动补全进度条：若 LLM 生成的代码未调用最终进度步骤（如 step N/N），
+                    # 后端在执行成功时自动补发一条 100% 进度事件，防止前端进度条卡住
+                    if success and last_progress and last_progress['step'] < last_progress['total']:
+                        yield f"data: {json.dumps({'type': 'progress', 'step': last_progress['total'], 'total': last_progress['total'], 'message': '分析完成', 'percent': 100.0})}\n\n"
 
                     # 扫描输出目录，构建文件树
                     output_files = []

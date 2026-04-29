@@ -188,6 +188,7 @@ ADHOC_SYSTEM_PROMPT = """你是一个生物信息学即席分析专家。
   * R:      autonome_progress(step, total, message)
 - 将分析流程分解为 3-6 个关键步骤，如：加载数据、数据预处理、执行分析、生成图表、保存结果
 - 每个步骤调用一次 autonome_progress，step 从 1 递增，total 为总步骤数
+- 重要：最后一个步骤（如保存结果）也必须调用 autonome_progress，确保进度条完整走到 100%
 - 进度消息使用中文，简洁描述当前步骤（不超过 15 字）
 
 输出示例：
