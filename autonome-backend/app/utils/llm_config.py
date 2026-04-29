@@ -349,6 +349,186 @@ def _resolve_api_key_with_fallback(
 
 
 # ==========================================
+# 嵌入模型配置解析
+# ==========================================
+
+def get_embedding_llm_config(session: Session, user_id: Optional[int] = None) -> LLMConfig:
+    """
+    解析嵌入模型配置：per-user embedding → system embedding → thinking config → env
+
+    四级回退链路：
+    1. 用户级 embedding_* 字段
+    2. 系统级 embedding_* 字段
+    3. 思考模型配置（get_thinking_llm_config）
+    4. 环境变量 OPENAI_API_KEY
+
+    Args:
+        session: 数据库会话
+        user_id: 用户 ID（None 则跳过 per-user 查找）
+
+    Returns:
+        LLMConfig(api_key, base_url, model_name, source)
+    """
+    env_api_key = os.getenv("OPENAI_API_KEY")
+    env_base_url = settings.OPENAI_BASE_URL
+
+    # --- 1. 尝试 per-user 嵌入模型配置 ---
+    if user_id is not None:
+        user = session.get(User, user_id)
+        if user and _has_user_embedding_config(user):
+            return _resolve_user_embedding_config(user, session, env_api_key, env_base_url)
+
+    # --- 2. 尝试系统级嵌入模型配置 ---
+    sys_config = session.get(SystemConfig, 1)
+    if sys_config and _has_system_embedding_config(sys_config):
+        return _resolve_system_embedding_config(sys_config, env_api_key, env_base_url)
+
+    # --- 3. 回退到思考模型配置 ---
+    return get_thinking_llm_config(session, user_id)
+
+
+def _has_user_embedding_config(user: User) -> bool:
+    """判断用户是否配置了至少一个嵌入模型字段"""
+    return (
+        user.embedding_api_key is not None
+        or user.embedding_base_url is not None
+        or user.embedding_model_name is not None
+    )
+
+
+def _has_system_embedding_config(sys_config: SystemConfig) -> bool:
+    """判断系统是否配置了待立嵌入模型（api_key 或 base_url 非 None 即视为独立配置）"""
+    return (
+        sys_config.embedding_api_key is not None
+        or sys_config.embedding_api_base != "https://api.openai.com/v1"
+    )
+
+
+def _resolve_user_embedding_config(
+    user: User,
+    session: Session,
+    env_api_key: Optional[str],
+    env_base_url: str,
+) -> LLMConfig:
+    """
+    解析用户级嵌入模型配置，未设置的字段逐级回退
+
+    回退链路：用户 embedding_* → 系统 embedding_* → 思考模型配置 → 环境变量
+    """
+    sys_config = session.get(SystemConfig, 1)
+    thinking_config = get_thinking_llm_config(session, None)
+
+    base_url = (
+        user.embedding_base_url
+        or (sys_config.embedding_api_base if sys_config else None)
+        or thinking_config.base_url
+        or env_base_url
+    )
+    model_name = (
+        user.embedding_model_name
+        or (sys_config.embedding_model if sys_config else None)
+        or "text-embedding-3-large"
+    )
+
+    is_local_model = _is_local_model(base_url)
+
+    api_key = _resolve_embedding_api_key_with_fallback(
+        primary_key=user.embedding_api_key,
+        sys_embedding_key=sys_config.embedding_api_key if sys_config else None,
+        thinking_key=thinking_config.api_key,
+        env_api_key=env_api_key,
+        is_local_model=is_local_model,
+    )
+
+    log.debug(
+        f"🧬 [Embedding LLM Config] user={user.id}, source=user_embedding, "
+        f"model={model_name}, base_url={base_url}"
+    )
+
+    return LLMConfig(
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        source="user_fast",  # 复用 source 枚举；语义为"用户嵌入配置"
+    )
+
+
+def _resolve_system_embedding_config(
+    sys_config: SystemConfig,
+    env_api_key: Optional[str],
+    env_base_url: str,
+) -> LLMConfig:
+    """
+    解析系统级嵌入模型配置，未设置的字段回退到思考模型配置
+
+    回退链路：系统 embedding_* → 思考模型配置 → 环境变量
+    """
+    thinking_config_fallback: Optional[LLMConfig] = None
+
+    def _get_thinking_fallback() -> LLMConfig:
+        nonlocal thinking_config_fallback
+        if thinking_config_fallback is None:
+            from sqlmodel import Session as SQLModelSession
+            from app.core.database import engine
+            with SQLModelSession(engine) as sess:
+                thinking_config_fallback = get_thinking_llm_config(sess, None)
+        return thinking_config_fallback
+
+    base_url = sys_config.embedding_api_base or env_base_url
+    model_name = sys_config.embedding_model or "text-embedding-3-large"
+
+    is_local_model = _is_local_model(base_url)
+
+    if is_local_model:
+        api_key = sys_config.embedding_api_key if sys_config.embedding_api_key else ""
+    else:
+        if sys_config.embedding_api_key and sys_config.embedding_api_key != "ollama-local":
+            api_key = sys_config.embedding_api_key
+        else:
+            thinking = _get_thinking_fallback()
+            api_key = thinking.api_key if thinking.api_key else (env_api_key or "")
+
+    log.debug(
+        f"🧬 [Embedding LLM Config] source=system_embedding, "
+        f"model={model_name}, base_url={base_url}"
+    )
+
+    return LLMConfig(
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        source="system",
+    )
+
+
+def _resolve_embedding_api_key_with_fallback(
+    primary_key: Optional[str],
+    sys_embedding_key: Optional[str],
+    thinking_key: Optional[str],
+    env_api_key: Optional[str],
+    is_local_model: bool,
+) -> str:
+    """嵌入模型 API Key 解析：primary → sys_embedding → thinking → env"""
+    if primary_key is not None:
+        if is_local_model:
+            return primary_key if primary_key else ""
+        return primary_key
+
+    if sys_embedding_key is not None:
+        if is_local_model:
+            return sys_embedding_key if sys_embedding_key else ""
+        if sys_embedding_key and sys_embedding_key != "ollama-local":
+            return sys_embedding_key
+
+    if thinking_key and thinking_key != "ollama-local":
+        return thinking_key
+
+    if is_local_model:
+        return ""
+    return env_api_key or ""
+
+
+# ==========================================
 # Celery Worker 专用（自建 Session）
 # ==========================================
 
@@ -376,6 +556,19 @@ def get_fast_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
 
     with SQLModelSession(engine) as session:
         return get_fast_llm_config(session, user_id=user_id)
+
+
+def get_embedding_llm_config_standalone(user_id: Optional[int] = None) -> LLMConfig:
+    """
+    Celery Worker 专用：自建数据库会话获取嵌入模型配置
+
+    在 FastAPI 依赖注入不可用的后台任务中使用。
+    """
+    from sqlmodel import Session as SQLModelSession
+    from app.core.database import engine
+
+    with SQLModelSession(engine) as session:
+        return get_embedding_llm_config(session, user_id=user_id)
 
 
 # ==========================================

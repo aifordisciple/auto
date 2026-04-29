@@ -46,42 +46,57 @@ DEBUG_PATTERN_BOOST = 1.2
 
 def _resolve_embedding_api_key() -> Optional[str]:
     """
-    解析 Embedding 模型 API Key，复用项目统一的三级回退机制。
+    解析 Embedding 模型 API Key，复用项目统一的配置回退机制。
 
-    优先级：SystemConfig 数据库 → 环境变量 OPENAI_API_KEY
-    说明：此处不检查 User 级配置，因为经验检索是系统级后台服务，
-    无用户上下文。如需用户级 Key，需在调用方传入 user_id 后扩展。
+    优先级：User embedding_* → SystemConfig embedding_* → thinking config → env OPENAI_API_KEY
+    说明：经验检索是系统级后台服务，无用户上下文，因此传入 user_id=None，
+    仅走系统级回退链。如需用户级 Key，需在调用方传入 user_id 后扩展。
     """
     try:
-        from sqlmodel import Session as SQLModelSession
-        from app.core.database import engine as db_engine
-        from app.models.config import SystemConfig
-
-        with SQLModelSession(db_engine) as session:
-            sys_config = session.get(SystemConfig, 1)
-            if sys_config and sys_config.thinking_api_key and sys_config.thinking_api_key != "ollama-local":
-                return sys_config.thinking_api_key
+        from app.utils.llm_config import get_embedding_llm_config_standalone
+        config = get_embedding_llm_config_standalone(user_id=None)
+        if config and config.api_key:
+            return config.api_key
     except Exception:
         pass
 
     return os.getenv("OPENAI_API_KEY")
 
 
+def _resolve_embedding_config():
+    """
+    解析完整的 Embedding 模型配置（api_key + base_url + model_name）。
+
+    Returns:
+        (api_key, base_url, model_name) 三元组，api_key 为 None 时表示未配置
+    """
+    try:
+        from app.utils.llm_config import get_embedding_llm_config_standalone
+        config = get_embedding_llm_config_standalone(user_id=None)
+        if config and config.api_key:
+            return config.api_key, config.base_url, config.model_name
+    except Exception:
+        pass
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    return api_key, base_url, "text-embedding-3-large"
+
+
 def _generate_query_embedding(query: str) -> Optional[List[float]]:
-    """为检索查询生成 text-embedding-3-large 嵌入向量"""
+    """为检索查询生成嵌入向量（模型由配置决定，默认 text-embedding-3-large）"""
     try:
         import openai
 
-        api_key = _resolve_embedding_api_key()
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        api_key, base_url, model_name = _resolve_embedding_config()
 
         if not api_key:
-            log.warning("[ExperienceRetriever] OPENAI_API_KEY 未配置（环境变量和 SystemConfig 均未设置），跳过语义检索")
+            log.warning("[ExperienceRetriever] Embedding API Key 未配置（数据库和 OPENAI_API_KEY 环境变量均未设置），跳过语义检索")
             return None
 
         client = openai.OpenAI(api_key=api_key, base_url=base_url)
         response = client.embeddings.create(
-            model="text-embedding-3-large",
+            model=model_name,
             input=f"生物信息学分析需求: {query}"[:8000],
         )
         return response.data[0].embedding

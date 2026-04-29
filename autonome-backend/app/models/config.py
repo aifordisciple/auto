@@ -48,6 +48,13 @@ class SystemConfig(SQLModel, table=True):
     fast_base_url: Optional[str] = Field(default=None, description="极速模型API端点，None表示回退到思考模型")
     fast_model: str = Field(default="gpt-4o-mini", description="极速模型名称，默认使用轻量模型")
 
+    # ✨ 嵌入模型配置（用于语义检索、经验向量化等）
+    # 未配置时回退到思考模型配置 → 环境变量 OPENAI_API_KEY
+    embedding_api_base: str = Field(default="https://api.openai.com/v1", description="嵌入模型API端点")
+    embedding_model: str = Field(default="text-embedding-3-large", description="嵌入模型名称")
+    embedding_api_key: Optional[str] = Field(default=None, description="嵌入模型API密钥，None表示回退到思考模型")
+    embedding_dimension: int = Field(default=3072, description="向量维度（text-embedding-3-large=3072, text-embedding-3-small=1536, bge-m3=1024）")
+
     # 其他设置
     theme: str = Field(default="dark")
 

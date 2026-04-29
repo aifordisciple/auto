@@ -458,19 +458,19 @@ def generate_embedding(text: str) -> Optional[List[float]]:
     """
     try:
         import openai
-        # 复用统一的三级回退机制解析 API Key（SystemConfig DB → 环境变量）
-        from app.services.experience_retriever import _resolve_embedding_api_key
-        api_key = _resolve_embedding_api_key()
+        # 复用统一的配置回退机制解析 Embedding 模型配置
+        from app.services.experience_retriever import _resolve_embedding_config
+        api_key, base_url, model_name = _resolve_embedding_config()
         if not api_key:
-            log.warning("📚 [Ingestion] OPENAI_API_KEY 未配置，跳过 Embedding 生成")
+            log.warning("📚 [Ingestion] Embedding API Key 未配置，跳过 Embedding 生成")
             return None
         client = openai.OpenAI(
             api_key=api_key,
-            base_url=settings.OPENAI_BASE_URL,
+            base_url=base_url,
         )
 
         response = client.embeddings.create(
-            model="text-embedding-3-large",
+            model=model_name,
             input=text[:8000],  # 截断过长文本
         )
         return response.data[0].embedding

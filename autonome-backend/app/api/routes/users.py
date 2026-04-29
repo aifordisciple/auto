@@ -158,6 +158,15 @@ class UserLLMConfigResponse(BaseModel):
     system_fast_base_url: Optional[str] = None
     system_fast_model_name: Optional[str] = None
 
+    # ✨ 嵌入模型配置（用于语义检索、经验向量化）
+    embedding_api_key: Optional[str] = None
+    embedding_base_url: Optional[str] = None
+    embedding_model_name: Optional[str] = None
+    is_using_user_embedding_config: bool
+    # 系统嵌入模型回退信息
+    system_embedding_base_url: Optional[str] = None
+    system_embedding_model_name: Optional[str] = None
+
 
 class UserLLMConfigUpdate(BaseModel):
     """用户 LLM 配置更新请求"""
@@ -170,6 +179,11 @@ class UserLLMConfigUpdate(BaseModel):
     fast_api_key: Optional[str] = None
     fast_base_url: Optional[str] = None
     fast_model_name: Optional[str] = None
+
+    # ✨ 嵌入模型配置
+    embedding_api_key: Optional[str] = None
+    embedding_base_url: Optional[str] = None
+    embedding_model_name: Optional[str] = None
 
 
 @router.get("/me/llm-config", response_model=UserLLMConfigResponse)
@@ -199,6 +213,12 @@ async def get_user_llm_config(
         or current_user.fast_model_name is not None
     )
 
+    is_using_user_embedding_config = (
+        current_user.embedding_api_key is not None
+        or current_user.embedding_base_url is not None
+        or current_user.embedding_model_name is not None
+    )
+
     return UserLLMConfigResponse(
         # 思考模型配置
         thinking_api_key=mask_api_key(current_user.thinking_api_key),
@@ -214,6 +234,13 @@ async def get_user_llm_config(
         is_using_user_fast_config=is_using_user_fast_config,
         system_fast_base_url=config.fast_base_url if config else None,
         system_fast_model_name=config.fast_model if config else None,
+        # ✨ 嵌入模型配置
+        embedding_api_key=mask_api_key(current_user.embedding_api_key),
+        embedding_base_url=current_user.embedding_base_url,
+        embedding_model_name=current_user.embedding_model_name,
+        is_using_user_embedding_config=is_using_user_embedding_config,
+        system_embedding_base_url=config.embedding_api_base if config else None,
+        system_embedding_model_name=config.embedding_model if config else None,
     )
 
 
@@ -244,6 +271,11 @@ async def update_user_llm_config(
         val = update_data["fast_api_key"]
         if is_masked_api_key(val):
             del update_data["fast_api_key"]
+
+    if "embedding_api_key" in update_data:
+        val = update_data["embedding_api_key"]
+        if is_masked_api_key(val):
+            del update_data["embedding_api_key"]
 
     for field, value in update_data.items():
         setattr(current_user, field, value)

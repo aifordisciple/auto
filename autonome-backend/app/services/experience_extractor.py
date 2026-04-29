@@ -58,18 +58,17 @@ def _generate_embedding(text: str) -> Optional[List[float]]:
     try:
         import openai
 
-        # 复用统一的三级回退机制解析 API Key
-        from app.services.experience_retriever import _resolve_embedding_api_key
-        api_key = _resolve_embedding_api_key()
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        # 复用统一的配置回退机制解析 Embedding 模型配置
+        from app.services.experience_retriever import _resolve_embedding_config
+        api_key, base_url, model_name = _resolve_embedding_config()
 
         if not api_key:
-            log.warning("[ExperienceExtractor] OPENAI_API_KEY 未配置，跳过嵌入生成")
+            log.warning("[ExperienceExtractor] Embedding API Key 未配置，跳过嵌入生成")
             return None
 
         client = openai.OpenAI(api_key=api_key, base_url=base_url)
         response = client.embeddings.create(
-            model="text-embedding-3-large",
+            model=model_name,
             input=text[:8000],
         )
         return response.data[0].embedding

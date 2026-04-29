@@ -52,6 +52,12 @@ class User(SQLModel, table=True):
     fast_base_url: Optional[str] = Field(default=None, max_length=500, description="用户自定义极速模型 Base URL")
     fast_model_name: Optional[str] = Field(default=None, max_length=100, description="用户自定义极速模型名称")
 
+    # ✨ 嵌入模型配置（用于语义检索、经验向量化等）
+    # 未配置时回退到系统全局嵌入模型配置 → 思考模型配置 → 环境变量
+    embedding_api_key: Optional[str] = Field(default=None, max_length=500, description="用户自定义嵌入模型 API Key")
+    embedding_base_url: Optional[str] = Field(default=None, max_length=500, description="用户自定义嵌入模型 Base URL")
+    embedding_model_name: Optional[str] = Field(default=None, max_length=100, description="用户自定义嵌入模型名称")
+
     # ✨ 安全相关
     is_active: bool = Field(default=True)
     is_superuser: bool = Field(default=False)
