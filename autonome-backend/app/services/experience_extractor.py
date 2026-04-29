@@ -58,7 +58,9 @@ def _generate_embedding(text: str) -> Optional[List[float]]:
     try:
         import openai
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        # 复用统一的三级回退机制解析 API Key
+        from app.services.experience_retriever import _resolve_embedding_api_key
+        api_key = _resolve_embedding_api_key()
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
         if not api_key:

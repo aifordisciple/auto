@@ -44,16 +44,39 @@ WEIGHT_REUSE = 0.2
 DEBUG_PATTERN_BOOST = 1.2
 
 
+def _resolve_embedding_api_key() -> Optional[str]:
+    """
+    解析 Embedding 模型 API Key，复用项目统一的三级回退机制。
+
+    优先级：SystemConfig 数据库 → 环境变量 OPENAI_API_KEY
+    说明：此处不检查 User 级配置，因为经验检索是系统级后台服务，
+    无用户上下文。如需用户级 Key，需在调用方传入 user_id 后扩展。
+    """
+    try:
+        from sqlmodel import Session as SQLModelSession
+        from app.core.database import engine as db_engine
+        from app.models.config import SystemConfig
+
+        with SQLModelSession(db_engine) as session:
+            sys_config = session.get(SystemConfig, 1)
+            if sys_config and sys_config.thinking_api_key and sys_config.thinking_api_key != "ollama-local":
+                return sys_config.thinking_api_key
+    except Exception:
+        pass
+
+    return os.getenv("OPENAI_API_KEY")
+
+
 def _generate_query_embedding(query: str) -> Optional[List[float]]:
     """为检索查询生成 text-embedding-3-large 嵌入向量"""
     try:
         import openai
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = _resolve_embedding_api_key()
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
         if not api_key:
-            log.warning("[ExperienceRetriever] OPENAI_API_KEY 未配置，跳过语义检索")
+            log.warning("[ExperienceRetriever] OPENAI_API_KEY 未配置（环境变量和 SystemConfig 均未设置），跳过语义检索")
             return None
 
         client = openai.OpenAI(api_key=api_key, base_url=base_url)
