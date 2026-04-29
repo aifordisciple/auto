@@ -312,8 +312,6 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
     toast.loading('正在提交任务...', { id: 'skill-exec' });
 
     try {
-      const token = localStorage.getItem('autonome_access_token');
-
       // ==========================================
       // ✨ 新对话时自动创建 Session
       // 如果没有 currentSessionId，先创建一个新的 session
@@ -326,14 +324,10 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
         try {
           // 创建新 session - title 作为查询参数
           const sessionTitle = `SKILL: ${selectedSkill.name}`;
-          const sessionRes = await fetch(`${BASE_URL}/api/projects/${currentProjectId}/sessions?title=${encodeURIComponent(sessionTitle)}`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-
-          const sessionData = await sessionRes.json();
+          const sessionData = await fetchAPI(
+            `/projects/${currentProjectId}/sessions?title=${encodeURIComponent(sessionTitle)}`,
+            { method: 'POST' }
+          );
 
           if (sessionData.status === 'success' && sessionData.data?.id) {
             sessionId = String(sessionData.data.id);
@@ -365,19 +359,14 @@ export function SkillExecutePanel({ onDataCenterOpen, selectedSkillFromMarket, p
         project_id: currentProjectId
       };
 
-      const res = await fetch(`${BASE_URL}/api/tasks/submit`, {
+      const result = await fetchAPI('/tasks/submit', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
         body: JSON.stringify(payload)
       });
 
       // ✨ P4 埋点：技能执行
       analytics.skillExecute(selectedSkill.skill_id, selectedSkill.name, payload.parameters);
 
-      const result = await res.json();
       if (result.status === 'submitted') {
         setTaskId(result.task_id);
         toast.success('任务已提交，正在后台执行', { id: 'skill-exec' });
