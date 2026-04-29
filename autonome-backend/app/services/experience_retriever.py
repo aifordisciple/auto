@@ -101,7 +101,10 @@ def _generate_query_embedding(query: str) -> Optional[List[float]]:
         )
         return response.data[0].embedding
     except Exception as e:
-        log.error(f"[ExperienceRetriever] 查询嵌入生成失败: {e}")
+        log.error(
+            f"[ExperienceRetriever] 查询嵌入生成失败: {e} "
+            f"(base_url={base_url}, model={model_name})"
+        )
         return None
 
 
