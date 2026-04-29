@@ -142,6 +142,8 @@ export function AIModelPanel() {
   const [isTestingFast, setIsTestingFast] = useState(false);
   const [thinkingTestResult, setThinkingTestResult] = useState<TestResult | null>(null);
   const [fastTestResult, setFastTestResult] = useState<TestResult | null>(null);
+  const [isTestingEmbedding, setIsTestingEmbedding] = useState(false);
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<TestResult | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // 配置源状态
@@ -316,6 +318,40 @@ export function AIModelPanel() {
       });
     } finally {
       setIsTestingFast(false);
+    }
+  };
+
+  // 测试嵌入模型连接
+  const handleEmbeddingTest = async () => {
+    setIsTestingEmbedding(true);
+    setEmbeddingTestResult(null);
+
+    try {
+      const payload: Record<string, string | null> = {};
+
+      if (embeddingApiKey && !embeddingApiKey.startsWith("sk-***")) {
+        payload.embedding_api_key = embeddingApiKey;
+      }
+
+      payload.embedding_base_url = embeddingBaseUrl || null;
+      payload.embedding_model_name = embeddingModelName || null;
+
+      const result: TestResult = await fetchAPI("/users/me/llm-config/test", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      setEmbeddingTestResult(result);
+    } catch (error) {
+      setEmbeddingTestResult({
+        status: "error",
+        message: "请求失败，请检查网络连接",
+        latency_ms: null,
+        model_name: embeddingModelName,
+        base_url: embeddingBaseUrl,
+      });
+    } finally {
+      setIsTestingEmbedding(false);
     }
   };
 
@@ -823,6 +859,47 @@ export function AIModelPanel() {
             <p className="text-xs text-neutral-600 mt-1">
               本地模型（Ollama 等）可留空。嵌入模型用于向量检索，不参与对话生成。
             </p>
+          </div>
+
+          {/* 嵌入模型测试结果 */}
+          {embeddingTestResult && (
+            <div className={`p-4 rounded-lg border ${
+              embeddingTestResult.status === "success"
+                ? "bg-emerald-500/5 border-emerald-500/20"
+                : "bg-red-500/5 border-red-500/20"
+            }`}>
+              <div className="flex items-center gap-2">
+                {embeddingTestResult.status === "success" ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <XCircle className="w-5 h-5 text-red-400" />
+                )}
+                <div>
+                  <p className={`text-sm font-medium ${
+                    embeddingTestResult.status === "success" ? "text-emerald-300" : "text-red-300"
+                  }`}>
+                    {embeddingTestResult.message}
+                  </p>
+                  {embeddingTestResult.latency_ms !== null && (
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                     延迟: {embeddingTestResult.latency_ms}ms | 模型: {embeddingTestResult.model_name}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 嵌入模型测试按钮 */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleEmbeddingTest}
+              disabled={isTestingEmbedding || (!embeddingBaseUrl && !embeddingModelName)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-800/50 disabled:text-neutral-600 text-neutral-200 text-sm font-medium rounded-md transition-colors"
+            >
+              {isTestingEmbedding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Dna size={14} />}
+              测试嵌入模型
+            </button>
           </div>
         </div>
 

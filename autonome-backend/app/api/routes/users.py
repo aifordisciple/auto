@@ -308,17 +308,42 @@ async def test_user_llm_config(
     import openai
 
     # 合并配置：测试值 → 现有用户值 → 系统回退
-    from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, _is_local_model
+    from app.utils.llm_config import get_thinking_llm_config, get_fast_llm_config, get_embedding_llm_config, _is_local_model
 
-    # 判断测试的是极速模型还是思考模型
-    # 前端发送 fast 字段时，测试极速模型；否则测试思考模型
+    # 判断测试的是极速模型/思考模型/嵌入模型
+    # 前端发送哪个模型的字段，就测试哪个模型
     is_fast_test = (
         config_update.fast_api_key is not None
         or config_update.fast_base_url is not None
         or config_update.fast_model_name is not None
     )
+    is_embedding_test = (
+        config_update.embedding_api_key is not None
+        or config_update.embedding_base_url is not None
+        or config_update.embedding_model_name is not None
+    )
 
-    if is_fast_test:
+    if is_embedding_test:
+        # 测试嵌入模型
+        test_api_key = config_update.embedding_api_key
+        test_base_url = config_update.embedding_base_url
+        test_model_name = config_update.embedding_model_name
+
+        # 回退到用户现有配置
+        if test_api_key is None and current_user.embedding_api_key is not None:
+            test_api_key = current_user.embedding_api_key
+        if test_base_url is None and current_user.embedding_base_url is not None:
+            test_base_url = current_user.embedding_base_url
+        if test_model_name is None and current_user.embedding_model_name is not None:
+            test_model_name = current_user.embedding_model_name
+
+        # 回退到系统级嵌入配置 → 思考模型 → 环境变量
+        if test_api_key is None or test_base_url is None or test_model_name is None:
+            emb_cfg = get_embedding_llm_config(session, user_id=None)
+            test_api_key = test_api_key or emb_cfg.api_key
+            test_base_url = test_base_url or emb_cfg.base_url
+            test_model_name = test_model_name or emb_cfg.model_name
+    elif is_fast_test:
         # 测试极速模型
         test_api_key = config_update.fast_api_key
         test_base_url = config_update.fast_base_url
@@ -369,27 +394,43 @@ async def test_user_llm_config(
             base_url=test_base_url,
         )
 
-        # 🤖 真正验证模型可用性：发送最小 completion 请求
-        # 仅 models.list() 无法验证模型名称是否真实存在
-        response = client.chat.completions.create(
-            model=test_model_name,
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=1,
-            stream=False,
-        )
+        if is_embedding_test:
+            # 🧬 嵌入模型测试：发送 embedding 请求
+            response = client.embeddings.create(
+                model=test_model_name,
+                input="connection test",
+            )
+            latency_ms = int((time.time() - start_time) * 1000)
+            vector_dim = len(response.data[0].embedding) if response.data else 0
 
-        latency_ms = int((time.time() - start_time) * 1000)
+            return {
+                "status": "success",
+                "message": f"连接成功（{latency_ms}ms），向量维度: {vector_dim}",
+                "latency_ms": latency_ms,
+                "model_name": test_model_name,
+                "base_url": test_base_url,
+            }
+        else:
+            # 🤖 LLM 模型测试：发送最小 completion 请求
+            response = client.chat.completions.create(
+                model=test_model_name,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+                stream=False,
+            )
 
-        # 验证响应中包含有效内容
-        model_used = response.model if response else test_model_name
+            latency_ms = int((time.time() - start_time) * 1000)
 
-        return {
-            "status": "success",
-            "message": f"连接成功（{latency_ms}ms），模型: {model_used}",
-            "latency_ms": latency_ms,
-            "model_name": test_model_name,
-            "base_url": test_base_url,
-        }
+            # 验证响应中包含有效内容
+            model_used = response.model if response else test_model_name
+
+            return {
+                "status": "success",
+                "message": f"连接成功（{latency_ms}ms），模型: {model_used}",
+                "latency_ms": latency_ms,
+                "model_name": test_model_name or model_used,
+                "base_url": test_base_url,
+            }
 
     except Exception as e:
         return {
