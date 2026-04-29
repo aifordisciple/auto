@@ -823,6 +823,8 @@ async def _refine_strategy_pack(
     from langchain_openai import ChatOpenAI
     from json_repair import repair_json
 
+    log.info(f"[refine] 开始对话修改: request='{modification_request[:80]}...'")
+
     llm_config = get_fast_llm_config(session, user_id)
     api_key = llm_config.api_key or "not-needed"
     llm = ChatOpenAI(
@@ -884,14 +886,18 @@ async def _refine_strategy_pack(
 
 请严格按上述 JSON 格式输出，不要输出任何其他内容。"""
 
+    log.info(f"[refine] f-string 构建完成，prompt 长度={len(refine_prompt)}")
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", refine_prompt),
         ("human", modification_request),
     ])
 
+    log.info("[refine] 调用 LLM 进行策略修改...")
     chain = prompt | llm
     response = await chain.ainvoke({})
 
+    log.info(f"[refine] LLM 响应完成: len={len(response.content)}")
     raw_content = response.content.strip()
     if raw_content.startswith("```"):
         lines = raw_content.split("\n")
@@ -916,6 +922,7 @@ async def _refine_strategy_pack(
 
     # 代码语法校验
     try:
+        log.info("[refine] 开始代码语法校验...")
         from app.services.code_validator import validate_generated_code, auto_fix_generated_code
         validation = validate_generated_code(
             code=refined_pack.get("code", ""),
@@ -932,6 +939,7 @@ async def _refine_strategy_pack(
         }
 
         if validation.error_count > 0:
+            log.info(f"[refine] 代码有 {validation.error_count} 个错误，启动自动修复...")
             fix_result = await auto_fix_generated_code(
                 code=refined_pack.get("code", ""),
                 language=refined_pack.get("code_language", "python"),
@@ -951,6 +959,7 @@ async def _refine_strategy_pack(
 
         # 代码审核 Agent
         try:
+            log.info("[refine] 启动代码审核 Agent...")
             from app.services.code_validator import review_generated_code
             current_code_refined = refined_pack.get("code", "")
             current_lang = refined_pack.get("code_language", "python")

@@ -2647,14 +2647,22 @@ async def adhoc_refine(
 
         from app.agent.nodes.adhoc_analysis_node import _refine_strategy_pack
 
-        refined_pack = await _refine_strategy_pack(
-            current_pack=current_pack,
-            modification_request=request.modification_request,
-            file_paths=file_paths_str,
-            file_profiles_text=file_profiles_text,
-            session=session,
-            user_id=user.id,
-        )
+        log.info(f"[adhoc_refine] 准备调用 _refine_strategy_pack: code_len={len(current_pack.get('code', ''))}, profiles_len={len(file_profiles_text)}")
+        try:
+            refined_pack = await _refine_strategy_pack(
+                current_pack=current_pack,
+                modification_request=request.modification_request,
+                file_paths=file_paths_str,
+                file_profiles_text=file_profiles_text,
+                session=session,
+                user_id=user.id,
+            )
+            log.info(f"[adhoc_refine] _refine_strategy_pack 返回成功")
+        except Exception as refine_err:
+            log.error(f"[adhoc_refine] _refine_strategy_pack 内部错误: {type(refine_err).__name__}: {refine_err}")
+            import traceback
+            log.error(f"[adhoc_refine] 完整 traceback:\n{traceback.format_exc()}")
+            raise
 
         # 将更新后的策略包重新存入 Redis
         import redis as redis_client
