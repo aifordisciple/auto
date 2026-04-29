@@ -295,3 +295,7 @@ class AgentState(TypedDict):
     # --- V2.0+ 新增字段 ---
     execution_status: str              # ExecutionStatus 值，默认 "pending"
     probing_response: Optional[Dict]   # ProbingResponse 序列化结果（用户提交的参数）
+    # --- V2.5 反思自循环字段 ---
+    reflection_critique: Optional[str] # 硬检查失败时的结构化批评文本，注入回生成节点
+    reflection_attempts: int           # 当前反思重试次数，默认 0
+    hard_check_results: Optional[Dict] # 最近一次 run_hard_checks() 返回结果序列化

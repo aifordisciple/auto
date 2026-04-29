@@ -12,6 +12,8 @@
 3. 异步沙箱触达：用户确认后唤醒 Docker 暖池执行
 """
 import json
+import re
+import asyncio
 from typing import Any, Dict
 
 from langchain_core.messages import AIMessage
@@ -721,6 +723,17 @@ async def _generate_strategy_pack_streaming(
         except Exception as review_err:
             log.warning(f"[adhoc_analysis_node] 代码审核 Agent 失败（非致命）: {review_err}")
 
+        # --- 反思自循环：硬检查规范合规性 ---
+        # 代码审核完成后，运行确定性规则检查（非 LLM），
+        # 不通过则用结构化批评文本要求 LLM 重写代码（最多 2 次）
+        await _reflection_hard_check_loop(
+            strategy_pack=strategy_pack,
+            instruction=instruction,
+            session=session,
+            user_id=user_id,
+            log=log,
+        )
+
         yield {"type": "complete", "data": strategy_pack}
     except Exception as parse_err:
         log.error(f"[adhoc_analysis_node] 策略包 JSON 解析失败: {parse_err}")
@@ -811,12 +824,187 @@ async def _generate_strategy_pack_streaming(
             except Exception as review_err:
                 log.warning(f"[adhoc_analysis_node] 代码审核 Agent 失败（非致命，重试路径）: {review_err}")
 
+            # 重试路径也运行反思硬检查
+            await _reflection_hard_check_loop(
+                strategy_pack=strategy_pack,
+                instruction=instruction,
+                session=session,
+                user_id=user_id,
+                log=log,
+            )
+
             yield {"type": "complete", "data": strategy_pack}
         except Exception:
             yield {
                 "type": "error",
                 "message": f"策略包解析失败: {parse_err}",
             }
+
+
+async def _reflection_hard_check_loop(
+    strategy_pack: Dict[str, Any],
+    instruction: str,
+    session,
+    user_id: int,
+    log,
+) -> None:
+    """
+    反思自循环：对生成的代码运行硬检查，不通过则用 LLM 重写。
+
+    此函数在代码审核阶段完成后调用，作为最后一道质量关口。
+    最多重试 MAX_REFLECTION_RETRIES 次，每次用结构化批评文本要求 LLM 重写。
+    超过最大重试次数后附加警告但不阻塞流程。
+
+    Args:
+        strategy_pack: 当前策略包（会被原地修改 code 字段）
+        instruction: 用户原始分析需求
+        session: 数据库会话
+        user_id: 用户 ID
+        log: 日志记录器
+    """
+    from app.services.code_validator import run_hard_checks, MAX_REFLECTION_RETRIES
+
+    current_code = strategy_pack.get("code", "")
+    current_language = strategy_pack.get("code_language", "python")
+
+    if not current_code:
+        return
+
+    reflection_attempt = 0
+
+    while reflection_attempt < MAX_REFLECTION_RETRIES:
+        hard_check_result = run_hard_checks(
+            code=current_code,
+            language=current_language,
+        )
+
+        if hard_check_result.passed:
+            # 通过硬检查
+            strategy_pack["_reflection"] = {
+                "passed": True,
+                "attempts": reflection_attempt,
+                "warnings": hard_check_result.warnings,
+            }
+            if hard_check_result.warnings:
+                log.info(
+                    f"[adhoc_analysis_node] 硬检查通过（{len(hard_check_result.warnings)} 个警告）: "
+                    f"{hard_check_result.warnings}"
+                )
+            return
+
+        reflection_attempt += 1
+        log.warning(
+            f"[adhoc_analysis_node] 硬检查未通过 (attempt {reflection_attempt}/{MAX_REFLECTION_RETRIES}): "
+            f"failed_checks={hard_check_result.failed_checks}"
+        )
+
+        if not hard_check_result.critique:
+            log.error("[adhoc_analysis_node] 硬检查失败但未生成批评文本，跳过重写")
+            break
+
+        # 用批评文本要求 LLM 重写（使用快速模型，只重写代码不重新生成整个策略包）
+        try:
+            from app.utils.llm_config import get_fast_llm_config_standalone
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import SystemMessage, HumanMessage
+
+            llm_config = get_fast_llm_config_standalone(user_id=user_id)
+            llm = ChatOpenAI(
+                api_key=llm_config.api_key or "not-needed",
+                base_url=llm_config.base_url,
+                model=llm_config.model_name,
+                temperature=0.0,
+            )
+
+            rewrite_prompt = f"""{hard_check_result.critique}
+
+原始分析需求：{instruction}
+
+原始代码：
+```{current_language}
+{current_code}
+```"""
+
+            messages = [
+                SystemMessage(content=rewrite_prompt),
+                HumanMessage(content="请直接输出修复后的完整代码（用 ``` 包裹），保持原有的分析策略和参数结构。"),
+            ]
+
+            response = await llm.ainvoke(messages)
+            raw_response = response.content.strip()
+
+            # 提取代码块
+            new_code = _extract_code_from_llm_response(raw_response, current_language)
+            if new_code and len(new_code) > 50:
+                current_code = new_code
+                strategy_pack["code"] = new_code
+                log.info(
+                    f"[adhoc_analysis_node] 反思重写成功 (attempt {reflection_attempt}), "
+                    f"new_code_length={len(new_code)}"
+                )
+            else:
+                log.warning(
+                    f"[adhoc_analysis_node] 反思重写未提取到有效代码 (attempt {reflection_attempt})"
+                )
+                break
+
+        except Exception as rewrite_err:
+            log.error(f"[adhoc_analysis_node] 反思重写 LLM 调用失败: {rewrite_err}")
+            break
+
+    # 记录反思结果
+    strategy_pack["_reflection"] = {
+        "passed": False,
+        "attempts": reflection_attempt,
+        "warning": (
+            f"代码在 {MAX_REFLECTION_RETRIES} 次反思重写后仍未通过所有硬检查: "
+            f"{hard_check_result.failed_checks if 'hard_check_result' in dir() else '未知'}"
+        ) if reflection_attempt >= MAX_REFLECTION_RETRIES else "",
+    }
+
+
+def _extract_code_from_llm_response(response: str, language: str) -> str:
+    """
+    从 LLM 响应中提取代码块。
+
+    处理多种可能格式：
+    1. ```language\n...\n```
+    2. ```\n...\n```
+    3. 无包裹的纯代码
+
+    Args:
+        response: LLM 原始响应文本
+        language: 期望的代码语言
+
+    Returns:
+        提取到的代码字符串，失败返回空字符串
+    """
+    # 尝试匹配 ```language ... ``` 格式
+    pattern = rf'```\s*{language}\s*\n(.*?)```'
+    match = re.search(pattern, response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # 尝试匹配 ``` ... ``` 格式（无语言标记）
+    pattern = r'```\s*\n(.*?)```'
+    match = re.search(pattern, response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # 尝试匹配 ``` ... ``` 格式（任何起始标记）
+    pattern = r'```[^\n]*\n(.*?)```'
+    match = re.search(pattern, response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # 如果响应以 ``` 开头，移除首尾标记
+    if response.startswith("```"):
+        lines = response.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        return "\n".join(lines).strip()
+
+    # 无代码块标记，直接返回
+    return response.strip()
 
 
 def _store_strategy_pack_to_redis(

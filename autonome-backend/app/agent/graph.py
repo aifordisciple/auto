@@ -41,6 +41,7 @@ from app.agent.nodes.version_control_node import version_control_node
 from app.agent.nodes.collaboration_node import collaboration_node
 from app.agent.nodes.system_macro_node import system_macro_node
 from app.agent.nodes.adhoc_analysis_node import adhoc_analysis_node
+from app.agent.nodes.code_validator_node import code_validator_node, _route_after_validation
 from app.agent.router.nodes.probing_response_node import probing_response_node
 from app.agent.router.nodes.l3_executor_node import l3_executor_node
 from app.agent.router.engine import IntentRouterEngine
@@ -400,6 +401,7 @@ def build_intent_graph() -> StateGraph:
     workflow.add_node("collaboration_node", collaboration_node)
     workflow.add_node("system_macro_node", system_macro_node)
     workflow.add_node("adhoc_analysis_node", adhoc_analysis_node)
+    workflow.add_node("code_validator_node", code_validator_node)
 
     # 设置入口
     workflow.set_entry_point("intent_router")
@@ -437,8 +439,25 @@ def build_intent_graph() -> StateGraph:
         {"intent_router": "intent_router", END: END}
     )
 
-    # 各 Worker 节点 → task_advance_or_end（data_probe_node 除外，使用条件路由）
-    worker_only = [n for n in all_worker_nodes if n not in ("ask_user_node", "probing_response_node", "l3_executor_node", "data_probe_node")]
+    # --- 反思自循环边 ---
+    # skill_forge_node → code_validator_node（硬检查）
+    workflow.add_edge("skill_forge_node", "code_validator_node")
+    # code_validator_node → skill_forge_node (retry) or l3_executor_node (pass)
+    workflow.add_conditional_edges(
+        "code_validator_node",
+        _route_after_validation,
+        {
+            "l3_executor_node": "l3_executor_node",
+            "skill_forge_node": "skill_forge_node",
+        }
+    )
+
+    # 各 Worker 节点 → task_advance_or_end
+    # 排除：有自己独立边或条件路由的节点
+    worker_only = [n for n in all_worker_nodes if n not in (
+        "ask_user_node", "probing_response_node", "l3_executor_node",
+        "data_probe_node", "code_validator_node", "skill_forge_node"
+    )]
     for node in worker_only:
         workflow.add_conditional_edges(
             node,

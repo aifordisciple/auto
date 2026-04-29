@@ -10,13 +10,15 @@ LLM 生成代码语法校验器 - 在策略包展示前校验代码质量。
 1. 语法检查：Python ast.parse / R parse
 2. 关键模式检查：是否有 import、是否正确使用 TASK_OUT_DIR 等
 3. 输出有效性：检查是否有输出文件写入指令
+4. 硬检查（反思自循环）：CNS 规范强制性规则，不通过则代码必须重写
 
 返回 ValidationResult 包含：pass/fail 状态、问题列表、修复建议。
+HardCheckResult 包含：通过/失败状态、结构化批评文本（可直接注入 LLM prompt）。
 """
 import ast
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from app.core.logger import log
 
@@ -55,6 +57,334 @@ class ValidationResult:
         if self.warning_count > 0:
             return "warning"
         return "success"
+
+
+# =========================================================================
+# 反思自循环：硬检查规则引擎
+# =========================================================================
+# 硬检查是针对 CNS 级代码规范的强制性规则检查，不依赖 LLM。
+# 检查未通过 → 生成结构化批评 → 代码打回 LLM 重写。
+# 检查通过 → 代码可进入后续流程。
+#
+# 设计原则：
+# - 纯规则匹配（正则 + AST），延迟 < 10ms
+# - 批评文本可直接注入 LLM rewrite prompt
+# - 与 validate_generated_code() 互补：validate 做语法检查，hard_check 做规范检查
+# =========================================================================
+
+# 反思自循环最大重试次数
+MAX_REFLECTION_RETRIES = 2
+
+
+@dataclass
+class HardCheckResult:
+    """硬检查结果 — 不通过则代码必须打回 LLM 重写"""
+    passed: bool
+    critique: str = ""           # 结构化批评文本，可直接注入 LLM prompt
+    failed_checks: List[str] = field(default_factory=list)  # 失败的检查项 ID 列表
+    warnings: List[str] = field(default_factory=list)       # 警告项（不阻塞通过）
+
+
+# 硬检查规则定义
+# 每条规则包含：
+#   id: 规则唯一标识
+#   check: 检查逻辑函数 (code, language) -> (passed: bool, detail: str)
+#   critique_template: 失败时的批评模板，{detail} 会被替换为具体问题描述
+#   applies_to: 适用语言限制 (None = 所有语言)
+#   applies_to_visualization: 仅当代码含可视化时检查
+#   severity: "error" = 不通过阻塞 / "warning" = 警告不阻塞
+
+def _check_argparse_or_optparse(code: str, language: str) -> tuple:
+    """检查是否使用参数解析系统"""
+    if language == "python":
+        if 'argparse' not in code:
+            return False, "代码未使用 argparse 定义参数，所有输入必须通过 argparse 接收"
+    elif language in ("r", "R"):
+        if 'optparse' not in code and 'commandArgs' not in code:
+            return False, "代码未使用 optparse 或 commandArgs 定义参数，所有输入必须通过命令行参数接收"
+    return True, ""
+
+
+def _check_task_out_dir(code: str, language: str) -> tuple:
+    """检查是否使用 TASK_OUT_DIR 环境变量"""
+    if 'TASK_OUT_DIR' not in code:
+        return False, "代码未使用 TASK_OUT_DIR 环境变量，所有输出必须写入 TASK_OUT_DIR"
+    return True, ""
+
+
+def _check_ggsci_palette(code: str, language: str) -> tuple:
+    """检查 R 代码是否使用 ggsci 学术配色"""
+    if language not in ("r", "R"):
+        return True, ""
+    # 仅当代码包含 ggplot 可视化时检查
+    if not re.search(r'ggplot\s*\(|ggsave\s*\(', code):
+        return True, ""
+    # 检查 ggsci 调色板函数
+    ggsci_patterns = [
+        r'scale_(fill|color|colour)_(npg|jco|lancet|nejm|d3|aaas|uchicago|igv|futurama|startrek|tron)',
+        r'scale_(fill|color|colour)_manual',
+        r'ggsci::',
+    ]
+    for pattern in ggsci_patterns:
+        if re.search(pattern, code):
+            return True, ""
+    return False, "R 代码中使用了 ggplot2 可视化但未使用 ggsci 学术期刊配色（如 scale_fill_npg()），必须使用 ggsci 配色方案以符合 CNS 发表标准"
+
+
+def _check_dual_format_output(code: str, language: str) -> tuple:
+    """检查图表是否双格式输出（PDF + PNG）"""
+    # 仅当代码包含图表保存时检查
+    has_plot_save = bool(
+        re.search(r'ggsave\s*\(', code) or
+        re.search(r'plt\.savefig\s*\(', code) or
+        re.search(r'pdf\s*\(', code) or
+        re.search(r'png\s*\(', code) or
+        re.search(r'cairo_pdf\s*\(', code) or
+        re.search(r'pdf\(', code)
+    )
+    if not has_plot_save:
+        return True, ""
+
+    # 检查是否同时有 PDF 和 PNG 输出
+    has_pdf = bool(re.search(r'cairo_pdf\s*\(|pdf\s*\(|\.pdf["\']', code))
+    has_png = bool(re.search(r'png\s*\(|\.png["\']', code))
+
+    if not has_pdf:
+        return False, "代码只输出了 PNG 格式，CNS 级图表必须同时输出 PDF（cairo_pdf 设备）+ PNG(dpi>=300) 双格式"
+    if not has_png:
+        return False, "代码只输出了 PDF 格式，CNS 级图表必须同时输出 PDF（cairo_pdf 设备）+ PNG(dpi>=300) 双格式"
+
+    # 检查 PNG dpi
+    if language in ("r", "R"):
+        if not re.search(r'dpi\s*=\s*\d{3}', code):
+            return False, "PNG 输出未指定 dpi>=300，CNS 级图表要求高分辨率输出"
+    else:
+        if not re.search(r'dpi\s*=\s*[34]\d{2}', code):
+            return False, "PNG 输出未指定 dpi>=300，CNS 级图表要求高分辨率输出"
+
+    return True, ""
+
+
+def _check_no_hardcoded_paths(code: str, language: str) -> tuple:
+    """检查是否存在硬编码的 /workspace/ 路径（而非通过参数接收）"""
+    # 查找硬编码的 /workspace/ 路径（排除注释行和字符串赋值给参数的情况）
+    hardcoded = re.findall(r'["\'](/workspace/[^"\']+)["\']', code)
+    if not hardcoded:
+        return True, ""
+
+    # 排除 TASK_OUT_DIR 拼接写法
+    real_hardcoded = []
+    for path in hardcoded:
+        # 跳过注释中的路径
+        line_with_path = [l for l in code.split('\n') if path in l and not l.strip().startswith('#')]
+        if not line_with_path:
+            continue
+        # 跳过 argparser default 中的路径（这是允许的）
+        if 'default' in line_with_path[0] and 'add_argument' in line_with_path[0]:
+            continue
+        # 跳过变量赋值中的路径（如 output_dir = os.path.join(...)）
+        if 'os.path.join' in line_with_path[0] or 'file.path' in line_with_path[0]:
+            continue
+        real_hardcoded.append(path)
+
+    if real_hardcoded:
+        paths_str = ", ".join(real_hardcoded[:3])
+        return False, f"代码中硬编码了文件路径（{paths_str}），所有输入文件路径必须通过 argparse/optparse 参数传入，不得直接写在代码中"
+    return True, ""
+
+
+def _check_intermediate_data_saving(code: str, language: str) -> tuple:
+    """检查是否保存中间数据文件（CSV/TSV）"""
+    # 仅当代码包含数据分析（非纯可视化）时检查
+    has_analysis = bool(
+        re.search(r'(DESeq|edgeR|limma|t\.test|wilcox|aov|kmeans|hclust|prcomp|pca)', code, re.IGNORECASE)
+    )
+    if not has_analysis:
+        return True, ""
+
+    has_data_save = bool(
+        re.search(r'(write\.csv|write\.table|write_csv|to_csv|to_csv|fwrite)', code) or
+        re.search(r'(write\.xlsx|write_xlsx|write\.tsv)', code) or
+        re.search(r'saveRDS|save\.RDS', code)
+    )
+    if not has_data_save:
+        # 警告但不阻塞
+        return False, "分析结果仅以图表输出，未保存中间数据文件（CSV/TSV），CNS 规范建议同时保存中间数据供审稿人检查"
+
+    return True, ""
+
+
+def _check_import_completeness(code: str, language: str) -> tuple:
+    """检查所有使用的库是否都已导入"""
+    if language == "python":
+        # 常见生信库的使用检测
+        lib_patterns = {
+            r'\bpd\.': 'pandas',
+            r'\bnp\.': 'numpy',
+            r'\bplt\.': 'matplotlib',
+            r'\bsns\.': 'seaborn',
+            r'\bsk\.|sklearn\b': 'scikit-learn',
+            r'\bscipy\.': 'scipy',
+            r'\bgoatools\b': 'goatools',
+            r'\bgseapy\b': 'gseapy',
+        }
+        missing = []
+        for usage_pattern, lib_name in lib_patterns.items():
+            if re.search(usage_pattern, code):
+                import_pattern = rf'import\s+{lib_name}\b|from\s+{lib_name}\s+import'
+                if not re.search(import_pattern, code):
+                    missing.append(lib_name)
+        if missing:
+            return False, f"代码中使用了 {'/'.join(missing)} 但未导入，必须在代码开头添加相应的 import 语句"
+
+    elif language in ("r", "R"):
+        # R 库使用检测
+        r_lib_patterns = {
+            r'library\s*\(\s*(\w+)': True,  # library() 形式
+            r'(\w+)::': True,                # pkg::fun 形式
+        }
+        # 检查是否使用了未 library() 加载的包
+        # R 的检查比 Python 复杂，仅检查 DESeq2/edgeR/limma 等关键包
+        bio_pkgs = {
+            r'\bDESeq\b': 'DESeq2',
+            r'\bglmQLFit\b|\bcalcNormFactors\b': 'edgeR',
+            r'\blmFit\b|\beBayes\b': 'limma',
+            r'\bComplexHeatmap\b': 'ComplexHeatmap',
+        }
+        missing = []
+        for usage_pattern, pkg_name in bio_pkgs.items():
+            if re.search(usage_pattern, code):
+                if not re.search(rf'library\s*\(\s*{pkg_name}\b', code):
+                    missing.append(pkg_name)
+        if missing:
+            return False, f"代码中使用了 {'/'.join(missing)} 但未 library() 加载，必须添加相应的 library() 调用"
+
+    return True, ""
+
+
+# 硬检查规则列表（按优先级排列）
+HARD_CHECKS: List[Dict[str, Any]] = [
+    {
+        "id": "argparse_or_optparse",
+        "name": "参数解析系统",
+        "check": _check_argparse_or_optparse,
+        "severity": "error",
+    },
+    {
+        "id": "task_out_dir",
+        "name": "TASK_OUT_DIR 输出目录",
+        "check": _check_task_out_dir,
+        "severity": "error",
+    },
+    {
+        "id": "no_hardcoded_paths",
+        "name": "禁止硬编码路径",
+        "check": _check_no_hardcoded_paths,
+        "severity": "error",
+    },
+    {
+        "id": "import_completeness",
+        "name": "库导入完整性",
+        "check": _check_import_completeness,
+        "severity": "error",
+    },
+    {
+        "id": "ggsci_palette",
+        "name": "ggsci 学术配色",
+        "check": _check_ggsci_palette,
+        "severity": "error",
+        "applies_to": ["r", "R"],
+    },
+    {
+        "id": "dual_format_output",
+        "name": "双格式输出（PDF+PNG）",
+        "check": _check_dual_format_output,
+        "severity": "error",
+    },
+    {
+        "id": "intermediate_data_saving",
+        "name": "中间数据保存",
+        "check": _check_intermediate_data_saving,
+        "severity": "warning",
+    },
+]
+
+
+def run_hard_checks(code: str, language: str) -> HardCheckResult:
+    """
+    对生成的代码运行所有硬检查规则。
+
+    规则引擎执行流程：
+    1. 遍历 HARD_CHECKS 中每条规则
+    2. 跳过不适用于当前语言的规则
+    3. 执行检查逻辑
+    4. 收集失败的检查项，生成结构化批评文本
+
+    Args:
+        code: 待检查的完整代码
+        language: 代码语言 (python / r)
+
+    Returns:
+        HardCheckResult: 包含通过/失败状态和批评文本
+    """
+    failed_checks = []
+    warnings = []
+    critique_parts = []
+
+    for rule in HARD_CHECKS:
+        # 检查语言适用性
+        applies_to = rule.get("applies_to")
+        if applies_to and language.lower() not in [a.lower() for a in applies_to]:
+            continue
+
+        check_fn = rule["check"]
+        try:
+            passed, detail = check_fn(code, language)
+        except Exception as e:
+            log.warning(f"[CodeValidator] 硬检查规则 '{rule['id']}' 执行异常: {e}")
+            continue
+
+        if not passed:
+            if rule.get("severity") == "warning":
+                warnings.append(rule["id"])
+                if detail:
+                    critique_parts.append(f"  ⚠️ [{rule['name']}] {detail}")
+            else:
+                failed_checks.append(rule["id"])
+                critique_parts.append(f"  ❌ [{rule['name']}] {detail}")
+
+    passed = len(failed_checks) == 0
+
+    # 构建结构化批评文本
+    critique = ""
+    if not passed:
+        lang_display = "Python" if language in ("python",) else "R"
+        param_sys = "argparse" if language in ("python",) else "optparse/commandArgs"
+        output_var = "os.environ['TASK_OUT_DIR']" if language in ("python",) else "Sys.getenv('TASK_OUT_DIR')"
+
+        critique = f"""你的 {lang_display} 代码未通过以下 CNS 级质量规范检查，请根据批评逐项修复后重新输出完整代码：
+
+{chr(10).join(critique_parts)}
+
+修复要求：
+- 所有输入文件路径必须通过 {param_sys} 参数接收，禁止硬编码路径
+- 所有输出文件必须写入 {output_var} 目录
+- 保持原代码的分析逻辑和策略不变，只修复检查发现的问题
+- 请直接输出修复后的完整代码（用 ```{language} 包裹）"""
+    elif warnings:
+        critique = "\n".join(critique_parts)
+
+    log.info(
+        f"[CodeValidator] 硬检查完成: language={language}, "
+        f"passed={passed}, failed={failed_checks}, warnings={warnings}"
+    )
+
+    return HardCheckResult(
+        passed=passed,
+        critique=critique,
+        failed_checks=failed_checks,
+        warnings=warnings,
+    )
 
 
 def validate_generated_code(code: str, language: str = "python") -> ValidationResult:

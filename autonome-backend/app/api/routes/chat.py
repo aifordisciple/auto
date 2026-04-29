@@ -2068,6 +2068,8 @@ async def adhoc_execute(
         def run_docker():
             """在独立线程中执行 Docker 容器，通过回调推送日志"""
             try:
+                import time as _time
+                _exec_start = _time.time()
                 log.info(f"[adhoc_execute] Docker 执行开始, cmd: {' '.join(cmd)}")
                 output, exit_code, _ = run_container(
                     image='autonome-tool-env',
@@ -2083,13 +2085,14 @@ async def adhoc_execute(
                     # 宿主机输出目录（用于 os.makedirs）
                     host_output_dir=host_out_dir,
                 )
+                _elapsed = _time.time() - _exec_start
                 log.info(
                     f"[adhoc_execute] Docker 执行结束: exit_code={exit_code}, "
-                    f"output_len={len(output)}, output_head={output[:300]}"
+                    f"elapsed={_elapsed:.1f}s, output_len={len(output)}, output_head={output[:300]}"
                 )
                 loop.call_soon_threadsafe(
                     queue.put_nowait,
-                    ("done", {"output": output, "exit_code": exit_code}),
+                    ("done", {"output": output, "exit_code": exit_code, "elapsed_seconds": _elapsed}),
                 )
             except Exception as e:
                 loop.call_soon_threadsafe(
@@ -2128,6 +2131,7 @@ async def adhoc_execute(
                 elif msg_type == "done":
                     docker_output = data["output"]
                     exit_code = data["exit_code"]
+                    elapsed_seconds = data.get("elapsed_seconds", 0)
                     success = exit_code == 0
 
                     log.info(
@@ -2238,6 +2242,29 @@ async def adhoc_execute(
                         )
                     except Exception as _extract_err:
                         log.debug(f"[adhoc_execute] 经验提取后台任务创建失败（非致命）: {_extract_err}")
+
+                    # 异步技能收割（fire-and-forget，不阻塞 SSE 流）
+                    # 仅执行成功时触发，将成功的代码转化为技能草稿
+                    if success and strategy_pack and elapsed_seconds > 0:
+                        try:
+                            from app.services.skill_harvester import harvest_skill_from_execution
+                            _asyncio.create_task(
+                                harvest_skill_from_execution(
+                                    code=code_snapshot,
+                                    strategy_pack=strategy_pack,
+                                    instruction=strategy_pack.get("strategy", ""),
+                                    language=code_language,
+                                    output_files=[f.get("name", "") for f in output_files],
+                                    execution_time=elapsed_seconds,
+                                    user_id=user.id,
+                                    project_id=project_id,
+                                    session_id=request.message_id,
+                                    record_id=None,
+                                    llm_session=session,
+                                )
+                            )
+                        except Exception as _harvest_err:
+                            log.debug(f"[adhoc_execute] 技能收割后台任务创建失败（非致命）: {_harvest_err}")
 
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
