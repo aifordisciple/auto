@@ -838,6 +838,8 @@ async def _refine_strategy_pack(
     current_strategy = current_pack.get("strategy", "")
     current_params = json.dumps(current_pack.get("parameter_schema", {}), ensure_ascii=False, indent=2)
     current_mapping = json.dumps(current_pack.get("input_mapping", {}), ensure_ascii=False, indent=2)
+    # 预计算避免 f-string 中的三元表达式触发 Python 3.11 解析器 bug
+    file_profiles_display = file_profiles_text or ""
 
     refine_prompt = f"""你是一个生物信息学即席分析专家。用户希望修改当前的分析策略。
 
@@ -856,7 +858,7 @@ async def _refine_strategy_pack(
 输入文件：
 {file_paths}
 
-{file_profiles_text if file_profiles_text else ""}
+{file_profiles_display}
 
 用户修改需求：{modification_request}
 
