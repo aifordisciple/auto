@@ -2219,6 +2219,26 @@ async def adhoc_execute(
                     except Exception as hist_err:
                         log.warning(f"[adhoc_execute] 历史记录保存失败（非致命）: {hist_err}")
 
+                    # 异步提取执行经验（fire-and-forget，不阻塞 SSE 流）
+                    try:
+                        import asyncio as _asyncio
+                        from app.services.experience_extractor import extract_experience_from_execution
+                        _asyncio.create_task(
+                            extract_experience_from_execution(
+                                code=code_snapshot,
+                                instruction=strategy_pack.get("strategy", ""),
+                                language=code_language,
+                                success=success,
+                                output_text=docker_output[:5000] if success else None,
+                                error_text=docker_output[:5000] if not success else None,
+                                user_id=user.id,
+                                project_id=project_id,
+                                session=session,
+                            )
+                        )
+                    except Exception as _extract_err:
+                        log.debug(f"[adhoc_execute] 经验提取后台任务创建失败（非致命）: {_extract_err}")
+
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
                 elif msg_type == "error":

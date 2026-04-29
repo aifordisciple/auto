@@ -358,6 +358,32 @@ async def _generate_strategy_pack(
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
             + escaped_profiles + "\n"
         )
+
+    # 经验记忆检索：从历史分析中检索相关经验教训，注入 System Prompt
+    # 帮助 LLM 避免重复相同的错误（如遗漏 import、硬编码路径等）
+    try:
+        from app.services.experience_retriever import (
+            retrieve_relevant_experiences,
+            format_experiences_for_prompt,
+        )
+        code_language_hint = file_profiles_text or ""
+        lang = "r" if any(kw in code_language_hint.lower() for kw in ["r语言", "r script", "r", "optparse"]) else None
+        relevant_experiences = await retrieve_relevant_experiences(
+            instruction=instruction,
+            language=lang,
+            limit=3,
+        )
+        if relevant_experiences:
+            exp_injection = format_experiences_for_prompt(relevant_experiences)
+            if exp_injection:
+                system_prompt += "\n" + exp_injection
+                log.info(
+                    f"[adhoc_analysis_node] 注入 {len(relevant_experiences)} 条相关经验: "
+                    f"{[e.title[:30] for e in relevant_experiences]}"
+                )
+    except Exception as exp_err:
+        log.warning(f"[adhoc_analysis_node] 经验检索失败（非致命）: {exp_err}")
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         ("human", "请根据以上要求生成即席分析策略包，输出严格 JSON 格式。"),
@@ -468,6 +494,27 @@ async def _generate_strategy_pack_streaming(
             "\n\n**输入文件自动探查结果**（请严格根据以下列名和数据类型生成代码和参数）：\n"
             + escaped_profiles + "\n"
         )
+
+    # 经验记忆检索：从历史分析中检索相关经验教训，注入 System Prompt
+    try:
+        from app.services.experience_retriever import (
+            retrieve_relevant_experiences,
+            format_experiences_for_prompt,
+        )
+        relevant_experiences = await retrieve_relevant_experiences(
+            instruction=instruction,
+            language=None,
+            limit=3,
+        )
+        if relevant_experiences:
+            exp_injection = format_experiences_for_prompt(relevant_experiences)
+            if exp_injection:
+                system_prompt += "\n" + exp_injection
+                log.info(
+                    f"[adhoc_analysis_node:stream] 注入 {len(relevant_experiences)} 条相关经验"
+                )
+    except Exception as exp_err:
+        log.warning(f"[adhoc_analysis_node:stream] 经验检索失败（非致命）: {exp_err}")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -582,8 +629,10 @@ async def _generate_strategy_pack_streaming(
                     f"[adhoc_analysis_node] 代码校验发现 {validation.error_count} 个错误，"
                     f"启动 LLM Agent 自动修复..."
                 )
+                # 保存修复前的原始代码，供经验提取使用
+                original_code_before_fix = strategy_pack.get("code", "")
                 fix_result = await auto_fix_generated_code(
-                    code=strategy_pack.get("code", ""),
+                    code=original_code_before_fix,
                     language=strategy_pack.get("code_language", "python"),
                     instruction=instruction,
                     issues=validation.issues,
@@ -600,6 +649,24 @@ async def _generate_strategy_pack_streaming(
                     log.info("[adhoc_analysis_node] LLM Agent 自动修复成功，已附加到策略包")
                     # 自动修复成功后，更新 code 供后续代码审核 Agent 使用
                     strategy_pack["code"] = fix_result["fixed_code"]
+
+                    # 异步提取 DEBUG_PATTERN 经验（fire-and-forget，不阻塞主流程）
+                    try:
+                        import asyncio as _asyncio
+                        from app.services.experience_extractor import extract_experience_from_autofix
+                        _asyncio.create_task(
+                            extract_experience_from_autofix(
+                                original_code=original_code_before_fix,
+                                fixed_code=fix_result["fixed_code"],
+                                issues=validation.issues,
+                                instruction=instruction,
+                                language=strategy_pack.get("code_language", "python"),
+                                user_id=user_id,
+                                session=session,
+                            )
+                        )
+                    except Exception as _extract_err:
+                        log.debug(f"[adhoc_analysis_node] 经验提取后台任务创建失败（非致命）: {_extract_err}")
                 else:
                     log.warning("[adhoc_analysis_node] LLM Agent 自动修复未完全解决问题")
         except Exception as val_err:
