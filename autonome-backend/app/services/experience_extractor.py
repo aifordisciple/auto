@@ -43,7 +43,7 @@ EXPERIENCE_CATEGORIES = [
 ]
 
 
-def _generate_embedding(text: str) -> Optional[List[float]]:
+def _generate_embedding(text: str, user_id: Optional[int] = None) -> Optional[List[float]]:
     """
     使用 text-embedding-3-large 生成嵌入向量。
 
@@ -51,6 +51,7 @@ def _generate_embedding(text: str) -> Optional[List[float]]:
 
     Args:
         text: 待嵌入的文本（自动截断到 8000 字符）
+        user_id: 用户 ID，传入时优先使用用户的 Embedding 配置
 
     Returns:
         1536 维浮点数列表，失败返回 None
@@ -60,7 +61,7 @@ def _generate_embedding(text: str) -> Optional[List[float]]:
 
         # 复用统一的配置回退机制解析 Embedding 模型配置
         from app.services.experience_retriever import _resolve_embedding_config
-        api_key, base_url, model_name = _resolve_embedding_config()
+        api_key, base_url, model_name = _resolve_embedding_config(user_id=user_id)
 
         if not api_key:
             log.warning("[ExperienceExtractor] Embedding API Key 未配置，跳过嵌入生成")
@@ -73,7 +74,10 @@ def _generate_embedding(text: str) -> Optional[List[float]]:
         )
         return response.data[0].embedding
     except Exception as e:
-        log.error(f"[ExperienceExtractor] 嵌入生成失败: {e}")
+        log.error(
+            f"[ExperienceExtractor] 嵌入生成失败: {e} "
+            f"(base_url={base_url}, model={model_name})"
+        )
         return None
 
 
@@ -142,7 +146,7 @@ async def extract_experience_from_autofix(
 
         # 生成嵌入向量（用 instruction + summary 组合文本）
         embed_text = f"分析需求: {instruction}\n经验摘要: {summary_result.get('summary', '')}"
-        embedding = _generate_embedding(embed_text)
+        embedding = _generate_embedding(embed_text, user_id=user_id)
 
         # 写入数据库
         with Session(engine) as db_session:
@@ -271,7 +275,7 @@ async def _extract_success_experience(
             return None
 
         embed_text = f"分析需求: {instruction}\n经验摘要: {summary_result.get('summary', '')}"
-        embedding = _generate_embedding(embed_text)
+        embedding = _generate_embedding(embed_text, user_id=user_id)
 
         with Session(engine) as db_session:
             experience = ExperienceAsset(
@@ -334,7 +338,7 @@ async def _extract_failure_experience(
             return None
 
         embed_text = f"分析需求: {instruction}\n经验摘要: {summary_result.get('summary', '')}"
-        embedding = _generate_embedding(embed_text)
+        embedding = _generate_embedding(embed_text, user_id=user_id)
 
         with Session(engine) as db_session:
             experience = ExperienceAsset(

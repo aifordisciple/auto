@@ -444,7 +444,7 @@ async def analyze_figure_with_text_llm(caption: str) -> Optional[ExtractedKnowle
 # Embedding 生成
 # ==========================================
 
-def generate_embedding(text: str) -> Optional[List[float]]:
+def generate_embedding(text: str, user_id: Optional[int] = None) -> Optional[List[float]]:
     """
     生成文本的 Embedding 向量
 
@@ -452,6 +452,7 @@ def generate_embedding(text: str) -> Optional[List[float]]:
 
     Args:
         text: 待向量化的文本
+        user_id: 用户 ID，传入时优先使用用户的 Embedding 配置
 
     Returns:
         1536 维浮点数列表，或 None（失败时）
@@ -460,7 +461,7 @@ def generate_embedding(text: str) -> Optional[List[float]]:
         import openai
         # 复用统一的配置回退机制解析 Embedding 模型配置
         from app.services.experience_retriever import _resolve_embedding_config
-        api_key, base_url, model_name = _resolve_embedding_config()
+        api_key, base_url, model_name = _resolve_embedding_config(user_id=user_id)
         if not api_key:
             log.warning("📚 [Ingestion] Embedding API Key 未配置，跳过 Embedding 生成")
             return None
