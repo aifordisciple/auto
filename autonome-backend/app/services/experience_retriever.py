@@ -123,6 +123,37 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
     return float(dot / (norm_a * norm_b))
 
 
+def _normalize_title(title: str) -> str:
+    """规范化标题用于去重比较：全小写，去首尾空格"""
+    return title.strip().lower()
+
+
+def _deduplicate_by_title(
+    scored: list,
+    limit: int,
+) -> list:
+    """
+    按标题去重，保留高分经验，丢弃同标题低分经验。
+
+    去重策略：
+    1. 按标题规范化后精确匹配（case-insensitive, strip whitespace）
+    2. 同标题经验：保留分数最高的（scored 已降序排列，首次遇到即为最高分）
+    3. 去重后仍按原排名顺序取 top-K
+    4. 不可变：不修改任何 ExperienceAsset 对象
+    """
+    seen_titles: set = set()
+    deduped: list = []
+
+    for _score, exp in scored:
+        norm_title = _normalize_title(exp.title)
+        if norm_title in seen_titles:
+            continue
+        seen_titles.add(norm_title)
+        deduped.append(exp)
+
+    return deduped[:limit]
+
+
 async def retrieve_relevant_experiences(
     instruction: str,
     language: Optional[str] = None,
@@ -186,7 +217,9 @@ async def retrieve_relevant_experiences(
 
         # 按分数降序排列
         scored.sort(key=lambda x: x[0], reverse=True)
-        experiences = [exp for _, exp in scored[:limit]]
+
+        # 去重：同标题经验合并（保留高分，合并 insights）
+        experiences = _deduplicate_by_title(scored, limit)
 
         if experiences:
             log.info(
