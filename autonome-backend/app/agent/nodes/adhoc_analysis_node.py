@@ -374,6 +374,7 @@ async def _generate_strategy_pack(
             instruction=instruction,
             language=lang,
             limit=3,
+            user_id=user_id,
         )
         if relevant_experiences:
             exp_injection = format_experiences_for_prompt(relevant_experiences)
@@ -385,6 +386,8 @@ async def _generate_strategy_pack(
                 )
     except Exception as exp_err:
         log.warning(f"[adhoc_analysis_node] 经验检索失败（非致命）: {exp_err}")
+
+
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -507,6 +510,7 @@ async def _generate_strategy_pack_streaming(
             instruction=instruction,
             language=None,
             limit=3,
+            user_id=user_id,
         )
         if relevant_experiences:
             exp_injection = format_experiences_for_prompt(relevant_experiences)

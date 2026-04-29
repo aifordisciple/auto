@@ -63,16 +63,19 @@ def _resolve_embedding_api_key() -> Optional[str]:
     return os.getenv("OPENAI_API_KEY")
 
 
-def _resolve_embedding_config():
+def _resolve_embedding_config(user_id: Optional[int] = None):
     """
     解析完整的 Embedding 模型配置（api_key + base_url + model_name）。
+
+    Args:
+        user_id: 用户 ID，传入时优先使用用户的 Embedding 配置
 
     Returns:
         (api_key, base_url, model_name) 三元组，api_key 为 None 时表示未配置
     """
     try:
         from app.utils.llm_config import get_embedding_llm_config_standalone
-        config = get_embedding_llm_config_standalone(user_id=None)
+        config = get_embedding_llm_config_standalone(user_id=user_id)
         if config and config.api_key:
             return config.api_key, config.base_url, config.model_name
     except Exception:
@@ -83,12 +86,12 @@ def _resolve_embedding_config():
     return api_key, base_url, "text-embedding-3-large"
 
 
-def _generate_query_embedding(query: str) -> Optional[List[float]]:
+def _generate_query_embedding(query: str, user_id: Optional[int] = None) -> Optional[List[float]]:
     """为检索查询生成嵌入向量（模型由配置决定，默认 text-embedding-3-large）"""
     try:
         import openai
 
-        api_key, base_url, model_name = _resolve_embedding_config()
+        api_key, base_url, model_name = _resolve_embedding_config(user_id=user_id)
 
         if not api_key:
             log.warning("[ExperienceRetriever] Embedding API Key 未配置（数据库和 OPENAI_API_KEY 环境变量均未设置），跳过语义检索")
@@ -124,6 +127,7 @@ async def retrieve_relevant_experiences(
     instruction: str,
     language: Optional[str] = None,
     limit: int = MAX_EXPERIENCES,
+    user_id: Optional[int] = None,
 ) -> List[ExperienceAsset]:
     """
     语义检索相关历史经验。
@@ -138,12 +142,13 @@ async def retrieve_relevant_experiences(
         instruction: 用户当前分析需求
         language: 代码语言过滤 (python / r)，None 为不过滤
         limit: 最大返回数
+        user_id: 用户 ID，传入时优先使用用户的 Embedding 配置
 
     Returns:
         按综合分数降序排列的 ExperienceAsset 列表
     """
     try:
-        query_embedding = _generate_query_embedding(instruction)
+        query_embedding = _generate_query_embedding(instruction, user_id=user_id)
         if not query_embedding:
             return await _fallback_recent_experiences(language, limit)
 
