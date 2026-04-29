@@ -258,6 +258,7 @@ async def update_user_llm_config(
     - 发送脱敏值 sk-***：跳过该字段（前端未修改）
     """
     from app.core.logger import log
+    from app.utils.llm_config import is_masked_api_key
 
     update_data = config_update.model_dump(exclude_unset=True)
 
