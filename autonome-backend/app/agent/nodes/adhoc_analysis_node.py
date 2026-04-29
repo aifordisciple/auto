@@ -783,7 +783,7 @@ def _store_strategy_pack_to_redis(
             db=0,
             decode_responses=True,
         )
-        r.setex(f"adhoc:{message_id}", 3600, json.dumps(redis_data, ensure_ascii=False))
+        r.set(f"adhoc:{message_id}", json.dumps(redis_data, ensure_ascii=False))
         log.info(f"[adhoc] 策略包已存入 Redis: key=adhoc:{message_id}")
         return True
     except Exception as redis_err:

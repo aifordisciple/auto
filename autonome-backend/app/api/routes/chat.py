@@ -1958,7 +1958,7 @@ async def adhoc_execute(
         }
         # 重新写入 Redis 以延长有效期
         try:
-            r.setex(strategy_key, 3600, json.dumps(strategy_pack, ensure_ascii=False))
+            r.set(strategy_key, json.dumps(strategy_pack, ensure_ascii=False))
             log.info(f"[adhoc_execute] 策略包已从数据库恢复并重新缓存: message_id={request.message_id}")
         except Exception as redis_write_err:
             log.warning(f"[adhoc_execute] 恢复后写入 Redis 失败（非致命）: {redis_write_err}")
@@ -2368,9 +2368,8 @@ async def rerun_adhoc_analysis(
             db=0,
             decode_responses=True,
         )
-        r.setex(
+        r.set(
             f"adhoc:{record.message_id}",
-            3600,
             json.dumps(strategy_pack, ensure_ascii=False),
         )
         log.info(f"[adhoc_rerun] 策略包已从历史恢复: record_id={record_id}, message_id={record.message_id}")
@@ -2676,9 +2675,8 @@ async def adhoc_refine(
             )
             refined_pack["message_id"] = request.message_id
             refined_pack["project_id"] = project_id
-            r.setex(
+            r.set(
                 f"adhoc:{request.message_id}",
-                3600,
                 json_mod.dumps(refined_pack, ensure_ascii=False),
             )
             log.info(f"[adhoc_refine] 策略包已更新: key=adhoc:{request.message_id}")
