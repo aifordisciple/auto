@@ -143,7 +143,11 @@ async def harvest_skill_from_execution(
                 trigger_reason=trigger_reason,
                 raw_material=f"分析需求: {instruction}\n\n代码:\n{code[:5000]}",
                 code_blocks=[{"language": language, "code": parameterized_code}],
-                strategies=[strategy_pack.get("strategy", "")] if strategy_pack.get("strategy") else [],
+                strategies=(
+                    [{"strategy": strategy_pack.get("strategy", "")}]
+                    if strategy_pack.get("strategy")
+                    else []
+                ),
                 draft_name=skill_metadata.get("name", f"即席分析: {instruction[:50]}"),
                 draft_description=skill_metadata.get("description", ""),
                 executor_type=executor_type,

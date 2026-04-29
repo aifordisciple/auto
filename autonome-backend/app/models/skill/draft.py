@@ -105,6 +105,16 @@ class PendingSkillDraftPublic(PendingSkillDraftBase):
     updated_at: datetime
     published_skill_id: Optional[str] = None
 
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        """兼容历史数据：strategies 中可能存储了字符串而非字典"""
+        if hasattr(obj, "strategies") and obj.strategies:
+            obj.strategies = [
+                {"strategy": s} if isinstance(s, str) else s
+                for s in obj.strategies
+            ]
+        return super().model_validate(obj, **kwargs)
+
 
 class PendingSkillDraftUpdate(SQLModel):
     """更新技能草稿的请求体"""
