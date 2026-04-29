@@ -293,7 +293,6 @@ async def auto_fix_generated_code(
         {"fixed_code": str, "changes_description": str, "success": bool}
     """
     from app.utils.llm_config import get_fast_llm_config
-    from langchain_core.prompts import ChatPromptTemplate
     from langchain_openai import ChatOpenAI
 
     # 构建问题描述文本
@@ -336,13 +335,15 @@ async def auto_fix_generated_code(
             temperature=0.0,
         )
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", fix_prompt),
-            ("human", "请修复代码中的所有问题，直接输出修复后的完整代码。"),
-        ])
+        # 使用 SystemMessage/HumanMessage 直接传递，
+        # 避免 ChatPromptTemplate.from_messages 将代码中的 {} 误解析为模板变量
+        from langchain_core.messages import SystemMessage, HumanMessage
+        messages = [
+            SystemMessage(content=fix_prompt),
+            HumanMessage(content="请修复代码中的所有问题，直接输出修复后的完整代码。"),
+        ]
 
-        chain = prompt | llm
-        response = await chain.ainvoke({})
+        response = await llm.ainvoke(messages)
         fixed_code = response.content.strip()
 
         # 清理可能的 markdown 代码块标记
@@ -431,7 +432,6 @@ async def review_generated_code(
         }
     """
     from app.utils.llm_config import get_fast_llm_config
-    from langchain_core.prompts import ChatPromptTemplate
     from langchain_openai import ChatOpenAI
 
     # 构建上下文注入文本
@@ -536,13 +536,15 @@ async def review_generated_code(
             temperature=0.0,
         )
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", review_prompt),
-            ("human", "请对以上代码进行全面审核，输出严格 JSON 格式的审核结果。"),
-        ])
+        # 使用 SystemMessage/HumanMessage 直接传递，
+        # 避免 ChatPromptTemplate.from_messages 将代码中的 {} 误解析为模板变量
+        from langchain_core.messages import SystemMessage, HumanMessage
+        messages = [
+            SystemMessage(content=review_prompt),
+            HumanMessage(content="请对以上代码进行全面审核，输出严格 JSON 格式的审核结果。"),
+        ]
 
-        chain = prompt | llm
-        response = await chain.ainvoke({})
+        response = await llm.ainvoke(messages)
         raw = response.content.strip()
 
         # 清理 markdown 标记

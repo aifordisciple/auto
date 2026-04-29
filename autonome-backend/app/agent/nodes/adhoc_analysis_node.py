@@ -819,7 +819,6 @@ async def _refine_strategy_pack(
         更新后的策略包字典
     """
     from app.utils.llm_config import get_fast_llm_config
-    from langchain_core.prompts import ChatPromptTemplate
     from langchain_openai import ChatOpenAI
     from json_repair import repair_json
 
@@ -888,14 +887,16 @@ async def _refine_strategy_pack(
 
     log.info(f"[refine] f-string 构建完成，prompt 长度={len(refine_prompt)}")
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", refine_prompt),
-        ("human", modification_request),
-    ])
+    # 使用 SystemMessage/HumanMessage 直接传递，
+    # 避免 ChatPromptTemplate.from_messages 将代码中的 {} 误解析为模板变量
+    from langchain_core.messages import SystemMessage, HumanMessage
+    messages = [
+        SystemMessage(content=refine_prompt),
+        HumanMessage(content=modification_request),
+    ]
 
     log.info("[refine] 调用 LLM 进行策略修改...")
-    chain = prompt | llm
-    response = await chain.ainvoke({})
+    response = await llm.ainvoke(messages)
 
     log.info(f"[refine] LLM 响应完成: len={len(response.content)}")
     raw_content = response.content.strip()
