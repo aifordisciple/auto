@@ -49,11 +49,15 @@ services:
       - UPLOAD_DIR=/workspace
       # 前端 URL（CORS 允许来源，生产环境需设置为实际访问地址）
       - FRONTEND_URL=http://113.44.66.210:3001
+      - CLAUDE_REDIS_URL=redis://claude-redis:6380/0
     volumes:
       # ✨ 修复2：改为绝对直连的 Bind Mount，容器侧路径改为 /workspace
       - ./uploads:/workspace
       # 将宿主机的 Docker 引擎控制权赋予后端
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - claude_net
     depends_on:
       - redis
       - postgres
@@ -88,7 +92,20 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # 5. 前端 IDE 界面 (Next.js)
+  # 5. Claude Agent 专用 Redis (端口 6380, claude_net 内网)
+  # ==========================================
+  claude-redis:
+    image: redis:7-alpine
+    container_name: autonome-claude-redis
+    restart: unless-stopped
+    networks:
+      - claude_net
+    command: redis-server --maxmemory 512mb --port 6380
+    volumes:
+      - claude_redis_data:/data
+
+  # ==========================================
+  # 6. 前端 IDE 界面 (Next.js)
   # ==========================================
   frontend:
     build:
@@ -104,7 +121,13 @@ services:
     restart: unless-stopped
 
 # 定义数据卷
+networks:
+  claude_net:
+    driver: bridge
+    internal: true
+
 volumes:
   redis_data:
   pgdata:
+  claude_redis_data:
   # ✨ 修复3：彻底移除了 uploads_data 具名卷定义

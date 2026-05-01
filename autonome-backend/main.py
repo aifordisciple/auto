@@ -15,7 +15,7 @@ from app.models.domain import SystemConfig
 from app.models.billing import Wallet, ComputeRecord, TransactionLedger, ResourceFlavor  # noqa: F401
 
 # ✨ 导入路由模块（已移除所有 AI/Agent 路由）
-from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard, learning, oauth, rbac
+from app.api.routes import system, projects, chat, tasks, auth, billing, public, admin, skills, templates, skills_forge, skills_market, skill_share, skill_version, skill_recommend, experiences, sample_sheets, packages, genomes, databases, terminal, users, skill_monitor, dashboard, learning, oauth, rbac, claude
 # ✨ 导入拆分后的 chat 子模块路由
 from app.api.routes import chat_session, chat_bookmark, chat_tags, chat_search, chat_queue
 
@@ -351,6 +351,7 @@ app.include_router(skill_monitor.router, prefix="/api/monitor", tags=["SkillMoni
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 # ✨ 学习中心
 app.include_router(learning.router, prefix="/api/learning", tags=["Learning"])
+app.include_router(claude.router)
 
 # ✨ 挂载静态文件服务器，允许前端读取 AI 吐出的生信图表！
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
