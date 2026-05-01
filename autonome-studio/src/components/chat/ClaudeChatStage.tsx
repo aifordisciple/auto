@@ -4,10 +4,14 @@
  */
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useClaudeChat } from '@/hooks/useClaudeChat';
-import { useClaudeStore, type ClaudeSession } from '@/store/useClaudeStore';
+import { useClaudeStore, type ClaudeSession, type PlanData } from '@/store/useClaudeStore';
 import { ThinkingBlock } from './ThinkingBlock';
+import { PlanCard } from './PlanCard';
+import { TaskCard } from './TaskCard';
+import { ToolUseBlock } from './ToolUseBlock';
+import { ClaudePreview } from './ClaudePreview';
 import { fetchAPI } from '@/lib/api';
 
 export function ClaudeChatStage() {
@@ -18,6 +22,7 @@ export function ClaudeChatStage() {
     setSessions,
     setActiveSession,
     addSession,
+    removeSession,
   } = useClaudeStore();
 
   const {
@@ -30,21 +35,25 @@ export function ClaudeChatStage() {
   } = useClaudeChat();
 
   const [input, setInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const refreshSessions = useCallback(() => {
     fetchAPI('/api/claude/sessions')
       .then((res) => res.json())
       .then((data) => {
         if (data.sessions) {
           setSessions(data.sessions as ClaudeSession[]);
           if (data.sessions.length > 0 && !activeSessionId) {
-            const convId = activeConversationId || '';
             setActiveSession(data.sessions[0].id);
           }
         }
       })
       .catch(console.error);
+  }, [activeSessionId, setSessions, setActiveSession]);
+
+  useEffect(() => {
+    refreshSessions();
   }, []);
 
   useEffect(() => {
@@ -72,6 +81,33 @@ export function ClaudeChatStage() {
     }
   };
 
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    if (!confirm('确定要删除此会话吗？关联的对话和消息将被永久删除。')) return;
+    try {
+      await fetchAPI(`/api/claude/sessions/${sessionId}`, { method: 'DELETE' });
+      removeSession(sessionId);
+      if (activeSessionId === sessionId) {
+        setActiveSession(sessions[0]?.id || '');
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
+  };
+
+  const filteredSessions = sessions.filter((s) =>
+    !searchQuery || s.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
+    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  };
+
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
     sendMessage(input.trim());
@@ -85,11 +121,36 @@ export function ClaudeChatStage() {
     }
   };
 
+  /** 确认分析方案 — 发送确认指令给 Claude Code */
+  const handlePlanConfirm = useCallback(() => {
+    sendMessage('确认执行方案，请开始执行。');
+  }, [sendMessage]);
+
   const buildTextContent = (events: Array<{ type: string; content?: string }>) => {
     return events
       .filter((e) => e.type === 'text_delta')
       .map((e) => e.content || '')
       .join('');
+  };
+
+  /** 从事件列表中提取方案数据 */
+  const extractPlan = (events: Array<{ type: string; content?: string; [key: string]: unknown }>): PlanData | null => {
+    const planEvent = events.find((e) => e.type === 'plan');
+    if (planEvent?.content) {
+      try {
+        return JSON.parse(planEvent.content) as PlanData;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  /** 从事件列表中提取已提交的任务ID列表 */
+  const extractTaskIds = (events: Array<{ type: string; task_id?: string; [key: string]: unknown }>): string[] => {
+    return events
+      .filter((e) => e.type === 'task_submitted' && e.task_id)
+      .map((e) => e.task_id!);
   };
 
   return (
@@ -98,24 +159,55 @@ export function ClaudeChatStage() {
       <div className="w-56 border-r border-gray-700 p-3 flex flex-col">
         <button
           onClick={handleCreateSession}
-          className="w-full px-3 py-2 mb-3 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+          className="w-full px-3 py-2 mb-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
         >
           + 新建会话
         </button>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="搜索会话..."
+          className="w-full mb-2 px-2 py-1.5 bg-gray-800 text-gray-300 text-xs rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
         <div className="flex-1 overflow-y-auto space-y-1">
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSession(s.id)}
-              className={`w-full text-left px-3 py-2 rounded text-sm truncate ${
-                s.id === activeSessionId
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-400 hover:bg-gray-800'
-              }`}
-            >
-              {s.title}
-            </button>
-          ))}
+          {filteredSessions.length === 0 ? (
+            <div className="text-xs text-gray-500 text-center py-4">
+              {searchQuery ? '无匹配会话' : '暂无会话'}
+            </div>
+          ) : (
+            filteredSessions.map((s) => (
+              <div
+                key={s.id}
+                className={`group flex items-center rounded ${
+                  s.id === activeSessionId ? 'bg-gray-700' : 'hover:bg-gray-800'
+                }`}
+              >
+                <button
+                  onClick={() => setActiveSession(s.id)}
+                  className="flex-1 text-left px-3 py-2 rounded text-sm truncate min-w-0"
+                >
+                  <div className={`truncate ${
+                    s.id === activeSessionId ? 'text-white' : 'text-gray-400'
+                  }`}>
+                    {s.title}
+                  </div>
+                  {s.updatedAt && (
+                    <div className="text-xs text-gray-600 mt-0.5">
+                      {formatDate(s.updatedAt)}
+                    </div>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => handleDeleteSession(e, s.id)}
+                  className="px-2 py-1 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-xs shrink-0"
+                  title="删除会话"
+                >
+                  ✕
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -132,9 +224,19 @@ export function ClaudeChatStage() {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {msg.events && extractPlan(msg.events) && (
+                    <PlanCard
+                      plan={extractPlan(msg.events)!}
+                      onConfirm={handlePlanConfirm}
+                      disabled={true}
+                    />
+                  )}
                   {msg.events?.map((event, i) => {
                     if (event.type === 'thinking') {
                       return <ThinkingBlock key={i} content={event.content || ''} />;
+                    }
+                    if (event.type === 'tool_use' || event.type === 'tool_result') {
+                      return <ToolUseBlock key={i} event={event} />;
                     }
                     return null;
                   })}
@@ -143,6 +245,9 @@ export function ClaudeChatStage() {
                       {buildTextContent(msg.events)}
                     </div>
                   )}
+                  {msg.events && extractTaskIds(msg.events).map((tid) => (
+                    <TaskCard key={tid} taskId={tid} />
+                  ))}
                 </div>
               )}
             </div>
@@ -151,8 +256,17 @@ export function ClaudeChatStage() {
           {/* 流式渲染 */}
           {isStreaming && (
             <div className="mb-4">
+              {extractPlan(streamEvents) && (
+                <PlanCard
+                  plan={extractPlan(streamEvents)!}
+                  onConfirm={handlePlanConfirm}
+                />
+              )}
               {streamEvents.filter((e) => e.type === 'thinking').map((e, i) => (
                 <ThinkingBlock key={`stream-thinking-${i}`} content={e.content || ''} />
+              ))}
+              {streamEvents.filter((e) => e.type === 'tool_use' || e.type === 'tool_result').map((e, i) => (
+                <ToolUseBlock key={`stream-tool-${i}`} event={e} />
               ))}
               <div className="text-gray-200 whitespace-pre-wrap">
                 {streamEvents
@@ -163,6 +277,9 @@ export function ClaudeChatStage() {
                   <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-1" />
                 )}
               </div>
+              {extractTaskIds(streamEvents).map((tid) => (
+                <TaskCard key={tid} taskId={tid} />
+              ))}
             </div>
           )}
 
@@ -194,8 +311,8 @@ export function ClaudeChatStage() {
       </div>
 
       {/* 右侧: 预览区 */}
-      <div className="w-64 border-l border-gray-700 p-3 text-gray-500 text-sm">
-        预览区 (开发中)
+      <div className="w-64 border-l border-gray-700">
+        <ClaudePreview />
       </div>
     </div>
   );

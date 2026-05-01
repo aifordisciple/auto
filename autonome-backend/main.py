@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -277,6 +278,16 @@ def on_startup():
     except Exception as e:
         log.warning(f"⚠️ 容器预热池初始化失败: {e}")
 
+    # ✨ 初始化 Claude Agent 容器池
+    try:
+        from app.services.claude_container_pool import get_container_pool
+        pool = get_container_pool()
+        asyncio.create_task(pool.pre_warm())
+        pool.start()
+        log.info("✅ Claude 容器池已初始化")
+    except Exception as e:
+        log.warning(f"⚠️ Claude 容器池初始化失败: {e}")
+
     # ✨ 启动终端会话自动回收线程（防止僵尸容器堆积）
     try:
         from app.services.terminal_manager import terminal_manager
@@ -300,6 +311,15 @@ def on_shutdown():
             log.info("✅ 容器预热池已清理")
     except Exception as e:
         log.warning(f"⚠️ 容器预热池清理失败: {e}")
+
+    # 清理 Claude Agent 容器池
+    try:
+        from app.services.claude_container_pool import get_container_pool
+        pool = get_container_pool()
+        pool.stop()
+        log.info("✅ Claude 容器池已停止")
+    except Exception as e:
+        log.warning(f"⚠️ Claude 容器池清理失败: {e}")
 
     # 清理所有终端会话容器
     try:
