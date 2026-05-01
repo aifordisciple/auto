@@ -57,7 +57,36 @@ import { fetchAPI, getToken } from "@/lib/api";
 // ==========================================
 // 主组件
 // ==========================================
+import { ClaudeChatStage } from './ClaudeChatStage';
+
 export function ChatStage() {
+  // Claude 模式切换
+  const [chatMode, setChatMode] = useState<'normal' | 'claude'>('normal');
+
+  if (chatMode === 'claude') {
+    return (
+      <div className="flex flex-col h-full w-full bg-white dark:bg-[#131314]">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a]">
+          <button
+            onClick={() => setChatMode('normal')}
+            className="px-3 py-1 rounded text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
+          >
+            常规模式
+          </button>
+          <button
+            onClick={() => setChatMode('claude')}
+            className="px-3 py-1 rounded text-sm bg-blue-600 text-white"
+          >
+            Claude 模式
+          </button>
+        </div>
+        <div className="flex-1">
+          <ClaudeChatStage />
+        </div>
+      </div>
+    );
+  }
+
   // ==========================================
   // 状态订阅 - 使用精确订阅避免不必要的重渲染
   // ==========================================
@@ -567,6 +596,22 @@ export function ChatStage() {
 
   return (
     <div className="flex flex-col h-full w-full bg-white dark:bg-[#131314]">
+
+      {/* 模式切换 */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a]">
+        <button
+          onClick={() => setChatMode('normal')}
+          className="px-3 py-1 rounded text-sm bg-blue-600 text-white"
+        >
+          常规模式
+        </button>
+        <button
+          onClick={() => setChatMode('claude')}
+          className="px-3 py-1 rounded text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
+        >
+          Claude 模式
+        </button>
+      </div>
 
       {/* 空聊天时显示居中欢迎语 + 输入框 */}
       {isChatEmpty && !isLoading && (
