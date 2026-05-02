@@ -140,7 +140,76 @@ execute_blueprint_task = _registered_tasks.get("execute_blueprint_task")
 
 
 # ==========================================
-# 5. 任务注册表（统一管理所有 Celery 任务）
+# 5. Claude Agent 重型任务执行（Claude Code → Celery dispatch）
+# ==========================================
+
+@celery_app.task(name="execute_skill_task", bind=True, max_retries=3, default_retry_delay=60)
+def execute_skill_task(self, task_id: str, skill_id: str = None, code: str = None, parameters: dict = None):
+    """
+    执行 Claude Agent 提交的重型技能任务
+
+    由 submit_heavy_task 路由 dispatch，在 Celery worker 中异步执行。
+    Claude Task 状态更新为 running → completed/failed。
+
+    Args:
+        task_id: ClaudeTask UUID（用于 DB 状态更新）
+        skill_id: 技能 ID
+        code: 直接执行的代码
+        parameters: 任务参数字典
+    """
+    from datetime import datetime, timezone
+    from sqlmodel import Session
+    from app.core.database import engine
+    from app.models.claude import ClaudeTask
+    from app.services.skill_executor import execute_skill
+
+    with Session(engine) as db:
+        task = db.get(ClaudeTask, task_id)
+        if not task:
+            log.error(f"execute_skill_task: 任务不存在 {task_id}")
+            return {"status": "error", "detail": "Task not found"}
+
+        task.status = "running"
+        task.started_at = datetime.now(timezone.utc)
+        db.add(task)
+        db.commit()
+
+    try:
+        # 执行技能代码
+        result = execute_skill(
+            skill_id=skill_id,
+            code=code,
+            parameters=parameters or {},
+        )
+
+        with Session(engine) as db:
+            task = db.get(ClaudeTask, task_id)
+            if task:
+                task.status = "completed"
+                task.output_files = result.get("output_files", [])
+                task.completed_at = datetime.now(timezone.utc)
+                db.add(task)
+                db.commit()
+
+        return {"status": "completed"}
+
+    except Exception as exc:
+        log.error(f"execute_skill_task 失败: {exc}")
+
+        with Session(engine) as db:
+            task = db.get(ClaudeTask, task_id)
+            if task:
+                task.status = "failed"
+                task.error_text = str(exc)[:1000]
+                task.completed_at = datetime.now(timezone.utc)
+                db.add(task)
+                db.commit()
+
+        raise self.retry(exc=exc)
+
+
+# ==========================================
+# 6. 任务注册表（统一管理所有 Celery 任务）
 # ==========================================
 TASK_REGISTRY = {
     "rnaseq-qc": run_rnaseq_qc_pipeline,
@@ -148,4 +217,5 @@ TASK_REGISTRY = {
     "sc-rna-analysis": run_scrna_analysis_pipeline,
     "execute-python": run_custom_python_task,
     "execute-r": run_custom_r_task,
+    "execute-skill": execute_skill_task,
 }

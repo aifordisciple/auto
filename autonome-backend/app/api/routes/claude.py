@@ -367,9 +367,24 @@ async def submit_heavy_task(
                 db.add(msg)
                 db.commit()
 
+        # Dispatch Celery 任务异步执行
+        from app.services.celery_app import execute_skill_task
+
+        celery_result = execute_skill_task.delay(
+            task_id=str(task.id),
+            skill_id=req.skill_id,
+            code=req.code,
+            parameters=req.parameters or {},
+        )
+        task.celery_task_id = celery_result.id
+        task.status = "running"
+        db.add(task)
+        db.commit()
+
         return {
             "task_id": str(task.id),
             "status": task.status,
+            "celery_task_id": celery_result.id,
             "created_at": task.created_at.isoformat(),
         }
 

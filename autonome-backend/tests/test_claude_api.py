@@ -381,8 +381,13 @@ class TestSkillSearch:
 # ==========================================
 
 class TestTaskSubmit:
-    def test_submit_task_no_message(self, client):
+    @patch("app.api.routes.claude.execute_skill_task")
+    def test_submit_task_no_message(self, mock_celery_task, client):
         """POST /api/claude/tasks/submit — 提交任务（不关联消息）"""
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-123"
+        mock_celery_task.delay.return_value = mock_result
+
         resp = client.post("/api/claude/tasks/submit", json={
             "skill_id": "test_skill",
             "parameters": {"arg1": "value1"},
@@ -390,13 +395,22 @@ class TestTaskSubmit:
         assert resp.status_code == 200
         data = resp.json()
         assert "task_id" in data
-        assert data["status"] == "pending"
+        assert data["status"] == "running"
+        assert data["celery_task_id"] == "celery-task-123"
+        mock_celery_task.delay.assert_called_once()
 
-    def test_submit_task_empty_body(self, client):
+    @patch("app.api.routes.claude.execute_skill_task")
+    def test_submit_task_empty_body(self, mock_celery_task, client):
         """POST /api/claude/tasks/submit — 空 body 可接受"""
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-empty"
+        mock_celery_task.delay.return_value = mock_result
+
         resp = client.post("/api/claude/tasks/submit", json={})
         assert resp.status_code == 200
-        assert resp.json()["status"] == "pending"
+        data = resp.json()
+        assert data["status"] == "running"
+        assert data["celery_task_id"] == "celery-task-empty"
 
 
 class TestTaskGet:
