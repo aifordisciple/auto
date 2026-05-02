@@ -70,7 +70,7 @@ export function resetAuthState(): void {
  * 其他请求等待同一个 Promise 结果。
  * refresh 失败后标记 refreshFailed，后续 401 直接跳过刷新。
  */
-async function refreshAccessToken(): Promise<boolean> {
+export async function refreshAccessToken(): Promise<boolean> {
   // refresh 已彻底失败，不再重试，直接返回 false
   if (refreshFailed) {
     return false;

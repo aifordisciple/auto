@@ -5,7 +5,7 @@
 import { useCallback, useRef } from 'react';
 import { useClaudeStore } from '@/store/useClaudeStore';
 import type { ClaudeEvent } from '@/types/claude';
-import { fetchAPI, BASE_URL, getToken } from '@/lib/api';
+import { fetchAPI, BASE_URL, getToken, refreshAccessToken } from '@/lib/api';
 
 export function useClaudeChat() {
   const {
@@ -107,6 +107,29 @@ export function useClaudeChat() {
         } catch (err: unknown) {
           if (err instanceof Error && err.name === 'AbortError') {
             return;
+          }
+
+          // 401 时尝试刷新 Token 后再重试（同步 fetchAPI 的 401 拦截器行为）
+          const is401 = err instanceof Error && err.message === 'HTTP 401';
+          if (is401 && attempt < MAX_RETRIES) {
+            const refreshed = await refreshAccessToken();
+            if (refreshed) {
+              // Token 刷新成功，重试时会自动使用新 Token（getToken 从 store 读取）
+              appendStreamContent({
+                type: 'status',
+                status: 'reconnecting',
+                message: 'Token 已刷新，重新连接中...',
+                timestamp: Date.now(),
+              });
+              continue;
+            }
+            // 刷新失败，跳出重试
+            appendStreamContent({
+              type: 'error',
+              message: '认证已过期，请重新登录。',
+              timestamp: Date.now(),
+            });
+            break;
           }
 
           if (attempt < MAX_RETRIES) {
