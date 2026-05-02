@@ -188,17 +188,17 @@ class ClaudeContainerPool:
                 idle_container.session_id = session_id
                 idle_container.last_used_at = datetime.now(timezone.utc)
 
-                # 更新容器内 agent_service 的 session ID 环境变量
-                # 预热容器的 CLAUDE_SESSION_ID 为 "prewarm"，需要更新为真实 session_id
+                # 通过 Redis broadcast 通知 agent_service 切换到真实 session
+                # docker exec export 无法影响已运行进程的环境变量（subshell 隔离）
                 try:
-                    subprocess.run(
-                        ["docker", "exec", idle_container.container_id,
-                         "sh", "-c",
-                         f"export CLAUDE_SESSION_ID={session_id}"],
-                        capture_output=True, timeout=5,
+                    from app.services.claude_redis_bridge import get_claude_bridge
+                    bridge = await get_claude_bridge()
+                    await bridge.publish_allocation(
+                        container_id=idle_container.container_id,
+                        session_id=str(session_id),
                     )
                 except Exception:
-                    pass  # 非致命，agent_service 可通过 Redis 消息获取 session_id
+                    pass  # 非致命，agent_service 保持 broadcast listening
 
                 db.add(idle_container)
                 db.commit()

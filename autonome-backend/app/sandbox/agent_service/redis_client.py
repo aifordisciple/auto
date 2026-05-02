@@ -124,10 +124,36 @@ class AgentRedisClient:
             except redis.RedisError:
                 pass
 
+    def unsubscribe_current(self) -> None:
+        """取消当前 pub/sub 订阅（不关闭 Redis 连接，不停止心跳）"""
+        if self._pubsub:
+            try:
+                self._pubsub.close()
+            except Exception:
+                pass
+            self._pubsub = None
+
+    def subscribe_session(self, session_id: str, message_handler: Callable) -> None:
+        """
+        订阅指定 session 的消息通道（非阻塞模式，由调用方进入 listen 循环）
+
+        与 subscribe() 的区别：subscribe() 内部包含重连循环和 listen 循环，
+        而 subscribe_session() 仅创建 pubsub 和订阅，供动态切换场景使用。
+        """
+        self._message_handler = message_handler
+        self._pubsub = self._client.pubsub()
+        self._pubsub.subscribe(f"claude:session:{session_id}")
+
     def stop(self) -> None:
-        """停止心跳和订阅"""
+        """停止心跳和订阅，关闭 Redis 连接"""
         self._running = False
         if self._pubsub:
-            self._pubsub.close()
+            try:
+                self._pubsub.close()
+            except Exception:
+                pass
         if self._client:
-            self._client.close()
+            try:
+                self._client.close()
+            except Exception:
+                pass

@@ -10,6 +10,8 @@ Agent Service 主入口
 
 import os
 import sys
+import json
+import socket
 import signal
 from pathlib import Path
 
@@ -74,11 +76,7 @@ def handle_signal(signum, frame) -> None:
 
 
 def main() -> None:
-    global redis_client, claude_manager, running
-
-    if not SESSION_ID:
-        print("ERROR: CLAUDE_SESSION_ID not set")
-        sys.exit(1)
+    global redis_client, claude_manager, running, SESSION_ID
 
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
@@ -94,16 +92,56 @@ def main() -> None:
         model=CLAUDE_MODEL or None,
     )
 
-    redis_client.start_heartbeat(SESSION_ID)
+    container_id = socket.gethostname()
+    print(f"[AgentService] Container ID: {container_id}")
 
-    redis_client.publish_event(
-        SESSION_ID,
-        StatusEvent(status=AgentStatus.IDLE.value, message="Agent Service 已就绪"),
-    )
+    # 预热容器：等待 broadcast 分配真实 session_id
+    if not SESSION_ID or SESSION_ID == "prewarm":
+        redis_client.start_heartbeat(f"prewarm-{container_id[:12]}")
+        print(f"[AgentService] 预热模式, 等待容器分配 broadcast...")
 
-    print(f"[AgentService] 已就绪, session={SESSION_ID}")
+        pubsub = redis_client._client.pubsub()
+        pubsub.subscribe("claude:pool:broadcast")
 
-    redis_client.subscribe(SESSION_ID, handle_message)
+        for message in pubsub.listen():
+            if not running:
+                break
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+            except json.JSONDecodeError:
+                continue
+
+            if data.get("action") == "assign" and data.get("container_id") == container_id:
+                SESSION_ID = data["session_id"]
+                print(f"[AgentService] 分配到 session={SESSION_ID}")
+
+                pubsub.close()
+                redis_client.stop()
+
+                # 重新连接并订阅真实 session
+                redis_client = AgentRedisClient(REDIS_URL)
+                redis_client.connect()
+                redis_client.start_heartbeat(SESSION_ID)
+                redis_client.publish_event(
+                    SESSION_ID,
+                    StatusEvent(
+                        status=AgentStatus.IDLE.value,
+                        message="Agent Service 已就绪",
+                    ),
+                )
+                redis_client.subscribe(SESSION_ID, handle_message)
+                break
+    else:
+        # 直接分配模式（session_id 已知）
+        redis_client.start_heartbeat(SESSION_ID)
+        redis_client.publish_event(
+            SESSION_ID,
+            StatusEvent(status=AgentStatus.IDLE.value, message="Agent Service 已就绪"),
+        )
+        print(f"[AgentService] 已就绪, session={SESSION_ID}")
+        redis_client.subscribe(SESSION_ID, handle_message)
 
     print("[AgentService] 已退出")
 
