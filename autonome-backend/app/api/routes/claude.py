@@ -262,7 +262,7 @@ async def search_skills(
         skills = db.exec(
             select(SkillAsset)
             .where(
-                SkillAsset.status == "published",
+                SkillAsset.status == "PUBLISHED",
                 or_(
                     SkillAsset.name.ilike(pattern),
                     SkillAsset.description.ilike(pattern),
@@ -277,7 +277,7 @@ async def search_skills(
         if len(skills) < limit:
             tag_skills = db.exec(
                 select(SkillAsset)
-                .where(SkillAsset.status == "published")
+                .where(SkillAsset.status == "PUBLISHED")
                 .order_by(SkillAsset.updated_at.desc())
                 .limit(limit * 3)
             ).all()
