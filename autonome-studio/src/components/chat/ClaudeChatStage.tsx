@@ -175,17 +175,16 @@ export function ClaudeChatStage() {
       .join('');
   };
 
-  /** 从事件列表中提取方案数据 */
-  const extractPlan = (events: Array<{ type: string; content?: string; [key: string]: unknown }>): PlanData | null => {
-    const planEvent = events.find((e) => e.type === 'plan');
-    if (planEvent?.content) {
-      try {
-        return JSON.parse(planEvent.content) as PlanData;
-      } catch {
-        return null;
-      }
-    }
-    return null;
+  /** 从事件列表中提取方案数据 — PlanEvent 字段在顶层，非嵌套在 content 中 */
+  const extractPlan = (events: Array<{ type: string; title?: string; steps?: PlanStep[]; codeSnapshot?: string; estimatedCost?: string; [key: string]: unknown }>): PlanData | null => {
+    const e = events.find((ev) => ev.type === 'plan');
+    if (!e) return null;
+    return {
+      title: String(e.title || ''),
+      steps: (e.steps as PlanStep[]) || [],
+      codeSnapshot: String(e.codeSnapshot || ''),
+      estimatedCost: String(e.estimatedCost || ''),
+    };
   };
 
   /** 从事件列表中提取已提交的任务ID列表 */
