@@ -335,9 +335,17 @@ async def submit_heavy_task(
     Claude Code 通过此接口将重型计算任务提交到分布式队列中。
     """
     with Session(engine) as db:
+        # 从 conversation_id 反查 session_id
+        task_session_id = None
+        if req.conversation_id:
+            from app.models.claude import ClaudeConversation
+            conv = db.get(ClaudeConversation, UUID(req.conversation_id))
+            if conv:
+                task_session_id = conv.session_id
+
         task = ClaudeTask(
             message_id=UUID(req.message_id) if req.message_id else None,
-            session_id=None,
+            session_id=task_session_id,
             skill_id=req.skill_id,
             status="pending",
             code=req.code,

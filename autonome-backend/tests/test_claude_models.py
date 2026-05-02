@@ -73,6 +73,16 @@ class TestClaudeTask:
         assert len(task.output_files) == 1
         assert task.output_files[0]["name"] == "result.csv"
 
+    def test_task_without_message_id(self):
+        """ClaudeTask 允许不关联 message（修复 NOT NULL constraint）"""
+        task = ClaudeTask(
+            skill_id="test_skill",
+            status="pending",
+        )
+        assert task.message_id is None
+        assert task.session_id is None
+        assert task.status == "pending"
+
 
 class TestEventTypes:
     def test_plan_data_serialization_camelcase(self):

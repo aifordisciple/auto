@@ -382,13 +382,7 @@ class TestSkillSearch:
 
 class TestTaskSubmit:
     def test_submit_task_no_message(self, client):
-        """POST /api/claude/tasks/submit — 提交任务（不关联消息）
-
-        NOTE: 已知 bug — ClaudeTask.message_id 在 DB 中为 NOT NULL，
-        但路由允许不传 message_id。需要修复 DB schema 或路由逻辑。
-        暂时跳过此测试。
-        """
-        pytest.skip("Known bug: message_id NOT NULL constraint")
+        """POST /api/claude/tasks/submit — 提交任务（不关联消息）"""
         resp = client.post("/api/claude/tasks/submit", json={
             "skill_id": "test_skill",
             "parameters": {"arg1": "value1"},
@@ -399,12 +393,7 @@ class TestTaskSubmit:
         assert data["status"] == "pending"
 
     def test_submit_task_empty_body(self, client):
-        """POST /api/claude/tasks/submit — 空 body 可接受
-
-        NOTE: 已知 bug — ClaudeTask.message_id NOT NULL constraint。
-        修复 DB schema 后取消 skip。
-        """
-        pytest.skip("Known bug: message_id NOT NULL constraint")
+        """POST /api/claude/tasks/submit — 空 body 可接受"""
         resp = client.post("/api/claude/tasks/submit", json={})
         assert resp.status_code == 200
         assert resp.json()["status"] == "pending"
