@@ -73,14 +73,14 @@ export function ClaudeChatStage() {
 
   const handleCreateSession = async () => {
     try {
-      const res = await fetchAPI('/api/claude/sessions', {
+      const session = await fetchAPI('/api/claude/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: '新会话' }),
       });
-      const session = await res.json();
       addSession(session as ClaudeSession);
       setActiveSession(session.id);
+      setPageState('ready');
     } catch (err) {
       console.error('Failed to create session:', err);
     }
@@ -129,7 +129,7 @@ export function ClaudeChatStage() {
         });
         sid = res.id;
         addSession(res as ClaudeSession);
-        setActiveSession(sid);
+        setActiveSession(sid!);
       } catch (err) {
         console.error('Failed to create session:', err);
         return;
@@ -137,7 +137,7 @@ export function ClaudeChatStage() {
     }
 
     // 自动创建 conversation
-    if (!cid) {
+    if (!cid && sid) {
       try {
         const res = await fetchAPI(`/api/claude/sessions/${sid}/conversations`, {
           method: 'POST',
