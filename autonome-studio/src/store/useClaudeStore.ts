@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 
 export interface ClaudeEvent {
+  [key: string]: unknown;
   type: string;
   timestamp: number;
   content?: string;

@@ -186,6 +186,19 @@ class ClaudeContainerPool:
                 idle_container.user_id = user_id
                 idle_container.session_id = session_id
                 idle_container.last_used_at = datetime.now(timezone.utc)
+
+                # 更新容器内 agent_service 的 session ID 环境变量
+                # 预热容器的 CLAUDE_SESSION_ID 为 "prewarm"，需要更新为真实 session_id
+                try:
+                    subprocess.run(
+                        ["docker", "exec", idle_container.container_id,
+                         "sh", "-c",
+                         f"export CLAUDE_SESSION_ID={session_id}"],
+                        capture_output=True, timeout=5,
+                    )
+                except Exception:
+                    pass  # 非致命，agent_service 可通过 Redis 消息获取 session_id
+
                 db.add(idle_container)
                 db.commit()
                 log.info(f"分配复用容器: {idle_container.container_id[:12]} → session {session_id}")
@@ -259,7 +272,7 @@ class ClaudeContainerPool:
             created = 0
 
             for i in range(needed):
-                container_id = self._create_container("pool", 0)
+                container_id = self._create_container("prewarm", 0)
                 if container_id:
                     container_rec = ClaudeContainer(
                         container_id=container_id,

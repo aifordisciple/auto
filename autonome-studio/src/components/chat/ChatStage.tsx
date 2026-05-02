@@ -58,6 +58,7 @@ import { fetchAPI, getToken } from "@/lib/api";
 // 主组件
 // ==========================================
 import { ClaudeChatStage } from './ClaudeChatStage';
+import { ClaudeErrorBoundary } from './ClaudeErrorBoundary';
 
 export function ChatStage() {
   // Claude 模式切换
@@ -81,7 +82,9 @@ export function ChatStage() {
           </button>
         </div>
         <div className="flex-1">
-          <ClaudeChatStage />
+          <ClaudeErrorBoundary onReset={() => setChatMode('normal')}>
+            <ClaudeChatStage />
+          </ClaudeErrorBoundary>
         </div>
       </div>
     );

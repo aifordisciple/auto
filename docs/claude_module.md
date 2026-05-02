@@ -20,6 +20,45 @@
 
 ---
 
+## 实施阶段
+
+### Phase 1: Infrastructure (Minimum Viable Loop)
+- 数据库迁移: `claude_agent_tables.py` — 5 张表 (claude_session, claude_conversation, claude_message, claude_task, claude_container)
+- 数据模型: `app/models/claude.py` — SQLModel 定义 + UUID 主键 + JSONB 字段
+- Docker 基础设施: docker-compose.yml 新增 `claude-redis` 服务 + `claude_net` 隔离网络
+- Agent Service 核心: event_types.py (10 种事件) + redis_client.py (pub/sub) + stream_parser.py + claude_manager.py + main.py
+- Backend 桥接: claude_redis_bridge.py + claude_session_manager.py
+- API 路由: claude.py (Session CRUD + Message SSE)
+- 前端核心: useClaudeStore.ts + useClaudeChat.ts + ClaudeChatStage.tsx + ThinkingBlock.tsx + ChatStage.tsx 模式切换
+- **产出**: 用户可在 Web UI 发送消息 → Redis → Agent Service → Claude Code CLI → SSE 流返回前端
+
+### Phase 2: Tools & Capabilities
+- 技能检索 API: `GET /api/claude/skills/search` — 搜索 SkillAsset 表 (name/description/tags/skill_id)
+- 重型任务 API: `POST /api/claude/tasks/submit` + `GET /api/claude/tasks/{id}` + `GET /api/claude/tasks`
+- Agent Service 系统提示更新: 注入实际 API 端点 URL、沙箱执行能力、任务类型判断标准
+- PlanCard 组件: 分析方案展示 + 确认按钮 → 自动发送确认指令
+- TaskCard 组件: 任务状态显示 + 5s 自动轮询 (pending/running)
+- **产出**: Claude Code 可检索技能、提交重型任务，前端可展示方案和任务状态
+
+### Phase 3: Task Management & Preview
+- ClaudePreview 组件: 右侧预览区，文件列表 (10s 自动刷新) + 图片预览 + CSV 表格 (前100行) + HTML iframe
+- Workspace 文件 API: `GET /api/claude/workspace/files` + `GET /api/claude/workspace/files/content`
+- 会话管理增强: 搜索过滤 + 删除按钮 (hover 显示 + 确认对话框) + 相对时间显示
+- **产出**: 三栏布局完整可用，右侧预览区可浏览沙箱输出文件
+
+### Phase 4: Container Pool & Fault Tolerance
+- ClaudeContainerPool: 预热池 (POOL_MIN=1) + 动态分配 + 空闲超时回收 (30min) + 每用户并发限制 (3)
+- Pool stats API: `GET /api/claude/containers/stats`
+- main.py 集成: 启动预热 + 后台回收循环 (asyncio task)，关闭优雅清理
+- **产出**: 容器资源受控管理，防止资源泄漏
+
+### Phase 5: UX Polish
+- ToolUseBlock 组件: 工具调用可视化 (tool_use 绿色展开 + tool_result 成功/失败状态)
+- 经验萃取 API: `POST /api/claude/experiences` — Claude Code 分析经验写入 ExperienceAsset 表 (标题合并去重)
+- **产出**: 工具调用过程可视化，分析经验沉淀到共享经验库
+
+---
+
 ## 架构概览
 
 ```
@@ -543,7 +582,9 @@ RUN npm install -g @anthropic-ai/claude-code
 
 | 文件 | 用途 |
 |------|------|
-| `docker-compose.yml` | claude-redis + claude_net |
+| `docker-compose.yml` | claude-redis + claude_net (修改) |
+| `autonome-backend/main.py` | Claude 容器池启动/关闭钩子 + claude router 注册 (修改) |
+| `autonome-studio/src/components/chat/ChatStage.tsx` | 模式切换 (normal / claude) 集成 (修改) |
 | `docs/superpowers/specs/2026-05-02-claude-code-agent-mode-design.md` | 设计规格 (3268 行) |
 | `docs/superpowers/plans/2026-05-02-claude-code-agent-mode.md` | 实施计划 |
 | `docs/claude_module.md` | 本文档 |

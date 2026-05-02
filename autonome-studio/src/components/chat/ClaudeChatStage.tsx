@@ -36,21 +36,26 @@ export function ClaudeChatStage() {
 
   const [input, setInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [pageState, setPageState] = useState<'loading' | 'empty' | 'error' | 'ready'>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const refreshSessions = useCallback(() => {
-    fetchAPI('/api/claude/sessions')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.sessions) {
-          setSessions(data.sessions as ClaudeSession[]);
-          if (data.sessions.length > 0 && !activeSessionId) {
-            setActiveSession(data.sessions[0].id);
-          }
-        }
-      })
-      .catch(console.error);
-  }, [activeSessionId, setSessions, setActiveSession]);
+  const refreshSessions = useCallback(async () => {
+    try {
+      setPageState('loading');
+      const data = await fetchAPI('/api/claude/sessions');
+      if (data && data.sessions && data.sessions.length > 0) {
+        setSessions(data.sessions as ClaudeSession[]);
+        setPageState('ready');
+      } else {
+        setPageState('empty');
+      }
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : '连接失败');
+      setPageState('error');
+      console.error('Failed to refresh sessions:', err);
+    }
+  }, [setSessions]);
 
   useEffect(() => {
     refreshSessions();
@@ -108,8 +113,44 @@ export function ClaudeChatStage() {
     return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
+
+    let sid = activeSessionId;
+    let cid = activeConversationId;
+
+    // 自动创建 session
+    if (!sid) {
+      try {
+        const res = await fetchAPI('/api/claude/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: input.trim().slice(0, 30) }),
+        });
+        sid = res.id;
+        addSession(res as ClaudeSession);
+        setActiveSession(sid);
+      } catch (err) {
+        console.error('Failed to create session:', err);
+        return;
+      }
+    }
+
+    // 自动创建 conversation
+    if (!cid) {
+      try {
+        const res = await fetchAPI(`/api/claude/sessions/${sid}/conversations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: input.trim().slice(0, 30) }),
+        });
+        cid = res.id;
+      } catch (err) {
+        console.error('Failed to create conversation:', err);
+        return;
+      }
+    }
+
     sendMessage(input.trim());
     setInput('');
   };
@@ -213,6 +254,45 @@ export function ClaudeChatStage() {
 
       {/* 中间: 对话时间线 */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* 加载态 */}
+        {pageState === 'loading' && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-3" />
+              <div className="text-gray-400 text-sm">正在连接 Claude Agent...</div>
+            </div>
+          </div>
+        )}
+        {/* 空态 */}
+        {pageState === 'empty' && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-gray-400 text-lg mb-3">开始你的分析之旅</div>
+              <button
+                onClick={handleCreateSession}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+              >
+                创建新会话
+              </button>
+            </div>
+          </div>
+        )}
+        {/* 错误态 */}
+        {pageState === 'error' && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-red-400 text-sm mb-2">{errorMessage}</div>
+              <button
+                onClick={() => refreshSessions()}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-sm"
+              >
+                重试
+              </button>
+            </div>
+          </div>
+        )}
+        {/* 就绪态: 消息列表 */}
+        {pageState === 'ready' && (
         <div className="flex-1 overflow-y-auto p-4">
           {messages.map((msg) => (
             <div key={msg.id} className="mb-4">
@@ -285,6 +365,7 @@ export function ClaudeChatStage() {
 
           <div ref={messagesEndRef} />
         </div>
+        )}
 
         <div className="border-t border-gray-700 p-3">
           <div className="flex gap-2">

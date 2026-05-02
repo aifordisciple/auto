@@ -84,8 +84,8 @@ class PlanEvent(AgentEvent):
     type: EventType = EventType.PLAN
     title: str = ""
     steps: List[Dict[str, str]] = field(default_factory=list)
-    code_snapshot: str = ""
-    estimated_cost: str = ""
+    codeSnapshot: str = ""
+    estimatedCost: str = ""
 
 
 @dataclass
