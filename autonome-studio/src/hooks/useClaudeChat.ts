@@ -3,7 +3,8 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { useClaudeStore, type ClaudeEvent } from '@/store/useClaudeStore';
+import { useClaudeStore } from '@/store/useClaudeStore';
+import type { ClaudeEvent } from '@/types/claude';
 import { fetchAPI } from '@/lib/api';
 
 export function useClaudeChat() {

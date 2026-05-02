@@ -7,7 +7,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { PlanData } from '@/store/useClaudeStore';
+import type { PlanData } from '@/types/claude';
 
 interface PlanCardProps {
   plan: PlanData;

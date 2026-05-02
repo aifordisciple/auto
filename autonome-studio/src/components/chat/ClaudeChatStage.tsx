@@ -6,7 +6,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useClaudeChat } from '@/hooks/useClaudeChat';
-import { useClaudeStore, type ClaudeSession, type PlanData } from '@/store/useClaudeStore';
+import { useClaudeStore } from '@/store/useClaudeStore';
+import type { ClaudeSession, PlanData } from '@/types/claude';
 import { ThinkingBlock } from './ThinkingBlock';
 import { PlanCard } from './PlanCard';
 import { TaskCard } from './TaskCard';

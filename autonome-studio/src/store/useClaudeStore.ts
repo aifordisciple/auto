@@ -2,56 +2,26 @@
  * Claude 模式 Zustand Store
  *
  * 管理 Claude 会话状态: sessions, conversations, messages, streaming
+ * 类型定义统一在 @/types/claude.ts
  */
 
 import { create } from 'zustand';
+import type {
+  ClaudeEvent,
+  ClaudeMessage,
+  ClaudeSession,
+  ClaudeConversation,
+} from '@/types/claude';
 
-export interface ClaudeEvent {
-  [key: string]: unknown;
-  type: string;
-  timestamp: number;
-  content?: string;
-  tool_name?: string;
-  tool_input?: Record<string, unknown>;
-  tool_use_id?: string;
-  status?: string;
-  message?: string;
-  input_tokens?: number;
-  output_tokens?: number;
-}
-
-export interface ClaudeMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  events?: ClaudeEvent[];
-  plan?: PlanData | null;
-  codeSnapshot?: string;
-  usage?: { input_tokens: number; output_tokens: number } | null;
-  createdAt: string;
-}
-
-export interface PlanData {
-  title: string;
-  steps: Array<{ title: string; description: string }>;
-  codeSnapshot: string;
-  estimatedCost: string;
-}
-
-export interface ClaudeSession {
-  id: string;
-  title: string;
-  status: 'active' | 'archived' | 'closed';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ClaudeConversation {
-  id: string;
-  sessionId: string;
-  title: string;
-  createdAt: string;
-}
+// 重新导出供外部引用（向后兼容旧导入路径）
+export type {
+  ClaudeEvent,
+  ClaudeMessage,
+  ClaudeSession,
+  ClaudeConversation,
+  PlanData,
+  PlanStep,
+} from '@/types/claude';
 
 interface ClaudeStore {
   sessions: ClaudeSession[];
