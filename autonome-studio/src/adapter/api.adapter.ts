@@ -112,7 +112,7 @@ export async function fetchAPI<T = unknown>(
 
   // 构建 URL
   const cleanBase = baseUrl.replace(/\/$/, '');
-  let cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const url = cleanEndpoint.startsWith('/api')
     ? `${cleanBase}${cleanEndpoint}`
     : `${cleanBase}/api${cleanEndpoint}`;

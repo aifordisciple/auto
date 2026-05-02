@@ -57,38 +57,26 @@ import { fetchAPI, getToken } from "@/lib/api";
 // ==========================================
 // 主组件
 // ==========================================
-import { ClaudeChatStage } from './ClaudeChatStage';
+import { ClaudePreview } from './ClaudePreview';
 import { ClaudeErrorBoundary } from './ClaudeErrorBoundary';
 
-export function ChatStage() {
-  // Claude 模式切换
-  const [chatMode, setChatMode] = useState<'normal' | 'claude'>('normal');
+interface ChatStageProps {
+  chatMode: 'normal' | 'claude';
+  onModeChange: (mode: 'normal' | 'claude') => void;
+}
 
-  if (chatMode === 'claude') {
-    return (
-      <div className="flex flex-col h-full w-full bg-white dark:bg-[#131314]">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a]">
-          <button
-            onClick={() => setChatMode('normal')}
-            className="px-3 py-1 rounded text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-          >
-            常规模式
-          </button>
-          <button
-            onClick={() => setChatMode('claude')}
-            className="px-3 py-1 rounded text-sm bg-blue-600 text-white"
-          >
-            Claude 模式
-          </button>
-        </div>
-        <div className="flex-1">
-          <ClaudeErrorBoundary onReset={() => setChatMode('normal')}>
-            <ClaudeChatStage />
-          </ClaudeErrorBoundary>
-        </div>
-      </div>
-    );
-  }
+export function ChatStage({ chatMode, onModeChange }: ChatStageProps) {
+  // Claude 模式预览面板显隐（独立于模式切换）
+  const [showPreview, setShowPreview] = useState(false);
+
+  // 进入 Claude 模式时自动展开预览面板，退出时关闭
+  useEffect(() => {
+    if (chatMode === 'claude') {
+      setShowPreview(true);
+    } else {
+      setShowPreview(false);
+    }
+  }, [chatMode]);
 
   // ==========================================
   // 状态订阅 - 使用精确订阅避免不必要的重渲染
@@ -598,23 +586,9 @@ export function ChatStage() {
   const isChatEmpty = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-full w-full bg-white dark:bg-[#131314]">
-
-      {/* 模式切换 */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a]">
-        <button
-          onClick={() => setChatMode('normal')}
-          className="px-3 py-1 rounded text-sm bg-blue-600 text-white"
-        >
-          常规模式
-        </button>
-        <button
-          onClick={() => setChatMode('claude')}
-          className="px-3 py-1 rounded text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-        >
-          Claude 模式
-        </button>
-      </div>
+    <div className="flex h-full w-full">
+      {/* 主聊天区域 */}
+      <div className="flex-1 flex flex-col h-full min-w-0 bg-white dark:bg-[#131314]">
 
       {/* 空聊天时显示居中欢迎语 + 输入框 */}
       {isChatEmpty && !isLoading && (
@@ -855,6 +829,37 @@ export function ChatStage() {
         )}
       </AnimatePresence>
 
+        {/* Claude 模式：预览面板已关闭时显示打开按钮 */}
+        {chatMode === 'claude' && !showPreview && (
+          <button
+            onClick={() => setShowPreview(true)}
+            className="fixed right-4 bottom-24 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-full shadow-lg transition-colors"
+            title="打开预览面板"
+          >
+            预览
+          </button>
+        )}
+      </div>
+      {/* 主聊天区域结束 */}
+
+      {/* Claude 模式预览面板 — 从右侧滑出 */}
+      <AnimatePresence>
+        {chatMode === 'claude' && showPreview && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 320, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e1e1f] overflow-hidden shrink-0"
+          >
+            <div className="w-80">
+              <ClaudeErrorBoundary onReset={() => onModeChange('normal')}>
+                <ClaudePreview onClose={() => setShowPreview(false)} />
+              </ClaudeErrorBoundary>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

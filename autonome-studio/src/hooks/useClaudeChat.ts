@@ -5,7 +5,7 @@
 import { useCallback, useRef } from 'react';
 import { useClaudeStore } from '@/store/useClaudeStore';
 import type { ClaudeEvent } from '@/types/claude';
-import { fetchAPI } from '@/lib/api';
+import { fetchAPI, BASE_URL, getToken } from '@/lib/api';
 
 export function useClaudeChat() {
   const {
@@ -48,15 +48,22 @@ export function useClaudeChat() {
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const response = await fetchAPI(
-            `/api/claude/sessions/${activeSessionId}/conversations/${activeConversationId}/messages`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content }),
-              signal: abortController.signal,
-            }
-          );
+          // 使用原生 fetch 保留 Response.body 以进行 SSE 流式读取
+          // fetchAPI 会调用 response.json()，无法处理 text/event-stream 响应
+          const url = `${BASE_URL}/api/claude/sessions/${activeSessionId}/conversations/${activeConversationId}/messages`;
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          const token = getToken();
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ content }),
+            signal: abortController.signal,
+            credentials: 'include',
+          });
 
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);

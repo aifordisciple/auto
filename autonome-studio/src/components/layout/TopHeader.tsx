@@ -9,21 +9,27 @@ interface TopHeaderProps {
   projectName?: string;
   isLeftOpen?: boolean;
   onToggleLeft?: () => void;
-  onExportMarkdown?: () => void;  // ✨ 新增：导出对话回调
+  onExportMarkdown?: () => void;  // 导出对话回调
+  chatMode?: 'normal' | 'claude';
+  onModeChange?: (mode: 'normal' | 'claude') => void;
 }
 
 export function TopHeader({
   projectName = "Default Workspace",
   isLeftOpen = true,
   onToggleLeft,
-  onExportMarkdown
+  onExportMarkdown,
+  chatMode = 'normal',
+  onModeChange,
 }: TopHeaderProps) {
   const { user, fetchProfile } = useAuthStore();
   const { toggleProjectCenter, toggleMobileMenu } = useUIStore();
 
   // ✨ 下拉菜单状态管理
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
 
   // ✨ 定时轮询刷新用户信息（包括算力余额）
   useEffect(() => {
@@ -39,6 +45,9 @@ export function TopHeader({
     const handleClickOutside = (event: MouseEvent) => {
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
         setIsToolsMenuOpen(false);
+      }
+      if (modeMenuRef.current && !modeMenuRef.current.contains(event.target as Node)) {
+        setIsModeMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -93,10 +102,43 @@ export function TopHeader({
 
       {/* 右侧：状态展示 */}
       <div className="flex items-center gap-3">
-        {/* ✨ 模式指示 */}
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400">
-          <MessageSquare size={14} />
-          <span className="hidden sm:inline">常规模式</span>
+        {/* 模式切换下拉菜单 */}
+        <div className="relative" ref={modeMenuRef}>
+          <button
+            onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400 hover:bg-gray-200 dark:hover:bg-neutral-800 transition-colors"
+          >
+            <MessageSquare size={14} className={chatMode === 'claude' ? 'text-blue-400' : ''} />
+            <span className="hidden sm:inline">{chatMode === 'claude' ? 'Claude 模式' : '常规模式'}</span>
+            <ChevronDown size={12} className={`transition-transform ${isModeMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {isModeMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 bg-white dark:bg-[#1e1e1f] border border-gray-200 dark:border-neutral-800/80 rounded-xl shadow-2xl overflow-hidden z-50 min-w-[160px]">
+              <button
+                onClick={() => { onModeChange('normal'); setIsModeMenuOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] transition-colors ${
+                  chatMode === 'normal'
+                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                    : 'text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60'
+                }`}
+              >
+                <MessageSquare size={16} />
+                <span>常规模式</span>
+              </button>
+              <button
+                onClick={() => { onModeChange('claude'); setIsModeMenuOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] transition-colors ${
+                  chatMode === 'claude'
+                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                    : 'text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60'
+                }`}
+              >
+                <MessageSquare size={16} className="text-blue-400" />
+                <span>Claude 模式</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ✨ 积分余额 - 响应式显示 */}

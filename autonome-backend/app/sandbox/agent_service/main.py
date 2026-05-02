@@ -24,6 +24,7 @@ SESSION_ID = os.environ.get("CLAUDE_SESSION_ID", "")
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 API_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://claude-redis:6380/0")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "")
 
 redis_client: AgentRedisClient = None
 claude_manager: ClaudeManager = None
@@ -90,6 +91,7 @@ def main() -> None:
     claude_manager = ClaudeManager(
         api_key=API_KEY,
         api_base_url=API_BASE_URL or None,
+        model=CLAUDE_MODEL or None,
     )
 
     redis_client.start_heartbeat(SESSION_ID)

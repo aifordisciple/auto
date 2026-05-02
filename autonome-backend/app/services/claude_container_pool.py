@@ -103,6 +103,7 @@ class ClaudeContainerPool:
                     "-e", f"CLAUDE_SESSION_ID={session_id}",
                     "-e", f"REDIS_URL={CLAUDE_REDIS_URL}",
                     "-e", f"USER_ID={user_id}",
+                    "-e", f"CLAUDE_MODEL={os.environ.get('CLAUDE_MODEL', '')}",
                     "-v", f"claude_workspace_{session_id}:/workspace",
                     CLAUDE_SANDBOX_IMAGE,
                     "python3", "/app/app/sandbox/agent_service/main.py",

@@ -28,7 +28,7 @@ interface PreviewState {
   data?: string;
 }
 
-export function ClaudePreview() {
+export function ClaudePreview({ onClose }: { onClose?: () => void }) {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ type: 'none' });
@@ -116,8 +116,17 @@ export function ClaudePreview() {
   return (
     <div className="flex flex-col h-full">
       {/* 标题区 */}
-      <div className="px-3 py-2 border-b border-gray-700">
+      <div className="px-3 py-2 border-b border-gray-700 flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-300">预览区</h3>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-300 text-xs px-1.5 py-0.5 rounded hover:bg-gray-700 transition-colors"
+            title="隐藏预览面板"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* 预览内容区 */}

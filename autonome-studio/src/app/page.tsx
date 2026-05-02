@@ -155,6 +155,7 @@ export default function AutonomeStudio() {
   const [mounted, setMounted] = useState(false);
   const [projectName, setProjectName] = useState<string>("加载中...");
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [chatMode, setChatMode] = useState<'normal' | 'claude'>('normal');
 
   // ==========================================
   // 全局快捷键处理
@@ -338,11 +339,13 @@ export default function AutonomeStudio() {
           isLeftOpen={isLeftSidebarOpen}
           onToggleLeft={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
           onExportMarkdown={exportToMarkdown}
+          chatMode={chatMode}
+          onModeChange={setChatMode}
         />
 
         {/* 聊天主容器 */}
         <div className="flex-1 overflow-hidden w-full relative">
-          <ChatStage />
+          <ChatStage chatMode={chatMode} onModeChange={setChatMode} />
         </div>
       </div>
 

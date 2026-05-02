@@ -50,6 +50,8 @@ services:
       # 前端 URL（CORS 允许来源，生产环境需设置为实际访问地址）
       - FRONTEND_URL=http://113.44.66.210:3001
       - CLAUDE_REDIS_URL=redis://claude-redis:6380/0
+      # Claude Code 使用的模型（默认使用 claude-sonnet-4-6，可选 claude-opus-4-6 等）
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-}
     volumes:
       # ✨ 修复2：改为绝对直连的 Bind Mount，容器侧路径改为 /workspace
       - ./uploads:/workspace
