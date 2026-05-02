@@ -28,6 +28,11 @@ from app.services.claude_redis_bridge import get_claude_bridge
 from app.services.claude_container_pool import get_container_pool
 
 
+def _ok(data: dict) -> dict:
+    """统一成功响应信封 {success: true, data: {...}}"""
+    return {"success": True, "data": data}
+
+
 router = APIRouter(prefix="/api/claude", tags=["claude"])
 
 
@@ -60,12 +65,12 @@ async def create_session(
 ):
     mgr = ClaudeSessionManager(user.id)
     session = await mgr.create_session(req.title)
-    return {
+    return _ok({
         "id": str(session.id),
         "title": session.title,
         "status": session.status,
         "created_at": session.created_at.isoformat(),
-    }
+    })
 
 
 @router.get("/sessions")
@@ -75,7 +80,7 @@ async def list_sessions(
 ):
     mgr = ClaudeSessionManager(user.id)
     sessions = await mgr.list_sessions(status)
-    return {
+    return _ok({
         "sessions": [
             {
                 "id": str(s.id),
@@ -86,7 +91,7 @@ async def list_sessions(
             }
             for s in sessions
         ]
-    }
+    })
 
 
 @router.get("/sessions/{session_id}")
@@ -98,14 +103,14 @@ async def get_session(
     session = await mgr.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
-    return {
+    return _ok({
         "id": str(session.id),
         "title": session.title,
         "status": session.status,
         "container_id": session.container_id,
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
-    }
+    })
 
 
 @router.patch("/sessions/{session_id}")
@@ -119,7 +124,7 @@ async def update_session(
     session = await mgr.update_session(session_id, **kwargs)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
-    return {"id": str(session.id), "status": "updated"}
+    return _ok({"id": str(session.id), "status": "updated"})
 
 
 @router.delete("/sessions/{session_id}")
@@ -129,7 +134,7 @@ async def delete_session(
 ):
     mgr = ClaudeSessionManager(user.id)
     await mgr.close_session(session_id)
-    return {"status": "closed"}
+    return _ok({"status": "closed"})
 
 
 # ==========================================
@@ -160,7 +165,7 @@ async def create_conversation(
         db.add(conv)
         db.commit()
         db.refresh(conv)
-        return {"id": str(conv.id), "title": conv.title}
+        return _ok({"id": str(conv.id), "title": conv.title})
 
 
 @router.post("/sessions/{session_id}/conversations/{conversation_id}/messages")
@@ -223,7 +228,7 @@ async def get_messages(
     """获取对话历史消息"""
     mgr = ClaudeSessionManager(user.id)
     messages = await mgr.get_conversation_messages(conversation_id)
-    return {
+    return _ok({
         "messages": [
             {
                 "id": str(m.id),
@@ -237,7 +242,7 @@ async def get_messages(
             }
             for m in messages
         ]
-    }
+    })
 
 
 # ==========================================
