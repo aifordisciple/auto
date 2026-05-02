@@ -9,34 +9,34 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { PlanCard } from './PlanCard';
 import { TaskCard } from './TaskCard';
 import { ToolUseBlock } from './ToolUseBlock';
-import type { ClaudeMessage, PlanData } from '@/types/claude';
+import type { ClaudeMessage, PlanData, ClaudeStreamEvent, ClaudeTextDeltaEvent } from '@/types/claude';
 
 interface ClaudeMessageListProps {
   messages: ClaudeMessage[];
-  streamEvents: Array<{ type: string; [key: string]: unknown }>;
+  streamEvents: ClaudeStreamEvent[];
   isStreaming: boolean;
   onPlanConfirm: () => void;
 }
 
-function buildTextContent(events: Array<{ type: string; content?: string }>): string {
+function buildTextContent(events: ClaudeStreamEvent[]): string {
   return events
-    .filter((e) => e.type === 'text_delta')
-    .map((e) => e.content || '')
+    .filter((e): e is ClaudeTextDeltaEvent => e.type === 'text_delta')
+    .map((e) => e.content)
     .join('');
 }
 
-function extractPlan(events: Array<{ type: string; title?: string; steps?: Array<{ title: string; description: string }>; codeSnapshot?: string; estimatedCost?: string; [key: string]: unknown }>): PlanData | null {
+function extractPlan(events: ClaudeStreamEvent[]): PlanData | null {
   const e = events.find((ev) => ev.type === 'plan');
-  if (!e) return null;
+  if (!e || e.type !== 'plan') return null;
   return {
-    title: String(e.title || ''),
-    steps: (e.steps as PlanData['steps']) || [],
-    codeSnapshot: String(e.codeSnapshot || ''),
-    estimatedCost: String(e.estimatedCost || ''),
+    title: e.title,
+    steps: e.steps,
+    codeSnapshot: e.codeSnapshot,
+    estimatedCost: e.estimatedCost,
   };
 }
 
-function extractTaskIds(events: Array<{ type: string; task_id?: string; [key: string]: unknown }>): string[] {
+function extractTaskIds(events: ClaudeStreamEvent[]): string[] {
   return events
     .filter((e) => e.type === 'task_submitted' && e.task_id)
     .map((e) => e.task_id!);
