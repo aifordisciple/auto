@@ -1,0 +1,67 @@
+<h2>异常处理与边界情况</h2>
+<p class="subtitle">每种失败都有明确的恢复路径，用户不会陷入死胡同</p>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid #ff6b6b">
+    <span class="label" style="color:#ff6b6b">Agent 生成失败</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      LLM 返回不可执行代码 / 超时 / 格式异常 → <strong>自动重试 1 次</strong>，仍失败则展示原始输出 + 错误说明，让用户决定：手动修复 / 重新描述需求 / 简化需求
+    </p>
+  </div>
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid #ffa502">
+    <span class="label" style="color:#ffa502">静态检查失败</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      安全问题 / 语法错误 → <strong>Agent 自动修复</strong>（最多 3 轮），每轮将错误信息喂回 LLM。3 轮后仍未通过 → 展示问题列表，用户手动修
+    </p>
+  </div>
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid #ffa502">
+    <span class="label" style="color:#ffa502">自动测试失败</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      Docker 执行报错 / 输出不符合预期 → 展示：<strong>错误日志 + AI 分析的可能原因 + 建议修复方案</strong>。用户可选择：让 Agent 修复 / 忽略直接发布 / 手动修
+    </p>
+  </div>
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid #54a0ff">
+    <span class="label" style="color:#54a0ff">用户中断</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      任何阶段点击「暂停」→ Agent 保存当前状态到 ForgeSession → 用户可以：继续 / 在 Forge 中手动编辑 / 重新开始。<strong>已生成的部分不丢失</strong>
+    </p>
+  </div>
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid #54a0ff">
+    <span class="label" style="color:#54a0ff">SSE 连接中断</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      网络断开 / 刷新页面 → <strong>自动恢复</strong>。重连后从 ForgeSession 拉取最新状态，继续渲染已完成的阶段。未完成的阶段重新触发或让用户手动继续
+    </p>
+  </div>
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid var(--text-dim)">
+    <span class="label">意图模糊</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      用户输入「帮我做一个分析技能」→ Agent 不瞎猜，而是回问关键问题：<strong>什么类型的数据？期望什么输出？用什么工具？</strong>最多追问 3 轮
+    </p>
+  </div>
+
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px;border-left:3px solid var(--text-dim)">
+    <span class="label">重复 skill_id</span>
+    <p style="margin:4px 0 0 0;font-size:13px">
+      生成的 skill_id 冲突 → Agent 自动追加后缀 + 提示用户可手动改名
+    </p>
+  </div>
+
+</div>
+
+<h3 style="margin-top:20px">全流程时间预算</h3>
+<table style="width:100%;font-size:13px;border-collapse:collapse;margin-top:8px">
+  <tr style="background:var(--bg-hover)">
+    <th style="padding:8px;text-align:left">阶段</th><th style="padding:8px">预计</th><th style="padding:8px">超时</th><th style="padding:8px">超时策略</th>
+  </tr>
+  <tr><td style="padding:8px">意图解析</td><td style="padding:8px;text-align:center">2s</td><td style="padding:8px;text-align:center">10s</td><td style="padding:8px;font-size:12px">跳过，进入手动引导</td></tr>
+  <tr style="background:var(--bg-hover)"><td style="padding:8px">相似发现</td><td style="padding:8px;text-align:center">1s</td><td style="padding:8px;text-align:center">5s</td><td style="padding:8px;font-size:12px">跳过，直接创建</td></tr>
+  <tr><td style="padding:8px">核心生成</td><td style="padding:8px;text-align:center">10s</td><td style="padding:8px;text-align:center">30s</td><td style="padding:8px;font-size:12px">重试 1 次，失败交用户</td></tr>
+  <tr style="background:var(--bg-hover)"><td style="padding:8px">静态检查</td><td style="padding:8px;text-align:center">2s</td><td style="padding:8px;text-align:center">10s</td><td style="padding:8px;font-size:12px">跳过，标记未检查</td></tr>
+  <tr><td style="padding:8px">自动测试</td><td style="padding:8px;text-align:center">30s</td><td style="padding:8px;text-align:center">120s</td><td style="padding:8px;font-size:12px">跳过，标记未测试</td></tr>
+</table>

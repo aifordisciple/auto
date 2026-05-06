@@ -1,0 +1,66 @@
+<h2>三种架构方案</h2>
+<p class="subtitle">基于你的偏好：聊天入口、核心先行、混合迭代、渐进验证、可选发现</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>轻量桥接 — 聊天生成 + Forge 审核</h3>
+      <p>聊天中 AI 生成代码和参数，用户确认后点「在 Forge 中打开」。Forge 保持现有形态，新增 AI 侧边面板支持迭代微调。改动最小，最快落地。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>深度融合 — 聊天即编辑器</h3>
+      <p>重构 Forge：左右双栏。左侧是 AI 对话流，右侧是实时代码预览。对话中生成的代码即时渲染在右侧，无需跳转。点击代码块即可编辑。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>智能中间层 — Skill Agent 编排</h3>
+      <p>在后端构建专用的 Skill Agent，独立于聊天 Agent。前端只负责展示 Agent 的输出和提供编辑能力。Agent 负责：意图分析→搜索已有→生成→验证→迭代。</p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px">核心差异对比</h3>
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+  <tr style="background:var(--bg-hover)">
+    <th style="padding:8px;text-align:left">维度</th>
+    <th style="padding:8px;text-align:center">A 轻量桥接</th>
+    <th style="padding:8px;text-align:center">B 深度融合</th>
+    <th style="padding:8px;text-align:center">C Agent 编排</th>
+  </tr>
+  <tr>
+    <td style="padding:8px"><strong>改动范围</strong></td>
+    <td style="padding:8px;text-align:center">Forge 面板 + API</td>
+    <td style="padding:8px;text-align:center">Forge 重写 + 路由</td>
+    <td style="padding:8px;text-align:center">新增 Agent + Forge 改造</td>
+  </tr>
+  <tr style="background:var(--bg-hover)">
+    <td style="padding:8px"><strong>AI 可用性</strong></td>
+    <td style="padding:8px;text-align:center">按需触发</td>
+    <td style="padding:8px;text-align:center">始终在线</td>
+    <td style="padding:8px;text-align:center">自动编排</td>
+  </tr>
+  <tr>
+    <td style="padding:8px"><strong>学习成本</strong></td>
+    <td style="padding:8px;text-align:center">低（现有用户熟悉）</td>
+    <td style="padding:8px;text-align:center">中（新界面）</td>
+    <td style="padding:8px;text-align:center">低（自动化）</td>
+  </tr>
+  <tr style="background:var(--bg-hover)">
+    <td style="padding:8px"><strong>可扩展性</strong></td>
+    <td style="padding:8px;text-align:center">有限</td>
+    <td style="padding:8px;text-align:center">高</td>
+    <td style="padding:8px;text-align:center">最高</td>
+  </tr>
+  <tr>
+    <td style="padding:8px"><strong>落地时间</strong></td>
+    <td style="padding:8px;text-align:center">1-2 周</td>
+    <td style="padding:8px;text-align:center">3-4 周</td>
+    <td style="padding:8px;text-align:center">4-6 周</td>
+  </tr>
+</table>

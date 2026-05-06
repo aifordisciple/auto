@@ -1,0 +1,71 @@
+<h2>Skill Agent 状态机</h2>
+<p class="subtitle">每个阶段独立运行，用户可随时暂停、修改、跳过、回退</p>
+
+<div class="mockup" style="margin-bottom:20px">
+  <div class="mockup-header">Agent 执行流水线</div>
+  <div class="mockup-body">
+    <div style="display:flex;flex-direction:column;gap:0;font-family:monospace;font-size:13px">
+
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg-hover);border-radius:6px 6px 0 0;border-left:3px solid var(--accent)">
+        <span style="background:var(--accent);color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px">1</span>
+        <div style="flex:1"><strong>意图解析</strong></div>
+        <span style="font-size:11px;color:var(--text-dim)">~2s</span>
+      </div>
+      <div style="margin-left:19px;padding:4px 8px;font-size:11px;color:var(--text-dim);border-left:1px dashed var(--border)">LLM 提取：技能名、领域、输入输出、执行环境</div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;border-left:3px solid var(--border)">
+        <span style="background:var(--text-dim);color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px">2</span>
+        <div style="flex:1"><strong>相似技能发现</strong> <span style="font-size:10px;color:var(--text-dim)">可选跳过</span></div>
+        <span style="font-size:11px;color:var(--text-dim)">~1s</span>
+      </div>
+      <div style="margin-left:19px;padding:4px 8px;font-size:11px;color:var(--text-dim);border-left:1px dashed var(--border)">搜索已有技能，推荐复用/参考。用户选择：基于已有 / 全新创建</div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg-hover);border-left:3px solid var(--accent)">
+        <span style="background:var(--accent);color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px">3</span>
+        <div style="flex:1"><strong>核心生成</strong> — 代码 + 参数</div>
+        <span style="font-size:11px;color:var(--text-dim)">~10s</span>
+      </div>
+      <div style="margin-left:19px;padding:4px 8px;font-size:11px;color:var(--text-dim);border-left:1px dashed var(--border)">LLM 生成 script 代码 + 参数 schema。推送到 ForgeSession，前端即时渲染</div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;border-left:3px solid var(--border)">
+        <span style="background:var(--text-dim);color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px">4</span>
+        <div style="flex:1"><strong>静态检查</strong></div>
+        <span style="font-size:11px;color:var(--text-dim)">~2s</span>
+      </div>
+      <div style="margin-left:19px;padding:4px 8px;font-size:11px;color:var(--text-dim);border-left:1px dashed var(--border)">安全扫描 + 语法检查 + 参数合理性。失败时自动尝试修复（最多 3 次）</div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg-hover);border-left:3px solid var(--border)">
+        <span style="background:var(--text-dim);color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px">5</span>
+        <div style="flex:1"><strong>自动测试</strong> <span style="font-size:10px;color:var(--text-dim)">可选跳过</span></div>
+        <span style="font-size:11px;color:var(--text-dim)">~30s</span>
+      </div>
+      <div style="margin-left:19px;padding:4px 8px;font-size:11px;color:var(--text-dim);border-left:1px dashed var(--border)">AI 生成模拟输入 → Docker 沙箱执行 → 检查输出。失败时报告并建议修复</div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:8px;border-left:3px solid var(--accent)">
+        <span style="background:var(--accent);color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px">6</span>
+        <div style="flex:1"><strong>输出到 Forge</strong></div>
+        <span style="font-size:11px;color:var(--text-dim)">~1s</span>
+      </div>
+      <div style="margin-left:19px;padding:4px 8px 12px 8px;font-size:11px;color:var(--text-dim);border-left:1px dashed var(--border)">写入 ForgeSession + 文件系统。用户进入 Forge 审核、微调、补全、发布</div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>关键交互规则</h3>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+      <span class="label">用户可随时中断</span>
+      <p style="margin:4px 0 0 0;font-size:13px">每个阶段完成后 Agent 等待确认。用户可：继续 / 跳过 / 修改后重做 / 进入 Forge 手动编辑</p>
+    </div>
+    <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+      <span class="label">补全按需触发</span>
+      <p style="margin:4px 0 0 0;font-size:13px">文档、标签、元数据不在自动流水线中。用户在 Forge 中点击「AI 补全」触发，或聊天中说「帮我写这个技能的文档」</p>
+    </div>
+    <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+      <span class="label">迭代闭环</span>
+      <p style="margin:4px 0 0 0;font-size:13px">用户在 Forge 中修改后测试失败 → 错误信息自动送入 Agent → Agent 分析并建议修复 → 用户确认后自动应用。或用户在聊天中说「参数加一个 pvalue 阈值」→ Agent 修改代码并更新 Forge</p>
+    </div>
+  </div>
+</div>

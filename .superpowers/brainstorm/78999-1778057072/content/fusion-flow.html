@@ -1,0 +1,69 @@
+<h2>ABC 融合：三种入口，统一工作区</h2>
+<p class="subtitle">核心思路：不同的「启动方式」汇聚到同一个编辑器，AI 始终可用</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">入口层 — 三个触发路径</div>
+    <div class="mockup-body">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="background:var(--bg-hover);padding:12px;border-radius:8px">
+          <span class="label">路径A · 一键启动</span>
+          <p style="margin:4px 0 0 0;font-size:14px">用户在聊天中输入「帮我做一个差异表达分析技能」→ 直接进入 Forge，AI 预填全部内容</p>
+        </div>
+        <div style="background:var(--bg-hover);padding:12px;border-radius:8px">
+          <span class="label">路径B · 引导式</span>
+          <p style="margin:4px 0 0 0;font-size:14px">点击「新建技能」→ AI 对话式问答（做什么？输入什么？输出什么？）→ 逐步生成</p>
+        </div>
+        <div style="background:var(--bg-hover);padding:12px;border-radius:8px">
+          <span class="label">路径C · 自由画布</span>
+          <p style="margin:4px 0 0 0;font-size:14px">进入编辑器手动编写，侧边栏 AI 助手待命，可随时召唤</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">统一工作区</div>
+    <div class="mockup-body" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px">
+        <div class="mock-sidebar" style="flex:1">AI 对话面板<br><span style="font-size:12px;color:var(--text-dim)">随时可用</span></div>
+        <div class="mock-content" style="flex:2;min-height:150px">
+          <span style="font-size:13px">代码 / 配置编辑器</span>
+          <div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">
+            <span class="mock-button" style="font-size:11px">代码</span>
+            <span class="mock-button" style="font-size:11px">参数</span>
+            <span class="mock-button" style="font-size:11px">元数据</span>
+            <span class="mock-button" style="font-size:11px">测试</span>
+          </div>
+        </div>
+      </div>
+      <div style="background:var(--bg-hover);padding:8px;border-radius:6px;font-size:13px">
+        <strong>关键设计：</strong>三种路径进入的都是同一个工作区。区别只是 AI 预填程度不同，用户始终可以：手动编辑任何内容、召唤 AI 修改局部、回退到向导模式
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px">三种选项对比</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>聊天为入口，Forge 为工作区</h3>
+      <p>用户的起点始终在聊天，AI 理解意图后自动填充并打开 Forge。Forge 内 AI 面板持续可用。适合「AI 优先」的心智模型。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Forge 为入口，AI 为第一屏</h3>
+      <p>打开 Forge 时先看到 AI 对话界面，AI 先问「你想创建什么技能？」。用户也可以跳过直接进入编辑器。适合「工具优先」。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>同一界面，左 AI 右编辑器</h3>
+      <p>进入就是双栏布局：左侧 AI 对话，右侧代码编辑器。没有模态/弹窗/页面跳转。三种路径的区别仅是 AI 栏里预填了多少内容。适合「效率优先」。</p>
+    </div>
+  </div>
+</div>

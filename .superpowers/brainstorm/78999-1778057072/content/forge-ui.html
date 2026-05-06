@@ -1,0 +1,87 @@
+<h2>Forge 面板重设计</h2>
+<p class="subtitle">双栏布局：AI 对话在左，代码编辑器在右。两个面板地位平等，随时切换主导权</p>
+
+<div class="mockup" style="margin-bottom:16px">
+  <div class="mockup-header">新 Forge 布局</div>
+  <div class="mockup-body">
+    <div style="display:flex;gap:12px;min-height:320px">
+
+      <!-- Left: AI Panel -->
+      <div style="flex:1;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:var(--bg-hover);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px">
+          🤖 AI 助手
+          <span style="margin-left:auto;font-size:10px;color:var(--text-dim);font-weight:400">随时可用</span>
+        </div>
+        <div style="flex:1;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+          <div style="align-self:flex-start;max-width:90%;background:var(--bg-hover);padding:8px 10px;border-radius:8px;font-size:12px">
+            已为你生成 <strong>差异表达分析</strong> 技能核心：
+            <br>• main.py — 基于 DESeq2
+            <br>• 3 个参数：count_matrix, metadata, pvalue_threshold
+            <br>• 静态检查通过 ✓
+          </div>
+          <div style="align-self:flex-end;max-width:85%;background:var(--accent);color:white;padding:8px 10px;border-radius:8px;font-size:12px">
+            帮我把 pvalue 默认值改成 0.01
+          </div>
+          <div style="align-self:flex-start;max-width:90%;background:var(--bg-hover);padding:8px 10px;border-radius:8px;font-size:12px">
+            已更新。另外检测到你可能还需要 log2FC 阈值参数，要加上吗？
+          </div>
+        </div>
+        <div style="padding:8px;border-top:1px solid var(--border);display:flex;gap:6px">
+          <input class="mock-input" style="flex:1;font-size:12px" placeholder="输入修改要求...">
+          <button class="mock-button" style="font-size:12px">发送</button>
+        </div>
+      </div>
+
+      <!-- Right: Editor -->
+      <div style="flex:1.2;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 12px;background:var(--bg-hover);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;display:flex;align-items:center;gap:4px">
+          <span style="cursor:pointer;padding:2px 6px;border-radius:4px;font-size:11px;background:var(--accent);color:white">main.py</span>
+          <span style="cursor:pointer;padding:2px 6px;border-radius:4px;font-size:11px">SKILL.md</span>
+          <span style="cursor:pointer;padding:2px 6px;border-radius:4px;font-size:11px">参数</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--accent)">● AI 已修改</span>
+        </div>
+        <div style="flex:1;padding:12px;font-family:monospace;font-size:12px;overflow-y:auto;background:#1a1a2e;color:#e0e0e0">
+          <span style="color:#888"># 差异表达分析</span><br>
+          <span style="color:#888"># AI 生成 · 静态检查通过</span><br><br>
+          <span style="color:#ff79c6">import</span> argparse<br>
+          <span style="color:#ff79c6">import</span> pandas <span style="color:#ff79c6">as</span> pd<br>
+          <span style="color:#ff79c6">import</span> numpy <span style="color:#ff79c6">as</span> np<br><br>
+          <span style="color:#ff79c6">def</span> <span style="color:#50fa7b">run_de_analysis</span>(...):<br>
+          &nbsp;&nbsp;<span style="color:#888"># DESeq2 差异表达</span><br>
+          &nbsp;&nbsp;...
+        </div>
+        <div style="padding:6px 12px;border-top:1px solid var(--border);display:flex;gap:8px;font-size:11px;align-items:center">
+          <span style="color:var(--accent)">✓ 语法正确</span>
+          <span style="color:var(--accent)">✓ 安全检查通过</span>
+          <button class="mock-button" style="font-size:11px;margin-left:auto">▶ 测试运行</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<h3>与原 Forge 的关键变化</h3>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+    <span class="label">原有</span>
+    <ul style="margin:8px 0 0 0;padding-left:18px;font-size:13px">
+      <li>4 个独立 Tab（编辑/配置/元数据/测试）</li>
+      <li>手动填写的表单和编辑器</li>
+      <li>AI 仅"推断参数"按钮</li>
+      <li>SKILL.md 手动编辑</li>
+      <li>测试 Tab 手动操作</li>
+    </ul>
+  </div>
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+    <span class="label">新版</span>
+    <ul style="margin:8px 0 0 0;padding-left:18px;font-size:13px">
+      <li>双栏：AI 对话 + 代码编辑器</li>
+      <li>AI 预填 + 用户微调</li>
+      <li>AI 对话即交互界面</li>
+      <li>SKILL.md 由系统生成，用户只需关注代码和参数</li>
+      <li>测试结果直接显示在底部状态栏</li>
+    </ul>
+  </div>
+</div>

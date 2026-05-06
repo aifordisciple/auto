@@ -1,0 +1,71 @@
+<h2>数据流与 API 设计</h2>
+<p class="subtitle">Skill Agent 通过 ForgeSession 与前端解耦，流式推送进度</p>
+
+<div class="mockup" style="margin-bottom:16px">
+  <div class="mockup-header">核心数据流</div>
+  <div class="mockup-body">
+    <div style="display:flex;flex-direction:column;gap:8px;font-family:monospace;font-size:12px">
+
+      <div style="background:var(--bg-hover);padding:10px;border-radius:6px;border-left:3px solid var(--accent)">
+        <strong>POST /api/forge/agent/generate</strong>
+        <div style="color:var(--text-dim);margin-top:4px">
+          { user_input: "帮我做差异表达分析", chat_context?: [...], base_skill_id?: "existing_skill" }
+        </div>
+        <div style="color:var(--text-dim);margin-top:2px">
+          → 创建 ForgeSession，返回 session_id + WS 通道
+        </div>
+      </div>
+
+      <div style="text-align:center;color:var(--text-dim)">↓ SSE 流式推送 ↓</div>
+
+      <div style="border:1px solid var(--border);padding:10px;border-radius:6px;display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:11px;color:var(--text-dim)">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"intent_parse","status":"done","result":{"skill_name":"差异表达分析","domain":"transcriptomics","executor":"R_env"}}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"similarity_search","status":"done","similar":[{...}]}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"core_generation","status":"streaming","chunk":"def run_de_analysis..."}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"core_generation","status":"done","result":{"script":"...","parameters":[...]}}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"static_check","status":"done","result":{"passed":true,"warnings":[]}}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"auto_test","status":"done","result":{"passed":true,"output":"..."}}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">event: phase</div>
+        <div style="font-size:11px">data: {"phase":"forge_output","status":"done","forge_url":"/forge/session_abc"}</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+    <span class="label">迭代 API</span>
+    <div style="font-family:monospace;font-size:11px;margin-top:8px">
+      <div style="margin-bottom:6px"><strong>POST /api/forge/agent/iterate</strong></div>
+      <div style="color:var(--text-dim)">{ session_id, instruction: "参数加 pvalue 阈值", scope: "params|code|docs" }</div>
+      <div style="margin-top:6px">→ Agent 修改指定范围 → SSE 推送新的代码/参数</div>
+    </div>
+  </div>
+  <div style="padding:12px;background:var(--bg-hover);border-radius:8px">
+    <span class="label">补全 API</span>
+    <div style="font-family:monospace;font-size:11px;margin-top:8px">
+      <div style="margin-bottom:6px"><strong>POST /api/forge/agent/supplement</strong></div>
+      <div style="color:var(--text-dim)">{ session_id, supplement_type: "docs|tags|metadata|dependencies" }</div>
+      <div style="margin-top:6px">→ Agent 生成补全内容 → SSE 推送 → 用户确认后写入</div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:16px">ForgeSession 扩展字段</h3>
+<div style="font-family:monospace;font-size:11px;background:var(--bg-hover);padding:12px;border-radius:8px;overflow-x:auto">
+  skill_draft (JSONB) {<br>
+  &nbsp;&nbsp;...existing fields...,<br>
+  &nbsp;&nbsp;<span style="color:var(--accent)">"agent_phase": "core_generation"</span>, &nbsp;&nbsp;// 当前 Agent 阶段<br>
+  &nbsp;&nbsp;<span style="color:var(--accent)">"agent_history": [...]</span>, &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// Agent 操作历史<br>
+  &nbsp;&nbsp;<span style="color:var(--accent)">"static_check_result": {...}</span>, &nbsp;// 静态检查结果<br>
+  &nbsp;&nbsp;<span style="color:var(--accent)">"auto_test_result": {...}</span>, &nbsp;&nbsp;&nbsp;// 自动测试结果<br>
+  &nbsp;&nbsp;<span style="color:var(--accent)">"source_skill_id": null</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// 基于哪个已有技能创建的<br>
+  }
+</div>
