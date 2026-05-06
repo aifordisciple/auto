@@ -33,11 +33,11 @@ class SkillAssetBase(SQLModel):
     executor_type: str = Field(default="Python_env", max_length=50)
 
     # 核心资产内容
-    parameters_schema: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    parameters_schema: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSONB))
     expert_knowledge: Optional[str] = Field(default=None)
     script_code: Optional[str] = Field(default=None, description="实际执行的Python/R代码")
     nextflow_code: Optional[str] = Field(default=None, description="Nextflow工作流代码（Logical_Blueprint执行器专用）")
-    dependencies: List[str] = Field(default_factory=list, sa_column=Column(JSONB))
+    dependencies: Optional[List[str]] = Field(default=None, sa_column=Column(JSONB))
 
     # 分类信息 (新增)
     category: Optional[str] = Field(default=None, max_length=100, description="一级分类ID")
@@ -71,6 +71,14 @@ class SkillAssetBase(SQLModel):
     # 仅官方技能可以使用原生执行模式
     execution_mode: str = Field(default="docker", max_length=20, description="执行模式: docker(容器执行) | native(原生执行)")
     execution_mode_updated_at: Optional[datetime] = Field(default=None, description="执行模式最后更新时间")
+
+    # ==========================================
+    # 文件系统索引字段（2026-05 技能文件系统统一化）
+    # ==========================================
+    bundle_path: Optional[str] = Field(default=None, max_length=500, description="技能文件夹路径")
+    is_official: bool = Field(default=False, description="是否为官方预置技能")
+    file_hash: Optional[str] = Field(default=None, max_length=32, description="SKILL.md SHA256 哈希(前16位)")
+    indexed_at: Optional[datetime] = Field(default=None, description="最后索引时间")
 
 
 class SkillAsset(SkillAssetBase, table=True):
