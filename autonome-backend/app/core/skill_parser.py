@@ -1,9 +1,9 @@
 """
 SKILL Bundle Parser - 解析 SKILL.md 文件，提取元数据、参数 Schema 和专家知识库
 
-支持两种数据源：
-1. 文件系统：解析 /app/skills 目录下的 SKILL.md 文件（用于官方预置技能）
-2. 数据库：查询 SkillAsset 表（用于用户自定义技能，支持 RBAC 权限过滤）
+支持文件系统优先的架构：
+- 文件系统解析 /app/skills 目录下的 SKILL.md 文件
+- SkillAsset DB 表仅作为索引，存储状态、评分等元数据
 
 支持两种 SKILL 类型：
 1. 可执行型 (executable)：完整流程调度，输出 json_strategy 卡片
@@ -24,9 +24,6 @@ SKILL.md 格式规范：
 
 import os
 import re
-import json
-import copy
-from functools import lru_cache
 from typing import Dict, List, Any, Optional
 
 import yaml
@@ -578,284 +575,131 @@ def get_skill_parser() -> SkillBundleParser:
     return _skill_parser_instance
 
 
-class DBSkillParser:
+
+def get_skill_from_db_index(skill_id: str) -> Optional[Dict[str, Any]]:
     """
-    数据库 SKILL 解析器 - 支持基于用户 ID 的 RBAC 权限过滤
+    从 SkillAsset DB 索引获取技能元数据，并从文件系统获取详细内容
 
-    查询规则：
-    - 用户可以看到所有 PUBLISHED 状态的技能（公共技能）
-    - 用户可以看到自己创建的所有状态技能（私有技能）
+    用于替换 get_combined_skill_by_id，DB 只存索引元数据，
+    通过 SkillBundleParser 从文件系统获取 parameters_schema 和 expert_knowledge。
+
+    Args:
+        skill_id: SKILL 唯一标识符
+
+    Returns:
+        完整的技能信息字典（合并 DB 索引 + 文件系统内容）
     """
+    parser = get_skill_parser()
+    fs_skill = parser.get_skill_by_id(skill_id)
 
-    def __init__(self, user_id: int):
-        """
-        初始化数据库解析器
+    if not fs_skill:
+        return None
 
-        Args:
-            user_id: 当前用户 ID，用于权限过滤
-        """
-        self.user_id = user_id
-        log.info(f"[DBSkillParser] 初始化数据库 SKILL 解析器，用户 ID: {user_id}")
+    # 尝试从 DB 索引补充元数据（状态、评分、权限等）
+    try:
+        with Session(engine) as session:
+            db_skill = session.exec(
+                select(SkillAsset).where(SkillAsset.skill_id == skill_id)
+            ).first()
 
-    def get_all_skills(self) -> List[Dict[str, Any]]:
-        """
-        获取当前用户可见的所有 SKILL
+            if db_skill:
+                fs_skill["metadata"]["status"] = db_skill.status.value if db_skill.status else "PUBLISHED"
+                fs_skill["metadata"]["visibility"] = db_skill.visibility
+                fs_skill["metadata"]["owner_id"] = db_skill.owner_id
+                fs_skill["source"] = "filesystem"
+                fs_skill["owner_id"] = db_skill.owner_id
+                fs_skill["usage_count"] = db_skill.usage_count or 0
+                fs_skill["avg_rating"] = db_skill.avg_rating or 0.0
+                fs_skill["favorite_count"] = db_skill.favorite_count or 0
+                fs_skill["is_official"] = db_skill.is_official
+            else:
+                fs_skill["source"] = "filesystem"
+                fs_skill["owner_id"] = 0
+    except Exception as e:
+        log.warning(f"[SkillParser] DB 索引查询失败: {e}")
+        fs_skill["source"] = "filesystem"
+        fs_skill["owner_id"] = 0
 
-        注意：
-        - 草稿状态 (DRAFT) 的技能不会显示在执行列表中
-        - 已下架 (DEPRECATED) 的技能也不会显示
+    return fs_skill
 
-        Returns:
-            包含所有可见 SKILL 信息的列表
-        """
-        skills_list = []
-        try:
-            with Session(engine) as session:
-                # RBAC 权限过滤：
-                # 1. 所有 PUBLISHED 状态的技能（公共技能）
-                # 2. 用户自己创建的非 DRAFT/DEPRECATED 状态技能
-                # 注意：DRAFT 草稿和 DEPRECATED 已下架不显示在执行列表中
-                statement = select(SkillAsset).where(
-                    or_(
-                        SkillAsset.status == SkillStatus.PUBLISHED,
-                        and_(
-                            SkillAsset.owner_id == self.user_id,
-                            SkillAsset.status.notin_([SkillStatus.DRAFT, SkillStatus.DEPRECATED])
-                        )
+
+def get_skills_from_db_index(user_id: int) -> List[Dict[str, Any]]:
+    """
+    获取用户可见的所有技能列表
+
+    从 SkillAsset DB 索引获取可见的技能 ID 列表，
+    再从文件系统补充详细信息。
+    替换 get_combined_skills()。
+
+    Args:
+        user_id: 当前用户 ID
+
+    Returns:
+        技能列表
+    """
+    parser = get_skill_parser()
+
+    try:
+        with Session(engine) as session:
+            statement = select(SkillAsset).where(
+                or_(
+                    SkillAsset.status == SkillStatus.PUBLISHED,
+                    and_(
+                        SkillAsset.owner_id == user_id,
+                        SkillAsset.status.notin_([SkillStatus.DRAFT, SkillStatus.DEPRECATED])
                     )
-                ).order_by(SkillAsset.created_at.desc())
+                )
+            ).order_by(SkillAsset.indexed_at.desc())
 
-                db_skills = session.exec(statement).all()
+            db_skills = session.exec(statement).all()
 
-                for s in db_skills:
-                    # 判断技能类型：数据库中的技能默认为可执行型
-                    # 除非显式声明为知识型
-                    skill_type = getattr(s, 'skill_type', 'executable') if hasattr(s, 'skill_type') else 'executable'
-                    is_knowledge = skill_type == 'knowledge'
+            result = []
+            seen_ids = set()
 
-                    # 将数据库模型转为 AI 熟悉的旧版 JSON 结构，保持向下兼容
-                    skills_list.append({
-                        "metadata": {
-                            "skill_id": s.skill_id,
-                            "skill_type": skill_type,
-                            "name": s.name,
-                            "description": s.description,
-                            "executor_type": s.executor_type,
-                            "version": s.version,
-                            "author": f"user_{s.owner_id}",
-                            "status": s.status.value if s.status else "DRAFT",
-                            # 新增分类信息
-                            "category": s.category,
-                            "category_name": s.category_name,
-                            "subcategory": s.subcategory,
-                            "subcategory_name": s.subcategory_name,
-                            "tags": s.tags or [],
-                            # 新增发布信息
-                            "visibility": s.visibility,
-                            "license": s.license,
-                        },
-                        "parameters_schema": s.parameters_schema or {},
-                        "expert_knowledge": s.expert_knowledge or "暂无专家指导。",
-                        "script_code": s.script_code,
-                        "dependencies": s.dependencies or [],
-                        "source": "database",  # 标记来源
-                        "owner_id": s.owner_id,
-                        "is_knowledge_skill": is_knowledge,
-                        # 新增统计信息
-                        "usage_count": s.usage_count or 0,
-                        "avg_rating": s.avg_rating or 0.0,
-                        "favorite_count": s.favorite_count or 0
-                    })
+            for db_skill in db_skills:
+                skill_id = db_skill.skill_id
+                if skill_id in seen_ids:
+                    continue
+                seen_ids.add(skill_id)
 
-            log.info(f"[DBSkillParser] 查询到 {len(skills_list)} 个可见 SKILL")
-            return skills_list
+                # 从文件系统获取详细信息
+                fs_skill = parser.get_skill_by_id(skill_id)
+                if not fs_skill:
+                    log.warning(f"[SkillParser] DB 索引指向不存在的文件: {skill_id}")
+                    continue
 
-        except Exception as e:
-            log.error(f"[DBSkillParser] 从数据库加载 SKILL 失败: {e}")
-            return []
+                # 合并 DB 索引元数据
+                fs_skill["metadata"]["status"] = db_skill.status.value if db_skill.status else "PUBLISHED"
+                fs_skill["metadata"]["visibility"] = db_skill.visibility
+                fs_skill["source"] = "filesystem"
+                fs_skill["owner_id"] = db_skill.owner_id
+                fs_skill["usage_count"] = db_skill.usage_count or 0
+                fs_skill["avg_rating"] = db_skill.avg_rating or 0.0
+                fs_skill["favorite_count"] = db_skill.favorite_count or 0
+                fs_skill["is_official"] = db_skill.is_official
 
-    def get_skill_by_id(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        """
-        根据 skill_id 获取单个 SKILL（带权限检查）
+                result.append(fs_skill)
 
-        Args:
-            skill_id: SKILL 的唯一标识符
+            # 追加 DB 索引中不存在但文件系统存在的官方技能
+            all_fs_skills = parser.get_all_skills()
+            for fs_skill in all_fs_skills:
+                fs_id = fs_skill.get("metadata", {}).get("skill_id")
+                if fs_id and fs_id not in seen_ids:
+                    fs_skill["source"] = "filesystem"
+                    fs_skill["owner_id"] = 0
+                    fs_skill["is_official"] = True
+                    result.append(fs_skill)
 
-        Returns:
-            SKILL 信息字典，如果无权限或不存在则返回 None
-        """
-        try:
-            with Session(engine) as session:
-                skill = session.exec(
-                    select(SkillAsset).where(SkillAsset.skill_id == skill_id)
-                ).first()
+            return result
 
-                if not skill:
-                    return None
-
-                # 权限检查：必须是 PUBLISHED 或 自己创建的
-                if skill.status != SkillStatus.PUBLISHED and skill.owner_id != self.user_id:
-                    log.warning(f"[DBSkillParser] 用户 {self.user_id} 无权访问 SKILL: {skill_id}")
-                    return None
-
-                # 判断技能类型
-                skill_type = getattr(skill, 'skill_type', 'executable') if hasattr(skill, 'skill_type') else 'executable'
-                is_knowledge = skill_type == 'knowledge'
-
-                return {
-                    "metadata": {
-                        "skill_id": skill.skill_id,
-                        "skill_type": skill_type,
-                        "name": skill.name,
-                        "description": skill.description,
-                        "executor_type": skill.executor_type,
-                        "version": skill.version,
-                        "author": f"user_{skill.owner_id}",
-                        "status": skill.status.value if skill.status else "DRAFT",
-                        # 新增分类信息
-                        "category": skill.category,
-                        "category_name": skill.category_name,
-                        "subcategory": skill.subcategory,
-                        "subcategory_name": skill.subcategory_name,
-                        "tags": skill.tags or [],
-                        # 新增发布信息
-                        "visibility": skill.visibility,
-                        "license": skill.license,
-                    },
-                    "parameters_schema": skill.parameters_schema or {},
-                    "expert_knowledge": skill.expert_knowledge or "暂无专家指导。",
-                    "script_code": skill.script_code,
-                    "dependencies": skill.dependencies or [],
-                    "source": "database",
-                    "owner_id": skill.owner_id,
-                    "is_knowledge_skill": is_knowledge,
-                    # 新增统计信息
-                    "usage_count": skill.usage_count or 0,
-                    "avg_rating": skill.avg_rating or 0.0,
-                    "favorite_count": skill.favorite_count or 0
-                }
-
-        except Exception as e:
-            log.error(f"[DBSkillParser] 查询 SKILL 失败: {e}")
-            return None
-
-
-def get_db_skill_parser(user_id: int) -> DBSkillParser:
-    """
-    获取数据库 SKILL 解析器实例
-
-    Args:
-        user_id: 当前用户 ID
-
-    Returns:
-        DBSkillParser 实例
-    """
-    return DBSkillParser(user_id=user_id)
-
-
-@lru_cache(maxsize=128)
-def _get_combined_skills_cached(user_id: int) -> tuple:
-    """
-    内部缓存版本（返回 tuple 避免列表被修改污染缓存）
-    """
-    all_skills = []
-    seen_skill_ids = set()
-
-    # 1. 从数据库加载技能（优先级高，包含影子记录）
-    try:
-        db_parser = get_db_skill_parser(user_id)
-        db_skills = db_parser.get_all_skills()
-        for skill in db_skills:
-            skill_id = skill.get("metadata", {}).get("skill_id")
-            if skill_id and skill_id not in seen_skill_ids:
-                seen_skill_ids.add(skill_id)
-                skill["source"] = "database"
-                all_skills.append(skill)
-        log.info(f"[CombinedSkills] 从数据库加载 {len(db_skills)} 个技能")
     except Exception as e:
-        log.warning(f"[CombinedSkills] 数据库技能加载失败: {e}")
-
-    # 2. 从文件系统补充缺失的官方预置技能
-    try:
-        fs_parser = get_skill_parser()
-        fs_skills = fs_parser.get_all_skills()
-        added_count = 0
-        for skill in fs_skills:
-            skill_id = skill.get("metadata", {}).get("skill_id")
-            if skill_id and skill_id not in seen_skill_ids:
-                seen_skill_ids.add(skill_id)
-                skill["source"] = "filesystem"
-                skill["owner_id"] = 0  # 官方技能
-                all_skills.append(skill)
-                added_count += 1
-        if added_count > 0:
-            log.info(f"[CombinedSkills] 从文件系统补充 {added_count} 个官方技能")
-    except Exception as e:
-        log.warning(f"[CombinedSkills] 文件系统技能加载失败: {e}")
-
-    log.info(f"[CombinedSkills] 总计 {len(all_skills)} 个可用技能")
-    return tuple(all_skills)  # tuple 不可变，避免缓存污染
-
-
-def get_combined_skills(user_id: int) -> List[Dict[str, Any]]:
-    """
-    获取合并的 SKILL 列表（文件系统 + 数据库）
-
-    这是供 AI Agent 使用的主要接口，返回用户可见的所有技能
-
-    去重逻辑：
-    - 如果 skill_id 同时存在于文件系统和数据库，优先使用数据库版本（包含用户修改的配置）
-    - 文件系统技能作为补充，只添加数据库中不存在的技能
-
-    注意：内部使用 LRU 缓存，返回深拷贝以避免缓存污染
-
-    Args:
-        user_id: 当前用户 ID
-
-    Returns:
-        合并后的 SKILL 列表（深拷贝）
-    """
-    cached = _get_combined_skills_cached(user_id)
-    return copy.deepcopy(list(cached))
-
-
-def get_combined_skill_by_id(user_id: int, skill_id: str) -> Optional[Dict[str, Any]]:
-    """
-    根据 skill_id 获取技能详情（文件系统 + 数据库合并查询）
-
-    这是供 AI Agent 获取单个技能详情的主要接口，支持官方预置技能和用户自定义技能。
-
-    Args:
-        user_id: 当前用户 ID（用于数据库技能的权限检查）
-        skill_id: SKILL 的唯一标识符
-
-    Returns:
-        技能详情字典，如果未找到或无权限则返回 None
-    """
-    # 1. 先尝试从文件系统查找（官方预置技能）
-    try:
-        fs_parser = get_skill_parser()
-        fs_skill = fs_parser.get_skill_by_id(skill_id)
-        if fs_skill:
-            fs_skill["source"] = "filesystem"
-            fs_skill["owner_id"] = 0
-            log.info(f"[CombinedSkill] 从文件系统找到技能: {skill_id}")
-            return fs_skill
-    except Exception as e:
-        log.warning(f"[CombinedSkill] 文件系统查询失败: {e}")
-
-    # 2. 再尝试从数据库查找（用户自定义技能）
-    try:
-        db_parser = get_db_skill_parser(user_id)
-        db_skill = db_parser.get_skill_by_id(skill_id)
-        if db_skill:
-            log.info(f"[CombinedSkill] 从数据库找到技能: {skill_id}")
-            return db_skill
-    except Exception as e:
-        log.warning(f"[CombinedSkill] 数据库查询失败: {e}")
-
-    log.warning(f"[CombinedSkill] 未找到技能: {skill_id}")
-    return None
+        log.error(f"[SkillParser] DB 索引查询失败: {e}，回退到纯文件系统")
+        # 降级：返回文件系统所有技能
+        all_skills = parser.get_all_skills()
+        for s in all_skills:
+            s["source"] = "filesystem"
+            s["owner_id"] = 0
+        return all_skills
 
 
 # ==========================================
