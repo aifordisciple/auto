@@ -515,4 +515,89 @@ def generate_skill_md(
     )
 
 
+def write_skill_from_forge_draft(
+    draft: Dict[str, Any],
+    skill_id: str,
+    skills_dir: str = "/app/app/skills"
+) -> Dict[str, Any]:
+    """
+    从 ForgeSession 的 skill_draft (JSONB dict) 写入文件系统
+
+    这是连接 Forge 和文件系统的桥接函数。
+    将 Forge 存储的 raw dict 格式转换为 SkillBundleContent，
+    然后调用 write_skill_bundle() 写入文件系统。
+
+    Args:
+        draft: ForgeSession.skill_draft 字典
+        skill_id: 技能 ID
+        skills_dir: 技能目录根路径
+
+    Returns:
+        写入结果，包含 skill_id, bundle_path, files_created
+    """
+    name = draft.get("name") or "未命名技能"
+    description = draft.get("description") or ""
+    executor_type_str = draft.get("executor_type") or "Python_env"
+    script_code = draft.get("script_code") or ""
+    nextflow_code = draft.get("nextflow_code") or ""
+    parameters_schema = draft.get("parameters_schema") or {"type": "object", "properties": {}, "required": []}
+    expert_knowledge = draft.get("expert_knowledge") or ""
+    dependencies = draft.get("dependencies") or []
+    category = draft.get("category") or draft.get("category_name") or "custom"
+    category_name = draft.get("category_name") or "自定义"
+    subcategory = draft.get("subcategory")
+    subcategory_name = draft.get("subcategory_name")
+    tags = draft.get("tags") or []
+
+    executor_type = ExecutorType(executor_type_str)
+
+    # 构建元数据
+    metadata = SkillBundleMetadata(
+        skill_id=skill_id,
+        name=name,
+        executor_type=executor_type,
+        category=category,
+        category_name=category_name,
+        subcategory=subcategory,
+        subcategory_name=subcategory_name,
+        tags=tags
+    )
+
+    # 构建内容
+    content = SkillBundleContent(
+        metadata=metadata,
+        description=description,
+        parameters_schema=parameters_schema,
+        expert_knowledge=expert_knowledge,
+        script_code=script_code if executor_type in (ExecutorType.PYTHON_ENV, ExecutorType.R_ENV) else None,
+        dependencies=dependencies,
+        nextflow_bundle=NextflowBundle(full_code=nextflow_code) if nextflow_code else None,
+    )
+
+    return write_skill_bundle(content, skills_dir)
+
+
+def delete_skill_bundle(skill_id: str, skills_dir: str = "/app/app/skills") -> bool:
+    """
+    删除技能文件夹
+
+    Args:
+        skill_id: 技能 ID
+        skills_dir: 技能目录根路径
+
+    Returns:
+        是否成功删除
+    """
+    import shutil
+
+    bundle_path = os.path.join(skills_dir, skill_id)
+    if not os.path.exists(bundle_path):
+        log.warning(f"[SkillBundleWriter] 技能目录不存在: {bundle_path}")
+        return False
+
+    shutil.rmtree(bundle_path)
+    log.info(f"[SkillBundleWriter] 已删除技能目录: {bundle_path}")
+    return True
+
+
 log.info("📦 SKILL Bundle Writer 已加载")
