@@ -23,6 +23,7 @@ import {
   CheckCircle, Clock, HardDrive, Box, FileCode
 } from "lucide-react";
 import { BASE_URL } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
 
 // ==========================================
 // 类型定义
@@ -264,12 +265,12 @@ export function PackageManager() {
             <Package className="w-6 h-6 text-blue-400" />
             <h2 className="text-xl font-semibold text-white">包管理器</h2>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={closeAllOverlays}
-            className="p-1 hover:bg-gray-700 rounded-lg transition-colors"
           >
             <X className="w-5 h-5 text-gray-400" />
-          </button>
+          </Button>
         </div>
 
         {/* ========== 配额信息 ========== */}

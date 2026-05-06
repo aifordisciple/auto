@@ -55,7 +55,7 @@ export function Sidebar() {
         onClick={() => window.location.href = '/'}
       >
         <div className="flex items-center gap-2 text-gray-900 dark:text-white font-bold tracking-wider">
-          <span className="text-blue-500">🧬</span> AUTONOME
+          <span className="text-action">🧬</span> AUTONOME
         </div>
       </div>
 
@@ -88,7 +88,7 @@ export function Sidebar() {
         {/* Data Center */}
         <div
           onClick={toggleDataCenter}
-          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isDataCenterOpen ? 'bg-purple-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isDataCenterOpen ? 'bg-data text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
         >
           <HardDrive size={18} /> <span>数据中心</span>
         </div>
@@ -96,7 +96,7 @@ export function Sidebar() {
         {/* ✨ Skill Center - 技能兵器库 */}
         <div
           onClick={toggleSkillCenter}
-          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isSkillCenterOpen ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isSkillCenterOpen ? 'bg-action text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
         >
           <Box size={18} /> <span>技能中心</span>
         </div>
@@ -104,7 +104,7 @@ export function Sidebar() {
         {/* ✨ Learning Center - 学习中心 */}
         <div
           onClick={toggleLearningCenter}
-          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isLearningCenterOpen ? 'bg-emerald-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
+          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${isLearningCenterOpen ? 'bg-learning text-white' : 'hover:bg-gray-100 dark:hover:bg-neutral-800/50 hover:text-gray-900 dark:hover:text-white'}`}
         >
           <BookOpen size={18} /> <span>学习中心</span>
         </div>
@@ -155,7 +155,7 @@ export function Sidebar() {
                 onClick={() => { openUserCenter(); setIsUserMenuOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-gray-700 dark:text-neutral-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800/60 rounded-lg transition-colors"
               >
-                <UserCircle size={14} className="text-blue-400" />
+                <UserCircle size={14} className="text-action" />
                 用户中心
               </button>
 
@@ -165,7 +165,7 @@ export function Sidebar() {
                 className="w-full flex items-center justify-between px-2 py-1.5 text-[13px] text-gray-700 dark:text-neutral-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800/60 rounded-lg transition-colors"
               >
                 <div className="flex items-center gap-2.5">
-                  {theme === 'dark' ? <Moon size={14} className="text-purple-400" /> : <Sun size={14} className="text-amber-400" />}
+                  {theme === 'dark' ? <Moon size={14} className="text-data" /> : <Sun size={14} className="text-warning" />}
                   <span>主题模式</span>
                 </div>
                 <span className="text-[10px] font-mono text-gray-400 dark:text-neutral-500 bg-gray-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
@@ -176,7 +176,7 @@ export function Sidebar() {
               {user?.is_superuser && (
                 <button
                   onClick={() => { window.location.href = '/admin'; setIsUserMenuOpen(false); }}
-                  className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-warning hover:text-warning/80 hover:bg-warning/10 rounded-lg transition-colors"
                 >
                   <ShieldAlert size={14} />
                   管理员控制台
@@ -187,7 +187,7 @@ export function Sidebar() {
 
               <button
                 onClick={() => { handleLogout(); setIsUserMenuOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors"
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-danger hover:text-danger/80 hover:bg-danger/10 rounded-lg transition-colors"
               >
                 <LogOut size={14} />
                 退出登录

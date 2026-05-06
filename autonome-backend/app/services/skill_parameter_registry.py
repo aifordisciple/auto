@@ -10,13 +10,13 @@
 3. build_ui_schema(skill_id, missing_params): 构建前端表单 JSON Schema
 
 数据源：
-- 文件系统：通过 skill_parser.get_combined_skill_by_id() 解析 SKILL.md
+- 文件系统：通过 skill_parser.get_skill_from_db_index() 解析 SKILL.md
 - 数据库：通过 SkillAsset.parameters_schema JSONB 列读取
 - 优先级：文件系统 > 数据库（与 skill_parser 保持一致）
 """
 from typing import Any, Dict, List, Optional
 
-from app.core.skill_parser import get_combined_skill_by_id
+from app.core.skill_parser import get_skill_from_db_index
 from app.core.logger import log
 
 
@@ -33,7 +33,7 @@ class SkillParameterRegistry:
     技能参数注册表：从 SKILL.md / DB 动态拉取参数定义。
 
     程序说明：
-    封装 skill_parser.get_combined_skill_by_id()，为 L2 参数探查提供
+    封装 skill_parser.get_skill_from_db_index()，为 L2 参数探查提供
     技能的 parameters_schema 查询和前端表单 JSON Schema 生成能力。
     当技能不存在或无参数定义时，返回 None / 空列表，确保 L2 能优雅降级。
     """
@@ -45,14 +45,14 @@ class SkillParameterRegistry:
         程序说明：
         保存数据库会话和用户 ID，用于 skill_parser 的 RBAC 权限过滤。
         skill_parser 内部使用 LRU 缓存，避免重复解析 SKILL.md 文件。
-        user_id 统一转为 int 类型，因为 skill_parser.get_combined_skill_by_id 要求 int。
+        user_id 统一转为 int 类型，因为 skill_parser.get_skill_from_db_index 要求 int。
 
         Args:
             session: 数据库会话（skill_parser 内部自行创建会话，此处保留以兼容接口）
             user_id: 当前用户 ID（int 或 str，内部转为 int）
         """
         self.session = session
-        # skill_parser.get_combined_skill_by_id 要求 user_id 为 int
+        # skill_parser.get_skill_from_db_index 要求 user_id 为 int
         self.user_id = int(user_id) if user_id is not None else 0
 
     async def get_parameters_schema(self, skill_id: str) -> Optional[Dict[str, Any]]:
@@ -60,7 +60,7 @@ class SkillParameterRegistry:
         获取技能的完整参数 schema。
 
         程序说明：
-        调用 skill_parser.get_combined_skill_by_id() 获取技能详情，
+        调用 skill_parser.get_skill_from_db_index() 获取技能详情，
         从中提取 parameters_schema 字段。该字段包含 properties（各参数定义）
         和 required（必填参数名列表），遵循标准 JSON Schema 格式。
 
@@ -72,7 +72,7 @@ class SkillParameterRegistry:
             如果技能不存在或无参数定义，返回 None
         """
         try:
-            skill = get_combined_skill_by_id(self.user_id, skill_id)
+            skill = get_skill_from_db_index(skill_id)
             if not skill:
                 log.debug(f"[SkillParamRegistry] 技能不存在: {skill_id}")
                 return None

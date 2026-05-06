@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { RefreshCw, Trash2, Eye, Play, ChevronRight, X, Loader2, FileText, CheckCircle2, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 
 /**
  * 历史记录数据结构（与后端 API 返回一致）
@@ -258,9 +259,10 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
           {onClose && (
-            <button
+            <Button
+              variant="icon"
               onClick={onClose}
-              className="p-2 min-h-[36px] min-w-[36px] text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 rounded-lg transition-colors"
+              className="min-h-[36px] min-w-[36px]"
             >
               <X size={16} />
             </button>

@@ -16,6 +16,7 @@ import {
   Loader2, Table, Eye, Download
 } from 'lucide-react';
 import { genomeApi } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
 
 // ==========================================
 // 类型定义
@@ -234,9 +235,9 @@ export function ImportGenomeModal({ isOpen, onClose, onSuccess }: ImportGenomeMo
             </div>
             <h3 className="text-white font-medium">导入基因组配置</h3>
           </div>
-          <button onClick={handleClose} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+          <Button variant="icon" onClick={handleClose}>
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}

@@ -27,7 +27,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 
 from app.core.logger import log
-from app.core.skill_parser import get_skill_parser, get_combined_skills
+from app.core.skill_parser import get_skill_parser, get_skills_from_db_index
 
 
 class SkillKeywords:
@@ -177,7 +177,7 @@ class SkillKeywordsIndexer:
         # 修复：当 user_id <= 0 时，使用 max(1, user_id) 确保获取所有可见技能
         # 这与 SkillMatcher._get_available_skills 的逻辑保持一致
         effective_user_id = max(1, self.user_id) if self.user_id <= 0 else self.user_id
-        skills = get_combined_skills(effective_user_id)
+        skills = get_skills_from_db_index(effective_user_id)
 
         for skill in skills:
             metadata = skill.get("metadata", {})

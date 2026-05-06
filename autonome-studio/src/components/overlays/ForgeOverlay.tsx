@@ -6,6 +6,7 @@ import { X, Hammer } from 'lucide-react';
 import { useUIStore } from '@/store/useUIStore';
 import { useForgeStore } from '@/store/useForgeStore';
 import { SkillDraftEditor } from '@/app/skill-forge/components/SkillDraftEditor';
+import { Button } from '@/components/ui/Button';
 
 export function ForgeOverlay() {
   const { isSkillForgeOpen, closeAllOverlays } = useUIStore();
@@ -53,12 +54,9 @@ export function ForgeOverlay() {
                 <Hammer className="text-action" size={20} />
                 <h2 className="font-semibold text-gray-900 dark:text-white">技能锻造工厂</h2>
               </div>
-              <button
-                onClick={handleClose}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
-              >
+              <Button variant="icon" onClick={handleClose}>
                 <X size={20} />
-              </button>
+              </Button>
             </div>
 
             {/* 主内容区 - 单栏布局（AI对话已移除） */}

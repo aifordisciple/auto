@@ -12,6 +12,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Loader2, Database } from 'lucide-react';
 import { CustomFieldsEditor } from './CustomFieldsEditor';
+import { Button } from '@/components/ui/Button';
 import { databaseApi, AnalysisDatabase } from '@/lib/api';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { HybridPathInput } from '@/components/HybridPathInput';
@@ -179,9 +180,9 @@ export function DatabaseFormModal({ isOpen, onClose, onSuccess, editDatabase }: 
               {editDatabase ? `编辑数据库: ${editDatabase.db_id}` : '创建新数据库'}
             </h3>
           </div>
-          <button onClick={onClose} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+          <Button variant="icon" onClick={onClose}>
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}

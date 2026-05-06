@@ -12,6 +12,7 @@ import {
   Loader2, CheckCircle, XCircle, AlertCircle
 } from "lucide-react";
 import { fetchAPI, BASE_URL } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 import { toast } from 'sonner';
 
 // ==========================================
@@ -223,9 +224,9 @@ export function SkillDetailDrawer({ skillId, onClose, onUse }: SkillDetailDrawer
             <h2 className="text-lg font-semibold text-neutral-100 truncate">{skill.name}</h2>
             <p className="text-xs text-neutral-500 font-mono mt-1">{skill.skill_id}</p>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={onClose}
-            className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors"
           >
             <X size={20} />
           </button>

@@ -16,6 +16,7 @@ import {
   ExternalLink, Copy, FolderCheck
 } from 'lucide-react';
 import { GenomeAsset, genomeApi } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
 
 // ==========================================
 // 类型定义
@@ -195,9 +196,9 @@ export function GenomeDetailDrawer({
             >
               <Copy size={16} />
             </button>
-            <button
+            <Button
+              variant="icon"
               onClick={onClose}
-              className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
             >
               <X size={16} />
             </button>

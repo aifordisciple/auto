@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { fetchAPI } from "@/lib/api";
 import { useChatStore, SessionTag } from "@/store/useChatStore";
 import { useUIStore } from "@/store/useUIStore";
+import { Button } from "@/components/ui/Button";
 
 const ChatSearchModal = dynamic(() => import("../chat/ChatSearchModal").then(m => m.ChatSearchModal), {
   ssr: false,
@@ -167,7 +168,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
         }`}
       >
         {isActive && (
-          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-blue-500 dark:bg-neutral-400 rounded-r-full" />
+          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-action dark:bg-neutral-400 rounded-r-full" />
         )}
 
         {editingId === session.id ? (
@@ -222,20 +223,22 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
         <span className="text-sm font-medium text-gray-700 dark:text-neutral-300">Chats</span>
         <div className="flex items-center gap-1">
           {/* ✨ 搜索图标按钮 - 点击弹出搜索窗口 */}
-          <button
+          <Button
+            variant="icon"
             onClick={openChatSearch}
             title="搜索对话 (⌘K)"
-            className="p-1.5 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
+            className="p-1.5"
           >
             <Search size={15} strokeWidth={1.5} />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="icon"
             onClick={handleNewChat}
             title="New Chat (⌘N)"
-            className="p-1.5 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800/50 rounded-md transition-all flex items-center gap-1"
+            className="p-1.5"
           >
             <SquarePen size={15} strokeWidth={1.5} />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -247,7 +250,7 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
               onClick={() => handleTagClick(null)}
               className={`px-2 py-0.5 text-[11px] rounded-full transition-all ${
                 selectedTagId === null
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-action text-white'
                   : 'bg-gray-100 dark:bg-neutral-800 text-gray-600 dark:text-neutral-400 hover:bg-gray-200 dark:hover:bg-neutral-700'
               }`}
             >
@@ -301,13 +304,14 @@ export function SessionSidebar({ projectId, currentSessionId, onSelectSession }:
                 <MessageSquare size={18} strokeWidth={1.5} />
               </div>
               <p className="text-[13px] text-gray-400 dark:text-neutral-500">暂无历史对话</p>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={handleNewChat}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 dark:bg-neutral-800 hover:bg-gray-300 dark:hover:bg-neutral-700 text-gray-700 dark:text-neutral-300 hover:text-gray-900 dark:hover:text-white text-[12px] rounded-md transition-all shadow-sm border border-gray-300 dark:border-neutral-700/50 hover:border-gray-400 dark:hover:border-neutral-600"
               >
                 <SquarePen size={13} strokeWidth={1.5} />
                 开启新对话
-              </button>
+              </Button>
             </div>
           )}
         </div>

@@ -384,13 +384,7 @@ def register_skill_bundle_tasks(celery_app: Celery):
         skill = parser.get_skill_by_id(skill_id)
 
         if not skill:
-            log_msg(f"📂 文件系统未找到 SKILL，尝试从数据库加载...")
-            from app.core.skill_parser import get_db_skill_parser
-            db_parser = get_db_skill_parser(user_id)
-            skill = db_parser.get_skill_by_id(skill_id)
-
-        if not skill:
-            log_msg(f"💥 未找到 SKILL: {skill_id}", level="ERROR")
+            log_msg(f"💥 文件系统中未找到 SKILL: {skill_id}", level="ERROR")
             return {"status": "error", "message": f"SKILL not found: {skill_id}"}
 
         metadata = skill.get("metadata", {})

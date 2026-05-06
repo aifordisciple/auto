@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Folder, Loader2, AlertCircle } from 'lucide-react';
 import { BASE_URL } from '@/lib/api';
+import { Button } from "@/components/ui/Button";
 
 interface RenameModalProps {
   isOpen: boolean;
@@ -109,12 +110,12 @@ export function RenameModal({
               重命名{isFolder ? '文件夹' : '文件'}
             </h3>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={onClose}
-            className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
           >
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}

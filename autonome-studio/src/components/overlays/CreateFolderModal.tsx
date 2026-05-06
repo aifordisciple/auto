@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, FolderPlus, Loader2, Folder } from "lucide-react";
 import { createFolder } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 interface CreateFolderModalProps {
   isOpen: boolean;
@@ -72,10 +73,10 @@ export function CreateFolderModal({ isOpen, onClose, projectId, parentPath, onSu
             </div>
             <h3 className="text-white font-semibold text-sm tracking-wide">创建新文件夹</h3>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={onClose}
             disabled={isLoading}
-            className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors disabled:opacity-50"
           >
             <X size={18} />
           </button>

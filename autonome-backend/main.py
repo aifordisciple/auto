@@ -142,6 +142,35 @@ def on_startup():
     create_db_and_tables()
     log.info("✅ 数据库表结构已创建")
 
+    # ==========================================
+    # ✨ 技能文件系统统一化升级：启动时执行迁移和索引
+    # ==========================================
+    try:
+        # 1. 执行 DB→文件系统迁移（将已有的 DB 技能导出为文件）
+        import subprocess
+        import sys
+        migration_script = os.path.join(os.path.dirname(__file__), "scripts", "migrate_db_skills_to_files.py")
+        if os.path.exists(migration_script):
+            result = subprocess.run(
+                [sys.executable, migration_script],
+                capture_output=True, text=True, timeout=120
+            )
+            for line in result.stdout.split("\n"):
+                if line.strip():
+                    log.info(f"[Migration] {line.strip()}")
+            if result.returncode != 0:
+                log.warning(f"[Migration] 迁移脚本返回值 {result.returncode}: {result.stderr[:500]}")
+        else:
+            log.info("[Migration] 迁移脚本不存在，跳过")
+
+        # 2. 从文件系统重建 DB 索引（SkillIndexer.index_all）
+        from app.services.skill_indexer import get_skill_indexer
+        indexer = get_skill_indexer()
+        indexed = indexer.index_all()
+        log.info(f"✅ [SkillIndexer] 启动时索引完成: {indexed} 个技能")
+    except Exception as e:
+        log.warning(f"⚠️ [Startup] 技能索引初始化失败（不影响服务启动）: {e}")
+
     # ✨ 初始化 RBAC 预设数据（角色、权限、关联）
     try:
         from app.models.rbac import Role, Permission, role_permissions

@@ -16,6 +16,7 @@ import { CustomFieldsEditor } from './CustomFieldsEditor';
 import { genomeApi, GenomeAsset } from '@/lib/api';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { HybridPathInput } from '@/components/HybridPathInput';
+import { Button } from '@/components/ui/Button';
 
 // ==========================================
 // 类型定义
@@ -365,9 +366,9 @@ export function GenomeFormModal({ isOpen, onClose, onSuccess, editGenome }: Geno
               {editGenome ? `编辑基因组: ${editGenome.genomeid}` : '创建新基因组'}
             </h3>
           </div>
-          <button onClick={onClose} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+          <Button variant="icon" onClick={onClose}>
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}

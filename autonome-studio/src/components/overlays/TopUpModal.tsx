@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { X, Zap, CreditCard, CheckCircle2, Loader2 } from "lucide-react";
 import { fetchAPI, BASE_URL } from "../../lib/api";
+import { Button } from "@/components/ui/Button";
 
 interface TopUpModalProps {
   isOpen?: boolean;
@@ -45,12 +46,13 @@ export function TopUpModal({ isOpen = false, onClose = () => {}, onSuccess }: To
       {/* Modal */}
       <div className="relative bg-neutral-900 border border-neutral-800 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
         {/* Close button */}
-        <button 
+        <Button
+          variant="icon"
           onClick={onClose}
-          className="absolute top-4 right-4 text-neutral-500 hover:text-white transition-colors"
+          className="absolute top-4 right-4"
         >
           <X size={20} />
-        </button>
+        </Button>
         
         {/* Header */}
         <div className="text-center mb-8">

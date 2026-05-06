@@ -141,7 +141,7 @@ export function SettingsPanel() {
           onClick={() => setActiveSubTab('categories')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             activeSubTab === 'categories'
-              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+              ? 'bg-action/20 text-action border border-action/30'
               : 'text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50'
           }`}
         >
@@ -152,7 +152,7 @@ export function SettingsPanel() {
           onClick={() => setActiveSubTab('tags')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             activeSubTab === 'tags'
-              ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+              ? 'bg-data/20 text-data border border-data/30'
               : 'text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50'
           }`}
         >
@@ -164,7 +164,7 @@ export function SettingsPanel() {
             onClick={() => setActiveSubTab('review')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeSubTab === 'review'
-                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                ? 'bg-warning/20 text-warning border border-warning/30'
                 : 'text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50'
             }`}
           >
@@ -190,7 +190,7 @@ export function SettingsPanel() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-medium text-neutral-300">技能分类</h3>
-                  <button className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
+                  <button className="text-xs px-3 py-1.5 bg-action hover:bg-action/90 text-white rounded-lg transition-colors">
                     + 新增分类
                   </button>
                 </div>
@@ -226,7 +226,7 @@ export function SettingsPanel() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-medium text-neutral-300">技能标签</h3>
-                  <button className="text-xs px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors">
+                  <button className="text-xs px-3 py-1.5 bg-data hover:bg-data/90 text-white rounded-lg transition-colors">
                     + 新增标签
                   </button>
                 </div>
@@ -280,7 +280,7 @@ export function SettingsPanel() {
                         <div className="flex items-center gap-2 ml-4">
                           <button
                             onClick={() => handleApprove(skill.skill_id)}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-success hover:bg-success/90 text-success-foreground text-xs rounded-lg transition-colors"
                           >
                             <CheckCircle size={14} />
                             通过
@@ -290,7 +290,7 @@ export function SettingsPanel() {
                               const reason = prompt('请输入拒绝原因:');
                               if (reason) handleReject(skill.skill_id, reason);
                             }}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-danger hover:bg-danger/90 text-danger-foreground text-xs rounded-lg transition-colors"
                           >
                             <XCircle size={14} />
                             拒绝

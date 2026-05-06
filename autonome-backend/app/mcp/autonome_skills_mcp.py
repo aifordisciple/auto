@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 from app.core.logger import log
-from app.core.skill_parser import get_combined_skill_by_id, get_combined_skills
+from app.core.skill_parser import get_skill_from_db_index, get_skills_from_db_index
 
 
 @dataclass
@@ -58,7 +58,7 @@ class AutonomeSkillsMCP:
 
         try:
             # 加载所有技能到缓存
-            skills = get_combined_skills(user_id=0)
+            skills = get_skills_from_db_index(user_id=0)
             for skill in skills:
                 skill_id = skill.get('metadata', {}).get('skill_id', '')
                 if skill_id:

@@ -29,4 +29,5 @@ COPY . .
 EXPOSE 8000
 
 # 默认启动命令 (如果是 Worker 则在 compose 中覆盖此命令)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动时自动执行 alembic 迁移确保数据库结构最新
+CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]

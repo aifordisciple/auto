@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, ReactNode, ChangeEvent } from 'react';
 import { X, Move, Loader2, Folder, FolderOpen, ChevronRight, ChevronDown, Lock, File, FileText } from "lucide-react";
 import { moveFile, getFolderTree, FolderNode } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 interface MoveFileModalProps {
   isOpen: boolean;
@@ -187,10 +188,10 @@ export function MoveFileModal({ isOpen, onClose, projectId, sourcePath, sourceNa
             </div>
             <h3 className="text-white font-semibold text-sm tracking-wide">移动到...</h3>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={onClose}
             disabled={isMoving}
-            className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors disabled:opacity-50"
           >
             <X size={18} />
           </button>

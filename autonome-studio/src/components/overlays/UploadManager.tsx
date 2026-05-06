@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { X, UploadCloud, Loader2, Pause, Play, Trash2, CheckCircle, AlertCircle, FileText } from "lucide-react";
 import { fetchAPI, BASE_URL, getToken } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 // 默认分段大小：5MB
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
@@ -275,10 +276,10 @@ export function UploadManager({ isOpen, onClose, projectId, targetPath, files, o
               <p className="text-[10px] text-neutral-500 font-mono">{tasks.length} 个文件 • 目标: {targetPath}</p>
             </div>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={onClose}
             disabled={hasUploading}
-            className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors disabled:opacity-50"
           >
             <X size={18} />
           </button>

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Menu, ChevronRight, Zap, Download, ChevronDown, Share2, MessageSquare } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useUIStore } from "../../store/useUIStore";
+import { Button } from "@/components/ui/Button";
 
 interface TopHeaderProps {
   projectName?: string;
@@ -60,24 +61,24 @@ export function TopHeader({
       {/* 左侧：左侧边栏控制与面包屑导航 */}
       <div className="flex items-center gap-2">
         {/* ✨ 移动端汉堡菜单 - 仅移动端显示 */}
-        <button
+        <Button
+          variant="icon"
           onClick={toggleMobileMenu}
-          className="p-2 rounded-md text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800 md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center"
+          className="md:hidden min-h-[44px] min-w-[44px]"
           title="打开菜单"
         >
           <Menu size={20} />
-        </button>
+        </Button>
 
         {/* ✨ 桌面端侧边栏切换按钮 */}
-        <button
+        <Button
+          variant="icon"
           onClick={onToggleLeft}
-          className={`hidden md:flex p-2 rounded-md transition-colors ${
-            !isLeftOpen ? 'text-white dark:text-white bg-gray-200 dark:bg-neutral-800' : 'text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-neutral-800'
-          }`}
+          className={`hidden md:flex p-2 ${!isLeftOpen ? 'text-white dark:text-white bg-gray-200 dark:bg-neutral-800' : ''}`}
           title={isLeftOpen ? "Hide left sidebar" : "Show left sidebar"}
         >
           <Menu size={18} />
-        </button>
+        </Button>
 
         {/* ✨ 移动端项目名显示 */}
         <span
@@ -108,7 +109,7 @@ export function TopHeader({
             onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 text-gray-600 dark:text-neutral-400 hover:bg-gray-200 dark:hover:bg-neutral-800 transition-colors"
           >
-            <MessageSquare size={14} className={chatMode === 'claude' ? 'text-blue-400' : ''} />
+            <MessageSquare size={14} className={chatMode === 'claude' ? 'text-action' : ''} />
             <span className="hidden sm:inline">{chatMode === 'claude' ? 'Claude 模式' : '常规模式'}</span>
             <ChevronDown size={12} className={`transition-transform ${isModeMenuOpen ? 'rotate-180' : ''}`} />
           </button>
@@ -119,7 +120,7 @@ export function TopHeader({
                 onClick={() => { onModeChange('normal'); setIsModeMenuOpen(false); }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] transition-colors ${
                   chatMode === 'normal'
-                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                    ? 'text-action dark:text-action bg-action/10'
                     : 'text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60'
                 }`}
               >
@@ -130,11 +131,11 @@ export function TopHeader({
                 onClick={() => { onModeChange('claude'); setIsModeMenuOpen(false); }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] transition-colors ${
                   chatMode === 'claude'
-                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                    ? 'text-action dark:text-action bg-action/10'
                     : 'text-gray-700 dark:text-neutral-300 hover:bg-gray-100 dark:hover:bg-neutral-800/60'
                 }`}
               >
-                <MessageSquare size={16} className="text-blue-400" />
+                <MessageSquare size={16} className="text-action" />
                 <span>Claude 模式</span>
               </button>
             </div>
@@ -144,7 +145,7 @@ export function TopHeader({
         {/* ✨ 积分余额 - 响应式显示 */}
         {user && (
           <div className="flex items-center gap-1.5 px-2 md:px-3 py-1.5 bg-gray-100 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-full text-xs text-gray-600 dark:text-neutral-300">
-            <Zap size={14} className="text-yellow-500 fill-yellow-500 shrink-0" />
+            <Zap size={14} className="text-warning fill-warning shrink-0" />
             {/* ✨ 移动端仅显示数字 */}
             <span className="md:hidden font-medium">{user.credits_balance.toFixed(0)}</span>
             {/* ✨ 桌面端显示完整文本 */}

@@ -16,6 +16,7 @@
 
 import os
 import json
+import hashlib
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlmodel import Session, select
@@ -31,6 +32,9 @@ from app.models.forge_session import (
     ForgeStatus, ForgeChatRequest, SkillDraftUpdate
 )
 from app.services.code_reviewer import review_skill_code, CodeReviewResult
+from app.services.skill_bundle_writer import write_skill_from_forge_draft
+from app.services.skill_indexer import get_skill_indexer
+from app.core.skill_parser import get_skill_parser
 
 
 router = APIRouter()
@@ -365,6 +369,42 @@ async def commit_skill(
     log.info(f"✅ [Forge] 技能已保存: {skill.skill_id}, 会话: {session_id}")
 
     # ==========================================
+    # ✨ 文件系统写入：将草稿序列化为 SKILL.md + 脚本文件
+    # ==========================================
+    bundle_path = ""
+    file_hash = ""
+    try:
+        result = write_skill_from_forge_draft(draft, skill.skill_id)
+        bundle_path = result.get("bundle_path", "")
+        log.info(f"📁 [Forge] 技能文件写入完成: {bundle_path}")
+
+        # ✨ 增量索引：同步到 DB 索引
+        indexer = get_skill_indexer()
+        indexer.index_one(skill.skill_id)
+
+        # ✨ 更新 SkillAsset 的文件索引字段
+        parser = get_skill_parser()
+        fs_skill = parser.get_skill_by_id(skill.skill_id)
+        if fs_skill:
+            skill_md_path = os.path.join(bundle_path, "SKILL.md")
+            if os.path.exists(skill_md_path):
+                with open(skill_md_path, "r", encoding="utf-8") as f:
+                    file_hash = hashlib.sha256(f.read().encode("utf-8")).hexdigest()[:16]
+
+        skill.bundle_path = bundle_path
+        skill.is_official = False
+        skill.file_hash = file_hash
+        skill.indexed_at = get_utc_now()
+        db.commit()
+        db.refresh(skill)
+        log.info(f"📊 [Forge] DB 索引已同步: bundle_path={bundle_path}, file_hash={file_hash}")
+    except Exception as e:
+        log.error(f"🔥 [Forge] 文件系统写入失败: {e}", exc_info=True)
+        # 文件写入失败，回滚 DB 中的 SkillAsset 变更
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"技能文件写入失败: {str(e)}")
+
+    # ==========================================
     # 自动代码审查（后台执行，不阻塞保存）
     # ==========================================
     code_review_result = None
@@ -390,6 +430,7 @@ async def commit_skill(
         "status": "success",
         "skill_id": skill.skill_id,
         "name": skill.name,
+        "bundle_path": bundle_path,
         "code_review": code_review_result
     }
 
@@ -539,10 +580,46 @@ async def submit_forge_skill(
 
     log.info(f"✅ [Forge] 技能已提交审核: {skill.skill_id}")
 
+    # ==========================================
+    # ✨ 文件系统写入：将草稿序列化为 SKILL.md + 脚本文件
+    # ==========================================
+    bundle_path = ""
+    file_hash = ""
+    try:
+        result = write_skill_from_forge_draft(draft, skill.skill_id)
+        bundle_path = result.get("bundle_path", "")
+        log.info(f"📁 [Forge] 技能文件写入完成: {bundle_path}")
+
+        # ✨ 增量索引：同步到 DB 索引
+        indexer = get_skill_indexer()
+        indexer.index_one(skill.skill_id)
+
+        # ✨ 更新 SkillAsset 的文件索引字段
+        parser = get_skill_parser()
+        fs_skill = parser.get_skill_by_id(skill.skill_id)
+        if fs_skill:
+            skill_md_path = os.path.join(bundle_path, "SKILL.md")
+            if os.path.exists(skill_md_path):
+                with open(skill_md_path, "r", encoding="utf-8") as f:
+                    file_hash = hashlib.sha256(f.read().encode("utf-8")).hexdigest()[:16]
+
+        skill.bundle_path = bundle_path
+        skill.is_official = False
+        skill.file_hash = file_hash
+        skill.indexed_at = get_utc_now()
+        db.commit()
+        db.refresh(skill)
+        log.info(f"📊 [Forge] DB 索引已同步: bundle_path={bundle_path}, file_hash={file_hash}")
+    except Exception as e:
+        log.error(f"🔥 [Forge] 文件系统写入失败: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"技能文件写入失败: {str(e)}")
+
     return {
         "status": "success",
         "skill_id": skill.skill_id,
         "name": skill.name,
+        "bundle_path": bundle_path,
         "skill_status": "PENDING_REVIEW"
     }
 

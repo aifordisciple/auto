@@ -15,6 +15,7 @@ import {
   Copy, TrendingUp, Calendar
 } from 'lucide-react';
 import { AnalysisDatabase } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
 
 // ==========================================
 // 类型定义
@@ -118,9 +119,9 @@ export function DatabaseDetailDrawer({
               <p className="text-xs text-neutral-500 font-mono">{database.db_id}</p>
             </div>
           </div>
-          <button
+          <Button
+            variant="icon"
             onClick={onClose}
-            className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
           >
             <X size={16} />
           </button>

@@ -45,7 +45,7 @@ from app.services.skill_matcher_config import (
 )
 
 from app.agent.router.schemas import IntentType
-from app.core.skill_parser import get_combined_skills
+from app.core.skill_parser import get_skills_from_db_index
 from app.services.cache_service import get_cache_service
 
 
@@ -123,8 +123,8 @@ class SkillMatcher:
         """
         if self._available_skills is None:
             # 获取所有技能（不区分用户）
-            # get_combined_skills 在 user_id<=0 时会返回所有公开技能
-            self._available_skills = get_combined_skills(max(1, self.user_id))
+            # get_skills_from_db_index 在 user_id<=0 时会返回所有公开技能
+            self._available_skills = get_skills_from_db_index(max(1, self.user_id))
         return self._available_skills
 
     def _extract_file_extensions(self, context: Optional[Dict] = None) -> List[str]:

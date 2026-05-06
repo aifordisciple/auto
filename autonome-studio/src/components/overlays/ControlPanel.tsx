@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { BASE_URL, fetchAPI } from "@/lib/api";
 import { useUIStore } from "@/store/useUIStore";
+import { Button } from "@/components/ui/Button";
 
 // 导入四个核心模块组件
 import { ActiveWorkflowsPanel } from "@/app/dashboard/components/ActiveWorkflowsPanel";
@@ -133,12 +134,12 @@ export function ControlPanel() {
               ))}
             </div>
 
-            <button
+            <Button
+              variant="icon"
               onClick={closeAllOverlays}
-              className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors"
             >
               <X size={18} />
-            </button>
+            </Button>
           </div>
         </div>
 

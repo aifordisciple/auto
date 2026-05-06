@@ -6,6 +6,7 @@ import { X, Maximize2, Minimize2, Terminal } from "lucide-react";
 import { useUIStore } from "@/store/useUIStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { getToken } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 const log = {
   info: (msg: string) => console.log(`%c[WebTerminal] ${msg}`, "color: #22c55e"),
@@ -224,12 +225,12 @@ export function WebTerminal() {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <button onClick={toggleTerminalFullscreen} className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded">
+            <Button variant="icon" onClick={toggleTerminalFullscreen} className="p-1.5">
               {isTerminalFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-            <button onClick={closeTerminal} className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded">
+            </Button>
+            <Button variant="icon" onClick={closeTerminal} className="p-1.5">
               <X size={16} />
-            </button>
+            </Button>
           </div>
         </div>
 
