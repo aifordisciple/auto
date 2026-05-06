@@ -10,7 +10,7 @@ from sqlmodel import Session, select, func
 
 from app.core.database import get_session
 from app.core.logger import log
-from app.core.skill_parser import get_combined_skills
+from app.core.skill_parser import get_skills_from_db_index
 from app.api.deps import get_current_user
 from app.models.domain import User, SkillAsset, SkillStatus
 
@@ -31,7 +31,7 @@ async def get_skill_catalog(
     """
     try:
         # 合并文件系统和数据库的技能
-        all_skills = get_combined_skills(current_user.id)
+        all_skills = get_skills_from_db_index(current_user.id)
 
         # 精简返回信息
         catalog = []

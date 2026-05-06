@@ -229,7 +229,7 @@ export function SkillDetailDrawer({ skillId, onClose, onUse }: SkillDetailDrawer
             onClick={onClose}
           >
             <X size={20} />
-          </button>
+          </Button>
         </div>
 
         {/* Stats Row */}

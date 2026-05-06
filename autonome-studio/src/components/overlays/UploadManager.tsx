@@ -282,7 +282,7 @@ export function UploadManager({ isOpen, onClose, projectId, targetPath, files, o
             disabled={hasUploading}
           >
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Task List */}

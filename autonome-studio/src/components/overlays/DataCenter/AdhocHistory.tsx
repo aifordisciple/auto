@@ -265,7 +265,7 @@ const AdhocHistory: React.FC<AdhocHistoryProps> = ({
               className="min-h-[36px] min-w-[36px]"
             >
               <X size={16} />
-            </button>
+            </Button>
           )}
         </div>
       </div>

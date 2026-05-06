@@ -124,7 +124,7 @@ export function DatabaseDetailDrawer({
             onClick={onClose}
           >
             <X size={16} />
-          </button>
+          </Button>
         </div>
 
         {/* 操作栏 */}

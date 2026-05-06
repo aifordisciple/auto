@@ -201,7 +201,7 @@ export function GenomeDetailDrawer({
               onClick={onClose}
             >
               <X size={16} />
-            </button>
+            </Button>
           </div>
         </div>
 

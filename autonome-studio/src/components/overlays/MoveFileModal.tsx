@@ -194,7 +194,7 @@ export function MoveFileModal({ isOpen, onClose, projectId, sourcePath, sourceNa
             disabled={isMoving}
           >
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}

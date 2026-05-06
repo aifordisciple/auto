@@ -79,7 +79,7 @@ export function CreateFolderModal({ isOpen, onClose, projectId, parentPath, onSu
             disabled={isLoading}
           >
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}
