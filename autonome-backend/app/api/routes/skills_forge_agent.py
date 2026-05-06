@@ -13,11 +13,19 @@ SSE 事件类型:
 import asyncio
 import json
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlmodel import Session
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
+from app.core.database import engine
 from app.core.logger import log
+from app.api.deps import get_current_user
+from app.models.domain import User
+from app.models.forge_session import ForgeSession
+from app.utils.llm_config import get_thinking_llm_config_standalone
 
 router = APIRouter(prefix="/api/forge/agent", tags=["skill-forge-agent"])
 
@@ -37,7 +45,7 @@ class GenerateRequest(BaseModel):
 class IterateRequest(BaseModel):
     """迭代修改请求"""
     session_id: str = Field(..., description="ForgeSession ID")
-    instruction: str = Field(..., description="修改指令，如 '参数加一个 pvalue 阈值'")
+    instruction: str = Field(..., max_length=2000, description="修改指令，如 '参数加一个 pvalue 阈值'")
     scope: str = Field("code", description="修改范围: code|params|docs|all")
 
 
@@ -66,7 +74,7 @@ async def _sse_error(message: str) -> str:
 # ==========================================
 
 @router.post("/generate")
-async def generate_skill(request: GenerateRequest):
+async def generate_skill(request: GenerateRequest, current_user: User = Depends(get_current_user)):
     """首次生成技能 — SSE 流式返回 Agent 各阶段进度。
 
     依赖 SkillCreatorAgent（app.agent.skill_creator），
@@ -104,9 +112,6 @@ async def generate_skill(request: GenerateRequest):
             return
 
         try:
-            from app.utils.llm_config import get_thinking_llm_config_standalone
-            from langchain_openai import ChatOpenAI
-
             # 使用项目统一的 LLM 配置解析（支持 per-user / system / env 三级回退）
             llm_config = get_thinking_llm_config_standalone()
             llm = ChatOpenAI(
@@ -118,12 +123,13 @@ async def generate_skill(request: GenerateRequest):
 
             agent = SkillCreatorAgent(llm=llm, callback=phase_callback)
 
-            # 启动 Agent（后台任务）
+            # 启动 Agent（后台任务），传递 user_id 以便 Agent 设置 ForgeSession 归属
             agent_task = asyncio.create_task(
                 agent.run(
                     user_input=request.user_input,
                     chat_context=request.chat_context,
                     base_skill_id=request.base_skill_id,
+                    user_id=current_user.id,
                 )
             )
 
@@ -174,7 +180,7 @@ async def generate_skill(request: GenerateRequest):
 # ==========================================
 
 @router.post("/iterate")
-async def iterate_skill(request: IterateRequest):
+async def iterate_skill(request: IterateRequest, current_user: User = Depends(get_current_user)):
     """迭代修改技能 — 针对已创建的 ForgeSession 进行局部修改。
 
     使用 LLM 根据用户指令修改技能代码/参数/文档，
@@ -182,45 +188,42 @@ async def iterate_skill(request: IterateRequest):
     """
 
     async def event_generator():
-        from app.models.forge_session import ForgeSession
-        from app.core.database import get_session
-
-        # 从 ForgeSession 加载当前草稿内容
-        db = next(get_session())
-        try:
+        # 单次数据库会话：加载、验证所有权、LLM 调用、写回
+        with Session(engine) as db:
             forge_session = db.query(ForgeSession).filter(ForgeSession.id == request.session_id).first()
-            if not forge_session:
-                yield await _sse_error(f"Session not found: {request.session_id}")
+            if not forge_session or (forge_session.user_id is not None and forge_session.user_id != current_user.id):
+                yield await _sse_error("Session not found or access denied")
                 return
             draft = forge_session.skill_draft or {}
             existing_code = draft.get("script_code", "")
             existing_params = draft.get("parameters_schema", {})
             existing_name = draft.get("name", "")
             existing_desc = draft.get("description", "")
-        finally:
-            db.close()
 
-        from app.utils.llm_config import get_thinking_llm_config_standalone
-        from langchain_openai import ChatOpenAI
+            llm_config = get_thinking_llm_config_standalone()
+            llm = ChatOpenAI(
+                model=llm_config.model_name,
+                temperature=0.3,
+                api_key=llm_config.api_key,
+                base_url=llm_config.base_url,
+            )
 
-        llm_config = get_thinking_llm_config_standalone()
-        llm = ChatOpenAI(
-            model=llm_config.model_name,
-            temperature=0.3,
-            api_key=llm_config.api_key,
-            base_url=llm_config.base_url,
-        )
+            # 根据 scope 生成对应的修改范围描述
+            scope_map = {
+                "code": "只修改脚本代码",
+                "params": "只修改参数 schema",
+                "docs": "只修改文档/专家知识",
+                "all": "可以修改所有内容",
+            }
+            scope_desc = scope_map.get(request.scope, "修改代码和参数")
 
-        # 根据 scope 生成对应的修改提示词
-        scope_map = {
-            "code": "只修改脚本代码",
-            "params": "只修改参数 schema",
-            "docs": "只修改文档/专家知识",
-            "all": "可以修改所有内容",
-        }
-        scope_desc = scope_map.get(request.scope, "修改代码和参数")
+            # 使用 SystemMessage + HumanMessage 模式（与 skill_creator.py 保持一致）
+            system_message = SystemMessage(content="""你是一个技能修改专家。根据用户指令修改技能内容，只返回被修改的字段。
 
-        iterate_prompt = f"""根据用户指令修改技能内容。
+请返回严格 JSON 格式（不要包含 markdown 代码块标记）:
+{"script_code": "修改后的完整代码（如未修改则省略此字段）", "parameters_schema": {修改后的参数（如未修改则省略此字段）}}""")
+
+            human_message = HumanMessage(content=f"""根据用户指令修改技能内容。
 
 当前技能:
 - 名称: {existing_name}
@@ -232,29 +235,28 @@ async def iterate_skill(request: IterateRequest):
 - 参数: {json.dumps(existing_params, ensure_ascii=False, indent=2)}
 
 用户指令: {request.instruction}
-修改范围: {scope_desc}
+修改范围: {scope_desc}""")
 
-请返回 JSON 格式的修改后内容，只包含被修改的字段:
-{{"script_code": "修改后的完整代码（如未修改则省略此字段）", "parameters_schema": {{修改后的参数（如未修改则省略此字段）}}}}"""
-
-        try:
-            yield await _sse_event("phase", {"phase": "iterate", "status": "running"})
-            response = await llm.ainvoke(iterate_prompt)
-
-            # 解析 LLM 返回的 JSON
-            content = response.content
-            if "```json" in content:
-                json_str = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                json_str = content.split("```")[1].split("```")[0].strip()
-            else:
-                json_str = content.strip()
-            result = json.loads(json_str)
-
-            # 更新 ForgeSession 草稿
-            db = next(get_session())
             try:
-                forge_session = db.query(ForgeSession).filter(ForgeSession.id == request.session_id).first()
+                yield await _sse_event("phase", {"phase": "iterate", "status": "running"})
+                response = await llm.ainvoke([system_message, human_message])
+
+                # 解析 LLM 返回的 JSON（带容错处理）
+                content = response.content
+                if "```json" in content:
+                    json_str = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    json_str = content.split("```")[1].split("```")[0].strip()
+                else:
+                    json_str = content.strip()
+
+                try:
+                    result = json.loads(json_str)
+                except json.JSONDecodeError as json_err:
+                    log.error(f"[ForgeAgent] iterate JSON 解析失败: {json_err}, content={content[:500]}")
+                    yield await _sse_error(f"LLM 返回格式异常，无法解析为 JSON: {str(json_err)}")
+                    return
+
                 # 创建新的字典对象以确保 SQLAlchemy 检测到变更（不可变模式）
                 draft = dict(forge_session.skill_draft or {})
                 if result.get("script_code"):
@@ -268,14 +270,12 @@ async def iterate_skill(request: IterateRequest):
                 forge_session.skill_draft = draft
                 db.commit()
                 log.info(f"[ForgeAgent] iterate 完成: session={request.session_id}, scope={request.scope}")
-            finally:
-                db.close()
 
-            yield await _sse_event("phase", {"phase": "iterate", "status": "done", "result": result})
-            yield await _sse_event("done", {"session_id": request.session_id})
-        except Exception as e:
-            log.error(f"[ForgeAgent] iterate 失败: {e}")
-            yield await _sse_event("error", {"error": str(e)})
+                yield await _sse_event("phase", {"phase": "iterate", "status": "done", "result": result})
+                yield await _sse_event("done", {"session_id": request.session_id})
+            except Exception as e:
+                log.error(f"[ForgeAgent] iterate 失败: {e}")
+                yield await _sse_event("error", {"error": str(e)})
 
     return StreamingResponse(
         event_generator(),
@@ -289,7 +289,7 @@ async def iterate_skill(request: IterateRequest):
 # ==========================================
 
 @router.post("/supplement")
-async def supplement_skill(request: SupplementRequest):
+async def supplement_skill(request: SupplementRequest, current_user: User = Depends(get_current_user)):
     """按需补全技能 — 生成文档、标签、元数据或依赖。
 
     支持四种补全类型，每种使用不同的提示词模板，
@@ -304,15 +304,11 @@ async def supplement_skill(request: SupplementRequest):
     }
 
     async def event_generator():
-        from app.models.forge_session import ForgeSession
-        from app.core.database import get_session
-
-        # 从 ForgeSession 加载当前技能上下文
-        db = next(get_session())
-        try:
+        # 单次数据库会话：加载、验证所有权、LLM 调用、写回
+        with Session(engine) as db:
             forge_session = db.query(ForgeSession).filter(ForgeSession.id == request.session_id).first()
-            if not forge_session:
-                yield await _sse_error(f"Session not found: {request.session_id}")
+            if not forge_session or (forge_session.user_id is not None and forge_session.user_id != current_user.id):
+                yield await _sse_error("Session not found or access denied")
                 return
             draft = forge_session.skill_draft or {}
             skill_context = f"""
@@ -322,34 +318,26 @@ async def supplement_skill(request: SupplementRequest):
 参数: {json.dumps(draft.get('parameters_schema', {}), ensure_ascii=False)}
 代码摘要: {draft.get('script_code', '')[:1000]}
 """
-        finally:
-            db.close()
 
-        prompt = supplement_prompts.get(request.supplement_type)
-        if not prompt:
-            yield await _sse_error(f"Unknown supplement_type: {request.supplement_type}")
-            return
+            prompt = supplement_prompts.get(request.supplement_type)
+            if not prompt:
+                yield await _sse_error(f"Unknown supplement_type: {request.supplement_type}")
+                return
 
-        from app.utils.llm_config import get_thinking_llm_config_standalone
-        from langchain_openai import ChatOpenAI
+            llm_config = get_thinking_llm_config_standalone()
+            llm = ChatOpenAI(
+                model=llm_config.model_name,
+                temperature=0.5,
+                api_key=llm_config.api_key,
+                base_url=llm_config.base_url,
+            )
 
-        llm_config = get_thinking_llm_config_standalone()
-        llm = ChatOpenAI(
-            model=llm_config.model_name,
-            temperature=0.5,
-            api_key=llm_config.api_key,
-            base_url=llm_config.base_url,
-        )
-
-        try:
-            yield await _sse_event("phase", {"phase": "supplement", "status": "running"})
-            response = await llm.ainvoke(prompt + "\n\n" + skill_context)
-            content = response.content.strip()
-
-            # 根据补全类型写入 ForgeSession 草稿的不同字段
-            db = next(get_session())
             try:
-                forge_session = db.query(ForgeSession).filter(ForgeSession.id == request.session_id).first()
+                yield await _sse_event("phase", {"phase": "supplement", "status": "running"})
+                response = await llm.ainvoke(prompt + "\n\n" + skill_context)
+                content = response.content.strip()
+
+                # 根据补全类型写入 ForgeSession 草稿的不同字段
                 # 创建新的字典对象以确保 SQLAlchemy 检测到变更（不可变模式）
                 draft = dict(forge_session.skill_draft or {})
                 if request.supplement_type == "docs":
@@ -374,18 +362,16 @@ async def supplement_skill(request: SupplementRequest):
                 forge_session.skill_draft = draft
                 db.commit()
                 log.info(f"[ForgeAgent] supplement 完成: session={request.session_id}, type={request.supplement_type}")
-            finally:
-                db.close()
 
-            yield await _sse_event("phase", {
-                "phase": "supplement",
-                "status": "done",
-                "result": {"type": request.supplement_type, "content": content}
-            })
-            yield await _sse_event("done", {"session_id": request.session_id})
-        except Exception as e:
-            log.error(f"[ForgeAgent] supplement 失败: {e}")
-            yield await _sse_event("error", {"error": str(e)})
+                yield await _sse_event("phase", {
+                    "phase": "supplement",
+                    "status": "done",
+                    "result": {"type": request.supplement_type, "content": content}
+                })
+                yield await _sse_event("done", {"session_id": request.session_id})
+            except Exception as e:
+                log.error(f"[ForgeAgent] supplement 失败: {e}")
+                yield await _sse_event("error", {"error": str(e)})
 
     return StreamingResponse(
         event_generator(),
@@ -399,20 +385,16 @@ async def supplement_skill(request: SupplementRequest):
 # ==========================================
 
 @router.get("/session/{session_id}/state")
-async def get_agent_state(session_id: str):
+async def get_agent_state(session_id: str, current_user: User = Depends(get_current_user)):
     """获取 Agent 当前状态（用于 SSE 断连后恢复）。
 
     返回 ForgeSession 中记录的 Agent 阶段、历史、检查结果等信息，
     前端可根据状态决定是否重新连接 SSE 或展示已有结果。
     """
-    from app.models.forge_session import ForgeSession
-    from app.core.database import get_session
-
-    db = next(get_session())
-    try:
+    with Session(engine) as db:
         forge_session = db.query(ForgeSession).filter(ForgeSession.id == session_id).first()
-        if not forge_session:
-            raise HTTPException(status_code=404, detail="Session not found")
+        if not forge_session or (forge_session.user_id is not None and forge_session.user_id != current_user.id):
+            raise HTTPException(status_code=404, detail="Session not found or access denied")
         draft = forge_session.skill_draft or {}
         return {
             "session_id": session_id,
@@ -423,8 +405,6 @@ async def get_agent_state(session_id: str):
             "has_code": bool(draft.get("script_code")),
             "has_params": bool(draft.get("parameters_schema")),
         }
-    finally:
-        db.close()
 
 
 log.info("✅ 技能创建 Agent API 已加载")
