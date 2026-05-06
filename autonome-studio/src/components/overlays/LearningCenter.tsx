@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useUIStore } from "@/store/useUIStore";
 import { useLearningStore } from "@/store/useLearningStore";
+import { Button } from "@/components/ui/Button";
 
 // ==========================================
 // Tab 配置（与 SkillCenter 风格一致）
@@ -39,9 +40,9 @@ const TABS: { id: TabType; label: string; icon: React.ReactNode; color: string }
 
 /** Tab 激活态颜色映射 */
 const COLOR_CLASSES: Record<string, string> = {
-  emerald: "bg-emerald-600 text-white",
-  blue: "bg-blue-600 text-white",
-  purple: "bg-purple-600 text-white",
+  emerald: "bg-learning text-learning-foreground",
+  blue: "bg-action text-action-foreground",
+  purple: "bg-data text-data-foreground",
   gray: "bg-neutral-600 text-white",
 };
 
@@ -69,7 +70,7 @@ export function LearningCenter() {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
 
       {/* 主面板 - 与 SkillCenter 一致的深色风格 */}
-      <div className="relative w-full h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-full md:w-panel-xl md:max-w-panel h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* Header with Tabs - 与 SkillCenter 一致 */}
         <div className="h-16 shrink-0 border-b border-neutral-800 px-3 md:px-6 flex items-center justify-between bg-neutral-900/40">
@@ -108,9 +109,9 @@ export function LearningCenter() {
           </div>
 
           {/* 关闭按钮 */}
-          <button onClick={closeAllOverlays} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors shrink-0 ml-2">
+          <Button variant="icon" onClick={closeAllOverlays} aria-label="关闭" className="shrink-0 ml-2">
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* 内容区 */}

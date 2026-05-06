@@ -4,6 +4,7 @@ import { useState, ReactNode } from 'react';
 import { useUIStore } from "@/store/useUIStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { X, User, Shield, Keyboard, Wallet, Bot, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { ProfilePanel } from './ProfilePanel';
 import { SecurityPanel } from './SecurityPanel';
 import { ShortcutsPanel } from './ShortcutsPanel';
@@ -41,12 +42,12 @@ export function UserCenter() {
     if (!isActive) return 'text-neutral-400 hover:text-white hover:bg-neutral-800';
 
     const colorMap: Record<string, string> = {
-      blue: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
-      red: 'bg-red-500/20 text-red-400 border border-red-500/30',
-      purple: 'bg-purple-500/20 text-purple-400 border border-purple-500/30',
-      amber: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
-      green: 'bg-green-500/20 text-green-400 border border-green-500/30',
-      orange: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
+      blue: 'bg-action/20 text-action border border-action/30',
+      red: 'bg-danger/20 text-danger border border-danger/30',
+      purple: 'bg-data/20 text-data border border-data/30',
+      amber: 'bg-warning/20 text-warning border border-warning/30',
+      green: 'bg-success/20 text-success border border-success/30',
+      orange: 'bg-warning/20 text-warning border border-warning/30',
     };
     return colorMap[tab.color] || colorMap.blue;
   };
@@ -60,7 +61,7 @@ export function UserCenter() {
       />
 
       {/* 主面板 */}
-      <div className="relative w-full h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-full md:w-panel-xl md:max-w-panel h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* Header with Tabs */}
         <div className="h-14 shrink-0 border-b border-neutral-800 px-3 md:px-6 flex items-center justify-between bg-neutral-900/40">
@@ -79,12 +80,9 @@ export function UserCenter() {
           </div>
 
           {/* 关闭按钮 */}
-          <button
-            onClick={closeAllOverlays}
-            className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
-          >
+          <Button variant="icon" onClick={closeAllOverlays} aria-label="关闭">
             <X size={20} />
-          </button>
+          </Button>
         </div>
 
         {/* Main Content */}

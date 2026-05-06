@@ -13,6 +13,7 @@ import { useUIStore } from "@/store/useUIStore";
 import { X, Box, Play, Store, User, Hammer, Settings } from "lucide-react";
 import { SkillExecutePanel } from './SkillCenter/SkillExecutePanel';
 import { SkillMarketPanel } from './SkillCenter/SkillMarketPanel';
+import { Button } from '@/components/ui/Button';
 import { MySkillsPanel } from './SkillCenter/MySkillsPanel';
 import { ForgePanel } from './SkillCenter/ForgePanel';
 import { SettingsPanel } from './SkillCenter/SettingsPanel';
@@ -64,10 +65,10 @@ const TABS: { id: TabType; label: string; icon: ReactNode; color: string }[] = [
 ];
 
 const COLOR_CLASSES: Record<string, string> = {
-  blue: 'bg-blue-600 text-white',
-  green: 'bg-green-600 text-white',
-  purple: 'bg-purple-600 text-white',
-  orange: 'bg-orange-600 text-white',
+  blue: 'bg-action text-action-foreground',
+  green: 'bg-success text-success-foreground',
+  purple: 'bg-data text-data-foreground',
+  orange: 'bg-warning text-warning-foreground',
   gray: 'bg-neutral-600 text-white',
 };
 
@@ -215,7 +216,7 @@ export function SkillCenter() {
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
 
-      <div className="relative w-full h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-full md:w-panel-xl md:max-w-panel h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* Header with Tabs */}
         <div className="h-16 shrink-0 border-b border-neutral-800 px-3 md:px-6 flex items-center justify-between bg-neutral-900/40">
@@ -252,9 +253,9 @@ export function SkillCenter() {
             </div>
           </div>
 
-          <button onClick={closeAllOverlays} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors shrink-0 ml-2">
+          <Button variant="icon" onClick={closeAllOverlays} aria-label="关闭" className="shrink-0 ml-2">
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Main Content */}

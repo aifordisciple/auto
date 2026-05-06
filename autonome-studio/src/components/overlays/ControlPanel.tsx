@@ -97,7 +97,7 @@ export function ControlPanel() {
       />
 
       {/* 侧滑面板实体 - 更宽以容纳四宫格 */}
-      <div className="relative w-[95vw] md:w-[1200px] max-w-full h-full bg-[#0a0a0a] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-panel-xl md:max-w-panel max-w-full h-full bg-[#0a0a0a] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* Header 区域 */}
         <div className="h-16 shrink-0 border-b border-neutral-800 px-4 md:px-6 flex items-center justify-between bg-neutral-900/40">

@@ -8,6 +8,7 @@ import { useKeyboardShortcut } from "../hooks/useKeyboardShortcut";
 import { useEffect } from "react";
 
 import { ShortcutManager } from "./ShortcutManager";
+import { Button } from "./ui/Button";
 
 // ✨ 大型面板 - 带 loading fallback
 const DataCenter = dynamic(() => import("./overlays/DataCenter").then(m => m.DataCenter), {
@@ -116,12 +117,9 @@ export function GlobalOverlay() {
                 <h2 className="text-lg font-semibold text-white tracking-wide uppercase">
                   {getTitle()}
                 </h2>
-                <button
-                  onClick={closeAllOverlays}
-                  className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md transition-colors"
-                >
+                <Button variant="icon" onClick={closeAllOverlays} aria-label="关闭">
                   <X size={20} />
-                </button>
+                </Button>
               </div>
 
               <div className="flex-1 overflow-hidden">

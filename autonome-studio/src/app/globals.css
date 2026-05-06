@@ -13,6 +13,23 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* ✨ 语义化功能色 Token — 集中管理所有功能域颜色 */
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
+  --color-data: var(--data);
+  --color-data-foreground: var(--data-foreground);
+  --color-learning: var(--learning);
+  --color-learning-foreground: var(--learning-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-deep-think: var(--deep-think);
+  --color-deep-think-foreground: var(--deep-think-foreground);
+  --color-running: var(--running);
+  --color-running-foreground: var(--running-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,6 +66,12 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  /* 覆盖面板宽度 Token */
+  --width-panel-sm: var(--panel-sm);
+  --width-panel-md: var(--panel-md);
+  --width-panel-lg: var(--panel-lg);
+  --width-panel-xl: var(--panel-xl);
+  --max-width-panel: var(--panel-max);
 }
 
 :root {
@@ -84,6 +107,32 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+  /* ✨ 语义化功能色 — 亮色模式 */
+  --action: oklch(0.546 0.245 262.881);
+  --action-foreground: oklch(1 0 0);
+  --data: oklch(0.507 0.224 298.162);
+  --data-foreground: oklch(1 0 0);
+  --learning: oklch(0.596 0.145 163.225);
+  --learning-foreground: oklch(1 0 0);
+  --warning: oklch(0.705 0.213 47.604);
+  --warning-foreground: oklch(1 0 0);
+  --danger: oklch(0.586 0.253 17.585);
+  --danger-foreground: oklch(1 0 0);
+  --deep-think: oklch(0.541 0.281 293.009);
+  --deep-think-foreground: oklch(1 0 0);
+  --running: oklch(0.715 0.143 198.217);
+  --running-foreground: oklch(1 0 0);
+  --success: oklch(0.527 0.154 150.069);
+  --success-foreground: oklch(1 0 0);
+  /* 滚动条颜色 — 亮色模式 */
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  /* 覆盖面板宽度层级 */
+  --panel-sm: 500px;
+  --panel-md: 600px;
+  --panel-lg: 900px;
+  --panel-xl: 85vw;
+  --panel-max: 72rem;
 }
 
 .dark {
@@ -118,6 +167,26 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
+  /* ✨ 语义化功能色 — 暗色模式（默认） */
+  --action: oklch(0.623 0.214 259.815);
+  --action-foreground: oklch(1 0 0);
+  --data: oklch(0.579 0.199 297.339);
+  --data-foreground: oklch(1 0 0);
+  --learning: oklch(0.671 0.124 162.547);
+  --learning-foreground: oklch(1 0 0);
+  --warning: oklch(0.769 0.188 70.08);
+  --warning-foreground: oklch(0 0 0);
+  --danger: oklch(0.645 0.246 16.439);
+  --danger-foreground: oklch(1 0 0);
+  --deep-think: oklch(0.606 0.252 292.717);
+  --deep-think-foreground: oklch(1 0 0);
+  --running: oklch(0.789 0.154 194.768);
+  --running-foreground: oklch(0 0 0);
+  --success: oklch(0.608 0.137 152.427);
+  --success-foreground: oklch(1 0 0);
+  /* 滚动条颜色 — 暗色模式（默认） */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
 }
 
 @layer base {
@@ -131,7 +200,7 @@
 /* ✨ 极客网格背景 */
 .bg-grid-pattern {
   background-size: 40px 40px;
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   mask-image: linear-gradient(to bottom, transparent, black, transparent);
@@ -156,17 +225,8 @@
 .animate-shimmer {
   animation: shimmer 1.5s infinite;
 }
-/* ✨ 扫光动画 */
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
 
-.animate-shimmer {
-  animation: shimmer 1.5s infinite;
-}
-
-/* ✨ 自定义极简滚动条 */
+/* ✨ 自定义极简滚动条 — 支持亮色/暗色模式自适应 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -177,17 +237,41 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--scrollbar-thumb);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* 自定义滚动条工具类 — 组件级滚动条样式 */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* ✨ 专业聊天消息样式 - 对齐 Gemini/ChatGPT 风格 */

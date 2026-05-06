@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useUIStore } from "@/store/useUIStore";
 import { useChatStore } from "@/store/useChatStore";
+import { Button } from "@/components/ui/Button";
 
 // ==========================================
 // ✨ ChatInputBox - 独立的输入组件（memo）
@@ -388,13 +389,15 @@ const ChatInputBox = memo(function ChatInputBox({
         <div className="flex items-center gap-1">
           {/* ✨ AI 回复中：只显示停止按钮，隐藏发送按钮 */}
           {isTyping ? (
-            <button
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={onStop}
-              className="p-2 md:p-2 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
+              className="rounded-full p-2"
               title="停止生成"
             >
               <Square size={18} fill="currentColor" />
-            </button>
+            </Button>
           ) : (
             /* 发送按钮 - AI 回复完成后显示 */
             <button

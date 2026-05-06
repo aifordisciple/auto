@@ -8,6 +8,7 @@ import { X, HardDrive, FolderOpen, Folder, FileText, Search, ChevronRight, Chevr
 import { fetchAPI, BASE_URL, getToken } from "@/lib/api";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { MoveFileModal } from "./MoveFileModal";
+import { Button } from "@/components/ui/Button";
 import { UploadManager } from "./UploadManager";
 import { RenameModal } from "./RenameModal";
 import { GenomePanel, DatabasePanel, GenomeFormModal, DatabaseFormModal, GenomeDetailDrawer, DatabaseDetailDrawer, ImportGenomeModal, TABS, TreeNode, AdhocHistory, formatBytes, formatDateTime } from "./DataCenter/index";
@@ -673,7 +674,7 @@ export function DataCenter() {
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={closeAllOverlays} />
 
-      <div className="relative w-[900px] max-md:w-full max-md:fixed max-md:inset-0 h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="relative w-panel-lg max-md:w-full max-md:fixed max-md:inset-0 h-full bg-[#121212] border-l border-neutral-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* ✨ 头部高度响应式 - 移动端紧凑 */}
         <div className="h-14 md:h-16 shrink-0 border-b border-neutral-800 px-3 md:px-6 flex items-center justify-between bg-neutral-900/40">
@@ -710,9 +711,9 @@ export function DataCenter() {
             </div>
           </div>
 
-          <button onClick={closeAllOverlays} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors shrink-0 ml-2">
+          <Button variant="icon" onClick={closeAllOverlays} aria-label="关闭" className="shrink-0 ml-2">
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Main Content */}

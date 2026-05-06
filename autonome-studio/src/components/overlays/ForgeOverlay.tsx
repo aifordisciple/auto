@@ -50,7 +50,7 @@ export function ForgeOverlay() {
             {/* 顶部标题栏 */}
             <div className="h-14 border-b border-gray-200 dark:border-neutral-800 flex items-center justify-between px-6 shrink-0 bg-gray-50 dark:bg-[#1e1e1f]">
               <div className="flex items-center gap-3">
-                <Hammer className="text-blue-500" size={20} />
+                <Hammer className="text-action" size={20} />
                 <h2 className="font-semibold text-gray-900 dark:text-white">技能锻造工厂</h2>
               </div>
               <button
